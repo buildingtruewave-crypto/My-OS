@@ -1,10 +1,12 @@
-"""Derived stats for the life OS - all computed from hand-entered data."""
+"""Derived stats for the life OS + the TrueWave pipeline."""
 from __future__ import annotations
 
 import calendar as _cal
 import datetime as dt
 
 from .data import START_DATE, TAG_COLORS
+
+TERMINAL = ("paid", "returned", "lost")
 
 
 def _mins(t):
@@ -13,8 +15,8 @@ def _mins(t):
 
 
 def today_blocks(routine, weekday):
-    b = [dict(x) for x in routine if weekday in x.get("days",
-                                                      list(range(7)))]
+    b = [dict(x) for x in routine
+         if weekday in x.get("days", list(range(7)))]
     for x in b:
         x["min"] = _mins(x["time"])
     b.sort(key=lambda x: x["min"])
@@ -168,14 +170,14 @@ def journal_streak(journal):
 def journal_completion(journal, n=30):
     today = dt.date.today()
     hit = sum(1 for o in range(n)
-              if (today - dt.timedelta(days=o)).isoformat() in journal)
+              if (today - dt.timedelta(days=o)).isoformat()
+              in journal)
     return hit / n * 100
 
 
-# ---------- sales / clients ----------
+# ---------- sales ----------
 
 def sales_rate(daily, today, n=30):
-    """% of recording days (since Aug 1) with a daily sales log."""
     start = max(START_DATE, today - dt.timedelta(days=n - 1))
     days = (today - start).days + 1
     if days <= 0:
@@ -216,22 +218,72 @@ def rejects_30d(daily, today):
     return sys_n, cash_n
 
 
+# ---------- TrueWave pipeline ----------
+
 def client_counts(clients, today):
-    t_iso = today.isoformat()
+    t = today.isoformat()
     wk = (today + dt.timedelta(days=7)).isoformat()
-    open_c = [c for c in clients if c.get("status") == "open"]
+    act = [c for c in clients if c.get("stage") not in TERMINAL]
     return dict(
-        open=len(open_c),
-        due=[c for c in open_c if c.get("promised") == t_iso],
-        over=[c for c in open_c
-              if c.get("promised") and c["promised"] < t_iso],
-        up=[c for c in open_c if c.get("promised")
-            and t_iso < c["promised"] <= wk],
-        sold=sum(1 for c in clients if c.get("status") == "sold"),
-        rej=sum(1 for c in clients if c.get("status")
-                in ("rejected_system", "rejected_cash")),
+        active=len(act),
+        due=[c for c in act if c.get("next_date") == t],
+        over=[c for c in act
+              if c.get("next_date") and c["next_date"] < t],
+        up=[c for c in act if c.get("next_date")
+            and t < c["next_date"] <= wk],
+        new7=sum(1 for c in clients if c.get("created", "") >=
+                 (today - dt.timedelta(days=6)).isoformat()),
+        sold=sum(1 for c in clients if c.get("stage") == "paid"),
+        cashq=sum(1 for c in clients
+                  if c.get("stage") == "cash_offer"),
+        returned=sum(1 for c in clients
+                     if c.get("stage") == "returned"),
+        lost=sum(1 for c in clients if c.get("stage") == "lost"),
     )
 
+
+def stage_counts(clients):
+    out = {}
+    for c in clients:
+        s = c.get("stage", "new")
+        out[s] = out.get(s, 0) + 1
+    return out
+
+
+def window_info(c, today):
+    dd = c.get("delivered_date")
+    if not dd:
+        return None
+    try:
+        d = dt.date.fromisoformat(dd)
+    except Exception:
+        return None
+    close = d + dt.timedelta(days=7)
+    left = (close - today).days
+    closed = left < 0 or bool(c.get("returned")) or bool(c.get("paid"))
+    return dict(close=close, left=max(left, 0), closed=closed)
+
+
+def clients_in_window(clients, today):
+    out = []
+    for c in clients:
+        w = window_info(c, today)
+        if w and not w["closed"]:
+            out.append(c)
+    return out
+
+
+def moves_on(clients, d_iso):
+    """Every touch / stage move recorded on a given date."""
+    out = []
+    for c in clients:
+        for h in c.get("history", []):
+            if str(h.get("ts", "")).startswith(d_iso):
+                out.append((c.get("name", "?"), h))
+    return out
+
+
+# ---------- commissions ----------
 
 def commission_stats(sales, today_iso):
     due_today, overdue = [], []
@@ -257,10 +309,48 @@ def commissions_window(sales, today, days=7):
     rows = []
     for s in sales:
         for i in s.get("inst", []):
-            if i.get("due") and lo <= i["due"] <= hi and not i.get("paid"):
+            if (i.get("due") and lo <= i["due"] <= hi
+                    and not i.get("paid")):
                 rows.append((s, i))
     rows.sort(key=lambda p: p[1]["due"])
     return rows
+
+
+def comm_editable(sale, inst, today):
+    """1st commission editable for 20 days, 2nd for 50 - then locked."""
+    anchor = sale.get("delivered_date") or sale.get("date") or ""
+    try:
+        a = dt.date.fromisoformat(anchor)
+    except Exception:
+        return True
+    return today <= a + dt.timedelta(days=int(inst.get("window", 20)))
+
+
+# ---------- income / flow ----------
+
+def income_total(income, lo="0000", hi="9999"):
+    return sum(float(x.get("amount", 0)) for x in income
+               if lo <= x.get("date", "") <= hi)
+
+
+def income_by_type(income):
+    d = {}
+    for x in income:
+        k = x.get("type", "Other")
+        d[k] = d.get(k, 0.0) + float(x.get("amount", 0))
+    return d
+
+
+def flow_balance(flow):
+    return sum(float(f["amount"]) if f["kind"] == "in"
+               else -float(f["amount"]) for f in flow)
+
+
+def flow_week_net(flow, today):
+    lo = (today - dt.timedelta(days=6)).isoformat()
+    return sum(float(f["amount"]) if f["kind"] == "in"
+               else -float(f["amount"])
+               for f in flow if f.get("date", "") >= lo)
 
 
 # ---------- vault ----------
@@ -324,7 +414,7 @@ def bot_week(logs, today, days=7):
     return out
 
 
-# ---------- body / issues / score ----------
+# ---------- body / issues / tasks / score ----------
 
 def weight_latest(weights):
     if not weights:
@@ -347,28 +437,54 @@ def issues_open(issues, today):
     return open_i, over
 
 
+def task_counts(tasks, today):
+    t = today.isoformat()
+    return dict(
+        open=sum(1 for x in tasks if not x.get("done")),
+        done_today=sum(1 for x in tasks
+                       if x.get("done_date") == t),
+        overdue=sum(1 for x in tasks if not x.get("done")
+                    and x.get("due") and x["due"] < t),
+        total=len(tasks),
+        done_all=sum(1 for x in tasks if x.get("done")),
+    )
+
+
 def life_score(cons, jcomp, srate, goal_avg):
     v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
     return int(max(0, min(100, round(v))))
 
 
-def day_pulse(d_iso, clients, sales, sales_daily, bots, weights):
-    """Everything logged for one date - the journal picks this up."""
+def day_pulse(d_iso, ctx):
+    """Everything the system recorded on one date - the journal's
+    memory is picked up automatically, nothing is re-typed."""
+    clients = ctx["clients"]
+    non_t = [c for c in clients if c.get("stage") not in TERMINAL]
+    outcomes = [c for c in clients
+                if c.get("paid_date") == d_iso
+                or c.get("returned_date") == d_iso]
+    flow = [f for f in ctx["vault"].get("flow", [])
+            if f.get("date") == d_iso]
     return {
         "new_clients": [c for c in clients
                         if c.get("created") == d_iso],
-        "followups": [c for c in clients
-                      if c.get("promised") == d_iso
-                      and c.get("status") == "open"],
-        "outcomes": [c for c in clients
-                     if c.get("outcome_date") == d_iso],
-        "daily": sales_daily.get(d_iso),
-        "sales": [s for s in sales if s.get("date") == d_iso],
-        "inst_due": [(s, i) for s in sales
+        "followups": [c for c in non_t
+                      if c.get("next_date") == d_iso],
+        "moves": moves_on(clients, d_iso),
+        "outcomes": outcomes,
+        "daily": ctx["sales_daily"].get(d_iso),
+        "sales": [s for s in ctx["sales"]
+                  if s.get("date") == d_iso],
+        "inst_due": [(s, i) for s in ctx["sales"]
                      for i in s.get("inst", [])
                      if i.get("due") == d_iso],
-        "bot_logs": [l for l in bots.get("logs", [])
+        "income": [x for x in ctx["income"]
+                   if x.get("date") == d_iso],
+        "flow": flow,
+        "bot_logs": [l for l in ctx["bots"].get("logs", [])
                      if l.get("date") == d_iso],
-        "weight": next((w for w in weights
+        "weight": next((w for w in ctx["weights"]
                         if w.get("date") == d_iso), None),
+        "tasks_done": [t for t in ctx["tasks"]
+                       if t.get("done_date") == d_iso],
     }
