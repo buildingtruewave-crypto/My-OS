@@ -1,9 +1,5 @@
-"""HTML / SVG components.
-
-Real monochrome line-icons (stroke = currentColor) live in ICONS and inherit
-the chip colour.  Every physical line is short; long markup is built with
-parenthesised concatenation or explicit loops, so a wrapping copy tool can
-never cut a bracket off a statement.  No f-strings are used.
+"""HTML / SVG components. Line-icons stroke with currentColor so chips
+tint them. All markup is built with short concatenated strings.
 """
 from __future__ import annotations
 
@@ -27,29 +23,18 @@ def _svg(inner):
 
 
 ICONS = {
-    "star": _svg(
-        '<polygon points="'
-        'M12 3 14.6 8.6 21 9.3 16.2 13.6 17.6 20 '
-        '12 16.7 6.4 20 7.8 13.6 3 9.3 9.4 8.6z"/>'
-    ),
-    "pulse": _svg(
-        '<polyline points="M3 12h3l2 6 4-13 2 7h4"/>'
-    ),
+    "star": _svg('<polygon points="M12 3 14.6 8.6 21 9.3 16.2 13.6 '
+                 '17.6 20 12 16.7 6.4 20 7.8 13.6 3 9.3 9.4 8.6z"/>'),
+    "pulse": _svg('<polyline points="M3 12h3l2 6 4-13 2 7h4"/>'),
     "check": _svg('<polyline points="M20 6 9 17l-5-5"/>'),
-    "trend": _svg(
-        '<polyline points="M3 17l5-5 4 4 8-9"/>'
-        '<polyline points="M16 7h5v5"/>'
-    ),
-    "flame": _svg(
-        '<path d="M12 2c2 4 6 6 6 10a6 6 0 1 1-12 0'
-        'c0-2 1-3 2-4 1 2 2 2 2 2 0-3-1-5 2-8z"/>'
-    ),
-    "grid": _svg(
-        '<rect x="3" y="3" width="7" height="7" rx="1"/>'
-        '<rect x="14" y="3" width="7" height="7" rx="1"/>'
-        '<rect x="3" y="14" width="7" height="7" rx="1"/>'
-        '<rect x="14" y="14" width="7" height="7" rx="1"/>'
-    ),
+    "trend": _svg('<polyline points="M3 17l5-5 4 4 8-9"/>'
+                  '<polyline points="M16 7h5v5"/>'),
+    "flame": _svg('<path d="M12 2c2 4 6 6 6 10a6 6 0 1 1-12 0'
+                  'c0-2 1-3 2-4 1 2 2 2 2 2 0-3-1-5 2-8z"/>'),
+    "grid": _svg('<rect x="3" y="3" width="7" height="7" rx="1"/>'
+                 '<rect x="14" y="3" width="7" height="7" rx="1"/>'
+                 '<rect x="3" y="14" width="7" height="7" rx="1"/>'
+                 '<rect x="14" y="14" width="7" height="7" rx="1"/>'),
     "x": _svg('<line x1="6" y1="6" x2="18" y2="18"/>'
               '<line x1="18" y1="6" x2="6" y2="18"/>'),
     "edit": _svg('<path d="M4 20h4l10-10-4-4L4 16z"/>'
@@ -58,16 +43,34 @@ ICONS = {
                    '<circle cx="12" cy="12" r="4"/>'
                    '<circle cx="12" cy="12" r="1"/>'),
     "flag": _svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'),
-    "list": _svg(
-        '<path d="M4 6h.01M4 12h.01M4 18h.01'
-        'M8 6h12M8 12h12M8 18h12"/>'
-    ),
-    "hash": _svg(
-        '<path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>'
-    ),
+    "list": _svg('<path d="M4 6h.01M4 12h.01M4 18h.01'
+                 'M8 6h12M8 12h12M8 18h12"/>'),
+    "hash": _svg('<path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>'),
     "bolt": _svg('<polygon points="M13 2 4 14h6l-1 8 9-12h-6z"/>'),
     "clock": _svg('<circle cx="12" cy="12" r="9"/>'
                   '<polyline points="M12 7v5l3 2"/>'),
+    "phone": _svg('<path d="M22 16.9v3a2 2 0 0 1-2.2 2'
+                  ' 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6'
+                  'A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3'
+                  'a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.9'
+                  'a2 2 0 0 1-.4 2.1L8.1 10a16 16 0 0 0 6 6'
+                  'l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.9.6 2.9.7'
+                  'a2 2 0 0 1 1.6 2z"/>'),
+    "cash": _svg('<rect x="2" y="6" width="20" height="12" rx="2"/>'
+                 '<circle cx="12" cy="12" r="3"/>'),
+    "lock": _svg('<rect x="4" y="11" width="16" height="10" rx="2"/>'
+                 '<path d="M8 11V7a4 4 0 0 1 8 0v4"/>'),
+    "bot": _svg('<rect x="4" y="9" width="16" height="11" rx="2"/>'
+                '<path d="M12 9V5"/><circle cx="12" cy="4" r="1"/>'
+                '<path d="M9 14h.01M15 14h.01"/>'),
+    "scale": _svg('<circle cx="12" cy="13" r="8"/>'
+                  '<path d="M12 13l3.5-3.5"/>'),
+    "users": _svg('<circle cx="9" cy="8" r="3"/>'
+                  '<path d="M3 20c0-3 3-5 6-5s6 2 6 5"/>'
+                  '<circle cx="17" cy="9" r="2.5"/>'
+                  '<path d="M16 15.3c2.6.4 5 2 5 4.7"/>'),
+    "cal": _svg('<rect x="3" y="5" width="18" height="16" rx="2"/>'
+                '<path d="M8 3v4M16 3v4M3 10h18"/>'),
 }
 
 WAVE = (
@@ -75,16 +78,15 @@ WAVE = (
     '<rect width="32" height="32" rx="9" '
     'fill="#0E1422" stroke="#1C2740"/>'
     '<path d="M5 19c3 0 3-4 6-4s3 4 6 4 3-4 6-4" '
-    'stroke="#4C8DFF" stroke-width="2.2" '
-    'stroke-linecap="round"/>'
+    'stroke="#4C8DFF" stroke-width="2.2" stroke-linecap="round"/>'
     '<path d="M5 13c3 0 3-3 6-3s3 3 6 3 3-3 6-3" '
     'stroke="#34D399" stroke-width="1.6" '
     'stroke-linecap="round" opacity=".7"/></svg>'
 )
 
-WEEKDAYS = (
-    "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
-)
+WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+
+_HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
 
 
 def _icon(name):
@@ -98,47 +100,41 @@ def _tag_color(tag):
 def brand_html():
     return (
         '<div class="tw-brand">' + WAVE + '<div>'
-        + '<div class="tw-brand-n">PULSE</div>'
-        + '<div class="tw-brand-s">LIFE COMMAND CENTER</div>'
-        + '</div></div>'
+        '<div class="tw-brand-n">PULSE</div>'
+        '<div class="tw-brand-s">LIFE COMMAND CENTER &middot; NBO</div>'
+        '</div></div>'
     )
 
 
 def user_html(name, role="Operator"):
-    av = html.escape(U.initials(name))
-    nm = html.escape(name)
-    ro = html.escape(role)
     return (
         '<div class="tw-user">'
-        + '<div class="tw-avatar">' + av + '</div><div>'
-        + '<div class="tw-user-n">' + nm + '</div>'
-        + '<div class="tw-user-r">' + ro + '</div>'
-        + '</div></div>'
+        '<div class="tw-avatar">' + html.escape(U.initials(name))
+        + '</div><div>'
+        '<div class="tw-user-n">' + html.escape(name) + '</div>'
+        '<div class="tw-user-r">' + html.escape(role) + '</div>'
+        '</div></div>'
     )
 
 
 def greeting_html(name):
-    nm = html.escape(name)
     return (
         '<div class="tw-greet">'
-        + '<span class="tw-greet-hi">Good to see you,</span>'
-        + '<span class="tw-greet-name">' + nm + '</span>'
-        + '<span class="tw-live" title="live"></span></div>'
+        '<span class="tw-greet-hi">Good to see you,</span>'
+        '<span class="tw-greet-name">' + html.escape(name) + '</span>'
+        '<span class="tw-live" title="live"></span></div>'
     )
 
 
 def panel(title, body, right="", delay=0):
-    t = html.escape(title)
     r = ""
     if right:
-        r = ('<span class="tw-pill">'
-             + html.escape(right) + '</span>')
-    d = str(delay)
+        r = ('<span class="tw-pill">' + html.escape(right) + '</span>')
     return (
-        '<div class="tw-panel" style="animation-delay:' + d + 'ms">'
-        + '<div class="tw-panel-h">'
-        + '<span class="tw-panel-t">' + t + '</span>' + r + '</div>'
-        + '<div>' + body + '</div></div>'
+        '<div class="tw-panel" style="animation-delay:' + str(delay)
+        + 'ms"><div class="tw-panel-h">'
+        '<span class="tw-panel-t">' + html.escape(title) + '</span>'
+        + r + '</div><div>' + body + '</div></div>'
     )
 
 
@@ -146,71 +142,90 @@ def tile(label, value, delta_text="", delta_tone="mute",
          value_tone="ink", icon="", icon_tone="accent", delay=0):
     chip = ""
     if icon:
-        chip = ('<span class="tw-chip ' + U.tone_cls(icon_tone)
-                + '">' + _icon(icon) + '</span>')
+        chip = ('<span class="tw-chip ' + U.tone_cls(icon_tone) + '">'
+                + _icon(icon) + '</span>')
     delta = ""
     if delta_text:
-        delta = ('<div class="tw-sub ' + U.tone_cls(delta_tone)
-                 + '">' + html.escape(delta_text) + '</div>')
-    lab = html.escape(label)
-    val = html.escape(value)
-    d = str(delay)
+        delta = ('<div class="tw-sub ' + U.tone_cls(delta_tone) + '">'
+                 + html.escape(delta_text) + '</div>')
     return (
-        '<div class="tw-tile" style="animation-delay:' + d + 'ms">'
-        + '<div class="tw-tile-top">'
-        + '<span class="tw-lab">' + lab + '</span>' + chip + '</div>'
-        + '<div class="tw-val ' + U.tone_cls(value_tone) + '">'
-        + val + '</div>' + delta + '</div>'
+        '<div class="tw-tile" style="animation-delay:' + str(delay)
+        + 'ms"><div class="tw-tile-top">'
+        '<span class="tw-lab">' + html.escape(label) + '</span>'
+        + chip + '</div>'
+        '<div class="tw-val ' + U.tone_cls(value_tone) + '">'
+        + html.escape(str(value)) + '</div>' + delta + '</div>'
     )
 
 
 def tiles_grid(items, cols):
-    inner = "".join(items)
     style = "grid-template-columns:repeat(" + str(cols) + ",1fr)"
     return ('<div class="tw-tiles" style="' + style + '">'
-            + inner + '</div>')
+            + "".join(items) + '</div>')
 
 
 def empty_state(msg="Nothing here yet."):
-    body = '<div class="tw-empty">' + html.escape(msg) + '</div>'
-    return panel("Notice", body)
+    return ('<div class="tw-empty">' + html.escape(msg) + '</div>')
 
 
 def tag_chip(label, color):
-    bg = U.hexa(color, 0.16)
-    lab = html.escape(label)
-    return ('<span class="tw-tagc" style="background:' + bg
-            + ';color:' + color + '">' + lab + '</span>')
+    return ('<span class="tw-tagc" style="background:'
+            + U.hexa(color, 0.16) + ';color:' + color + '">'
+            + html.escape(label) + '</span>')
 
 
-def now_card(now_str, block, tag, tag_color, progress,
+def badge(text, color):
+    return ('<span class="tw-badge" style="background:'
+            + U.hexa(color, 0.13) + ';color:' + color
+            + ';border-color:' + U.hexa(color, 0.35) + '">'
+            + html.escape(str(text)) + '</span>')
+
+
+def progress(pct, color):
+    w = max(0.0, min(100.0, float(pct)))
+    return ('<div class="tw-prog"><div class="tw-prog-fill" '
+            'style="width:' + format(w, ".1f") + '%;background:'
+            + color + '"></div></div>')
+
+
+def kv(pairs):
+    """pairs = [(key, value_html), ...] - values may contain markup."""
+    out = []
+    for k, v in pairs:
+        out.append('<div class="tw-stat"><span class="k">'
+                   + html.escape(str(k)) + '</span><span class="v">'
+                   + str(v) + '</span></div>')
+    return "".join(out)
+
+
+def now_card(now_str, block, tag, tag_color, prog,
              next_time, next_label):
-    nt = html.escape(next_time)
-    nl = html.escape(next_label)
+    nt = html.escape(str(next_time))
+    nl = html.escape(str(next_label))
     if block:
-        lab = html.escape(block["label"])
-        chip = tag_chip(tag, tag_color)
-        pct = str(int(progress * 100))
+        pct = str(int(prog * 100))
         left = (
             '<div class="tw-now-lab">RIGHT NOW</div>'
-            + '<div class="tw-now-block">' + lab + '</div>'
-            + '<div class="tw-now-meta">' + chip + '</div>'
-            + '<div class="tw-now-bar"><div class="tw-now-fill" '
-            + 'style="width:' + pct + '%"></div></div>'
-            + '<div class="tw-now-next">next - ' + nt + ' '
+            '<div class="tw-now-block">'
+            + html.escape(block["label"]) + '</div>'
+            '<div class="tw-now-meta">' + tag_chip(tag, tag_color)
+            + '</div>'
+            '<div class="tw-now-bar"><div class="tw-now-fill" '
+            'style="width:' + pct + '%"></div></div>'
+            '<div class="tw-now-next">next &middot; ' + nt + ' '
             + nl + '</div>'
         )
     else:
         left = (
             '<div class="tw-now-lab">RIGHT NOW</div>'
-            + '<div class="tw-now-block">Between blocks</div>'
-            + '<div class="tw-now-next">up next - ' + nt + ' '
+            '<div class="tw-now-block">Between blocks</div>'
+            '<div class="tw-now-next">up next &middot; ' + nt + ' '
             + nl + '</div>'
         )
     right = (
         '<div style="text-align:right">'
-        + '<div class="tw-lab">local time</div>'
-        + '<div class="tw-now-time">' + html.escape(now_str)
+        '<div class="tw-lab">nairobi &middot; eat</div>'
+        '<div class="tw-now-time">' + html.escape(now_str)
         + '</div></div>'
     )
     return '<div class="tw-now">' + left + right + '</div>'
@@ -219,7 +234,7 @@ def now_card(now_str, block, tag, tag_color, progress,
 def timeline_html(blocks, active_idx):
     if not blocks:
         return ('<div class="tw-empty">'
-                + 'No blocks scheduled for today.</div>')
+                'No blocks scheduled for today.</div>')
     out = []
     for i, b in enumerate(blocks):
         if i == active_idx:
@@ -229,126 +244,134 @@ def timeline_html(blocks, active_idx):
         else:
             state = ""
         tg = b.get("tag", "Life")
-        meta = tag_chip(tg, _tag_color(tg))
-        t = html.escape(b["time"])
-        lab = html.escape(b["label"])
         out.append(
             '<div class="tw-tl-item ' + state + '">'
-            + '<div class="tw-tl-time">' + t + '</div>'
-            + '<div class="tw-tl-rail">'
-            + '<span class="tw-tl-dot"></span></div>'
-            + '<div><div class="tw-tl-label">' + lab + '</div>'
-            + '<div class="tw-tl-meta">' + meta + '</div>'
-            + '</div></div>'
+            '<div class="tw-tl-time">' + html.escape(b["time"])
+            + '</div>'
+            '<div class="tw-tl-rail"><span class="tw-tl-dot">'
+            + '</span></div>'
+            '<div><div class="tw-tl-label">'
+            + html.escape(b["label"]) + '</div>'
+            '<div class="tw-tl-meta">' + tag_chip(tg, _tag_color(tg))
+            + '</div></div></div>'
         )
     return '<div class="tw-tl">' + "".join(out) + '</div>'
 
 
 def habit_grid(habits, log, dates, today):
     if not habits:
-        return ('<div class="tw-empty">'
-                + 'No habits defined yet.</div>')
+        return ('<div class="tw-empty">No habits defined yet.</div>')
     n = len(dates)
     head_cells = []
     for i, d in enumerate(dates):
-        show = (i % 5 == 0) or (i == n - 1)
-        txt = str(d.day) if show else ""
+        txt = str(d.day) if (i % 5 == 0 or i == n - 1) else ""
         head_cells.append("<span>" + txt + "</span>")
     cols = "grid-template-columns:repeat(" + str(n) + ",1fr)"
     head = (
         '<div class="tw-hhead"><div></div>'
-        + '<div class="tw-hhead-days" style="' + cols + '">'
+        '<div class="tw-hhead-days" style="' + cols + '">'
         + "".join(head_cells) + '</div><div></div></div>'
     )
     rows = []
     for h in habits:
         s = log.get(h["id"], {})
         cells = []
+        done = total = 0
         for d in dates:
             ds = d.isoformat()
             if d > today:
                 cls = "tw-hcell future"
             elif s.get(ds):
                 cls = "tw-hcell done"
+                done += 1
+                total += 1
             elif ds in s:
                 cls = "tw-hcell miss"
+                total += 1
             else:
                 cls = "tw-hcell"
             if d == today:
-                cls = cls + " today"
-            tip = d.strftime("%b %d")
+                cls += " today"
             cells.append('<div class="' + cls + '" title="'
-                         + tip + '"></div>')
-        done = 0
-        total = 0
-        for d in dates:
-            if d <= today:
-                total += 1
-                if s.get(d.isoformat()):
-                    done += 1
-        pct = (done / total * 100) if total else 0
-        if pct >= 70:
-            pcls = "tw-win"
-        elif pct < 40:
-            pcls = "tw-loss"
-        else:
-            pcls = "tw-mute"
-        ico = html.escape(h["icon"])
-        nm = html.escape(h["name"])
+                         + d.strftime("%b %d") + '"></div>')
+        pct = (done / total * 100) if total else 0.0
+        pcls = ("tw-win" if pct >= 70 else
+                ("tw-loss" if pct < 40 and total else "tw-mute"))
         rows.append(
-            '<div class="tw-hrow-name">'
-            + '<span class="tw-hrow-ico">' + ico + '</span>'
-            + nm + '</div>'
-            + '<div class="tw-hcells" style="' + cols + '">'
+            '<div class="tw-hrow-name"><span class="tw-hrow-ico">'
+            + html.escape(h["icon"]) + '</span>'
+            + html.escape(h["name"]) + '</div>'
+            '<div class="tw-hcells" style="' + cols + '">'
             + "".join(cells) + '</div>'
-            + '<div class="tw-hpct ' + pcls + '">'
+            '<div class="tw-hpct ' + pcls + '">'
             + format(pct, ".0f") + '%</div>'
         )
     return head + '<div class="tw-hgrid">' + "".join(rows) + '</div>'
 
 
 def goal_html(g, pct, color):
-    t = html.escape(g["title"])
-    m = html.escape(g["metric"])
-    q = html.escape(str(g.get("quarter", "")))
-    cur = U.fmt_num(g["current"], 1)
-    tgt = U.fmt_num(g["target"], 1)
     pc = format(pct, ".0f")
     return (
         '<div class="tw-goal">'
-        + '<div class="tw-goal-t">' + t + '</div>'
-        + '<div class="tw-goal-m">' + m + ' - ' + q + '</div>'
-        + '<div class="tw-goal-bar"><div class="tw-goal-fill" '
-        + 'style="width:' + pc + '%;background:' + color
+        '<div class="tw-goal-t">' + html.escape(g["title"]) + '</div>'
+        '<div class="tw-goal-m">' + html.escape(g["metric"])
+        + ' &middot; ' + html.escape(str(g.get("quarter", "")))
+        + '</div>'
+        '<div class="tw-goal-bar"><div class="tw-goal-fill" '
+        'style="width:' + pc + '%;background:' + color
         + '"></div></div>'
-        + '<div class="tw-goal-foot"><span>' + cur + ' / ' + tgt
-        + '</span><span style="color:' + color + '">' + pc
-        + '%</span></div></div>'
+        '<div class="tw-goal-foot"><span>'
+        + U.fmt_num(g["current"], 1) + ' / '
+        + U.fmt_num(g["target"], 1) + '</span>'
+        '<span style="color:' + color + '">' + pc + '%</span>'
+        '</div></div>'
     )
 
 
-def _k(v):
-    a = abs(v)
-    if a >= 1000:
-        s = format(a / 1000, ".1f") + "k"
-    else:
-        s = format(a, ".0f")
-    sign = "-" if v < 0 else ""
-    return sign + "$" + s
+def client_card(c, today):
+    heat = c.get("heat", "Warm")
+    hcolor = _HEAT.get(heat, "#7C8AA5")
+    days = 0
+    try:
+        days = (today - _dt.date.fromisoformat(c["created"])).days
+    except Exception:
+        days = 0
+    rows = []
+    phone = str(c.get("phone", "") or "")
+    if phone:
+        p = html.escape(phone)
+        rows.append(("Phone", '<a href="tel:' + p
+                     + '" style="color:var(--accent);'
+                     + 'text-decoration:none">' + p + '</a>'))
+    if c.get("promised"):
+        rows.append(("Promised", html.escape(c["promised"])))
+    if c.get("remark"):
+        rows.append(("Remark", html.escape(c["remark"])))
+    if c.get("why_not"):
+        rows.append(("Why not today", html.escape(c["why_not"])))
+    rows.append(("Source", html.escape(str(c.get("source", "")))))
+    budget = str(c.get("budget", "") or "")
+    meta = html.escape(str(c.get("want", "") or ""))
+    if budget:
+        meta += " &middot; budget " + html.escape(budget)
+    meta += " &middot; " + str(max(days, 0)) + "d in pipeline"
+    return (
+        '<div class="tw-cc"><div class="tw-cc-top">'
+        '<span class="tw-cc-name">'
+        + html.escape(str(c.get("name", "?"))) + '</span>'
+        + badge(heat, hcolor) + '</div>'
+        '<div class="tw-cc-meta">' + meta + '</div>'
+        + kv(rows) + '</div>'
+    )
 
 
-def equity_svg(points, gid="eq", h=280, kind="money", xfmt=None):
+def equity_svg(points, gid="eq", h=260, kind="num", xfmt=None):
     W = 1000
-    pl = 46
-    pr = 14
-    pt = 18
-    pb = 26
+    pl, pr, pt, pb = 46, 14, 18, 26
     vals = [v for _, v in points] or [0.0]
-    vmin = min(vals)
-    vmax = max(vals)
+    vmin, vmax = min(vals), max(vals)
     if kind == "pct":
-        vmin = 0.0
-        vmax = 100.0
+        vmin, vmax = 0.0, 100.0
     if vmax - vmin < 1e-9:
         vmax = vmin + 1
     n = max(len(points), 1)
@@ -356,270 +379,208 @@ def equity_svg(points, gid="eq", h=280, kind="money", xfmt=None):
     span_y = h - pt - pb
 
     def X(i):
-        if n > 1:
-            return pl + (i / (n - 1)) * span_x
-        return W / 2
+        return pl + (i / (n - 1)) * span_x if n > 1 else W / 2
 
     def Y(v):
-        frac = (v - vmin) / (vmax - vmin)
-        return pt + (1 - frac) * span_y
+        return pt + (1 - (v - vmin) / (vmax - vmin)) * span_y
 
     def ylab(v):
-        if kind == "pct":
-            return str(int(round(v))) + "%"
-        return _k(v)
+        return str(int(round(v))) + "%" if kind == "pct" else U.fmt_k(v)
 
     def xlab(d):
-        if xfmt is not None:
-            return xfmt(d)
-        return d.strftime("%b %y")
+        return xfmt(d) if xfmt else d.strftime("%b %y")
 
-    grid = []
-    ytxt = []
-    steps = 4 if kind == "money" else 5
+    grid, ytxt = [], []
+    steps = 5 if kind == "pct" else 4
     for k in range(steps):
         v = vmin + (vmax - vmin) * k / (steps - 1)
-        y = Y(v)
-        ys = format(y, ".1f")
-        grid.append(
-            '<line class="tw-eq-grid" x1="' + str(pl) + '" y1="'
-            + ys + '" x2="' + str(W - pr) + '" y2="' + ys + '"/>'
-        )
+        y = format(Y(v), ".1f")
+        grid.append('<line class="tw-eq-grid" x1="' + str(pl)
+                    + '" y1="' + y + '" x2="' + str(W - pr)
+                    + '" y2="' + y + '"/>')
         ytxt.append('<text class="tw-eq-txt" x="6" y="'
-                    + format(y + 3, ".1f") + '">' + ylab(v) + '</text>')
-    coords = []
-    for i, pair in enumerate(points):
-        coords.append(format(X(i), ".1f") + "," + format(pair[1], ".1f"))
-    if coords:
-        line = " ".join(coords)
-    else:
-        line = str(pl) + "," + format(Y(vals[0]), ".1f")
-    x0 = format(pl, ".1f")
-    xr = format(W - pr, ".1f")
-    yb = str(h - pb)
+                    + format(Y(v) + 3, ".1f") + '">' + ylab(v)
+                    + '</text>')
+    coords = [format(X(i), ".1f") + "," + format(p[1], ".1f")
+              for i, p in enumerate(points)]
+    line = (" ".join(coords) if coords else
+            str(pl) + "," + format(Y(vals[0]), ".1f"))
+    x0, xr, yb = format(pl, ".1f"), format(W - pr, ".1f"), str(h - pb)
     area = x0 + "," + yb + " " + line + " " + xr + "," + yb
     xtxt = []
     if n > 1:
         step = max(1, n // 6)
         for i in range(0, n, step):
-            d = points[i][0]
-            xtxt.append(
-                '<text class="tw-eq-txt" x="' + format(X(i), ".1f")
-                + '" y="' + str(h - 8) + '" text-anchor="middle">'
-                + xlab(d) + '</text>'
-            )
+            xtxt.append('<text class="tw-eq-txt" x="'
+                        + format(X(i), ".1f") + '" y="' + str(h - 8)
+                        + '" text-anchor="middle">'
+                        + xlab(points[i][0]) + '</text>')
     if points:
-        lx = X(n - 1)
-        ly = Y(vals[-1])
+        lx, ly = X(n - 1), Y(vals[-1])
     else:
-        lx = W / 2
-        ly = h / 2
-    lxs = format(lx, ".1f")
-    lys = format(ly, ".1f")
+        lx, ly = W / 2, h / 2
     return (
         '<svg class="tw-eq" viewBox="0 0 ' + str(W) + ' ' + str(h)
         + '" preserveAspectRatio="xMidYMid meet">'
-        + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" '
-        + 'x2="0" y2="1">'
-        + '<stop offset="0" stop-color="#4C8DFF" stop-opacity=".34"/>'
-        + '<stop offset="1" stop-color="#4C8DFF" stop-opacity="0"/>'
-        + '</linearGradient></defs>'
+        '<defs><linearGradient id="' + gid + '" x1="0" y1="0" '
+        'x2="0" y2="1">'
+        '<stop offset="0" stop-color="#4C8DFF" stop-opacity=".34"/>'
+        '<stop offset="1" stop-color="#4C8DFF" stop-opacity="0"/>'
+        '</linearGradient></defs>'
         + "".join(grid) + "".join(ytxt)
         + '<polygon class="tw-eq-area" points="' + area
         + '" fill="url(#' + gid + ')"/>'
         + '<polyline class="tw-eq-line" points="' + line + '"/>'
-        + '<circle class="tw-eq-ring" cx="' + lxs + '" cy="' + lys
-        + '" r="6"/>'
-        + '<circle class="tw-eq-dot" cx="' + lxs + '" cy="' + lys
-        + '" r="3.4"/>' + "".join(xtxt) + '</svg>'
+        + '<circle class="tw-eq-ring" cx="' + format(lx, ".1f")
+        + '" cy="' + format(ly, ".1f") + '" r="6"/>'
+        + '<circle class="tw-eq-dot" cx="' + format(lx, ".1f")
+        + '" cy="' + format(ly, ".1f") + '" r="3.4"/>'
+        + "".join(xtxt) + '</svg>'
     )
 
 
-def monthly_bars(rows):
+def bars(rows):
+    """Signed vertical bars. rows = [(label, value), ...]"""
     if not rows:
         return '<div class="tw-empty">No data.</div>'
-    mx = 1
-    for _lab, v in rows:
-        if abs(v) > mx:
-            mx = abs(v)
+    mx = max([abs(v) for _l, v in rows] + [1])
     cells = []
-    for i, pair in enumerate(rows):
-        lab = pair[0]
-        v = pair[1]
+    for i, (lab, v) in enumerate(rows):
         pct = min(abs(v) / mx * 48, 48)
         cls = "tw-bar-up" if v >= 0 else "tw-bar-down"
-        short = html.escape(lab[-3:])
-        tip = html.escape(lab) + ": " + format(v, "+,.0f")
         cells.append(
             '<div class="tw-bar-col"><div class="tw-bar-track">'
-            + '<div class="tw-bar-zero"></div>'
-            + '<div class="tw-bar-fill ' + cls + '" style="height:'
+            '<div class="tw-bar-zero"></div>'
+            '<div class="tw-bar-fill ' + cls + '" style="height:'
             + format(pct, ".0f") + '%;animation-delay:' + str(i * 40)
-            + 'ms" title="' + tip + '"></div>'
-            + '<span class="tw-bar-lab">' + short
-            + '</span></div></div>'
+            + 'ms" title="' + html.escape(str(lab)) + ": "
+            + format(v, "+,.0f") + '"></div>'
+            '<span class="tw-bar-lab">'
+            + html.escape(str(lab)[-3:]) + '</span>'
+            '</div></div>'
         )
     return '<div class="tw-bars">' + "".join(cells) + '</div>'
 
 
+def hbars(items):
+    """items = [(name, value, color), ...] signed horizontal bars."""
+    if not items:
+        return '<div class="tw-empty">No data.</div>'
+    mx = max([abs(v) for _n, v, _c in items] + [1])
+    rows = []
+    for i, (name, v, color) in enumerate(items):
+        w = min(abs(v) / mx * 100, 100)
+        rows.append(
+            '<div style="margin-bottom:11px;'
+            'animation:tw-rise .5s ease both;animation-delay:'
+            + str(i * 45) + 'ms">'
+            '<div style="display:flex;justify-content:space-between;'
+            'font:600 12px var(--body);margin-bottom:5px">'
+            '<span style="color:var(--ink-2)">' + html.escape(name)
+            + '</span><span style="font-family:var(--mono);color:'
+            + color + '">' + format(v, "+,.0f") + '</span></div>'
+            '<div style="height:7px;background:rgba(255,255,255,.04);'
+            'border-radius:4px;overflow:hidden">'
+            '<div style="height:100%;width:' + format(w, ".1f")
+            + '%;background:' + color + ';border-radius:4px;'
+            'transform-origin:left;animation:tw-grow .7s ease both">'
+            '</div></div></div>'
+        )
+    return "".join(rows)
+
+
 def donut(segments, center_top, center_sub, total):
-    r = 52
-    sw = 14
-    cx = 70
-    cy = 70
+    r, sw, cx, cy = 52, 14, 70, 70
     C = 2 * math.pi * r
-    rings = []
-    acc = 0.0
-    for seg in segments:
-        val = seg[1]
-        color = seg[2]
+    rings, acc = [], 0.0
+    for _n, val, color in segments:
         if val <= 0:
             continue
-        frac = val / total if total > 0 else 0.0
-        length = frac * C
+        length = (val / total * C) if total > 0 else 0.0
         rings.append(
             '<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="'
             + str(r) + '" fill="none" stroke="' + color
-            + '" stroke-width="' + str(sw)
-            + '" stroke-dasharray="' + format(length, ".2f") + " "
-            + format(C - length, ".2f") + '" stroke-dashoffset="'
-            + format(-acc, ".2f") + '" transform="rotate(-90 '
-            + str(cx) + " " + str(cy) + ')"/>'
-        )
+            + '" stroke-width="' + str(sw) + '" stroke-dasharray="'
+            + format(length, ".2f") + " " + format(C - length, ".2f")
+            + '" stroke-dashoffset="' + format(-acc, ".2f")
+            + '" transform="rotate(-90 ' + str(cx) + " " + str(cy)
+            + ')"/>')
         acc += length
     if not rings:
-        rings.append(
-            '<circle cx="' + str(cx) + '" cy="' + str(cy) + '" r="'
-            + str(r) + '" fill="none" stroke="#1C2740" '
-            + 'stroke-width="' + str(sw) + '"/>'
-        )
-    c1 = html.escape(center_sub)
-    c2 = html.escape(center_top)
+        rings.append('<circle cx="' + str(cx) + '" cy="' + str(cy)
+                     + '" r="' + str(r) + '" fill="none" '
+                     + 'stroke="#1C2740" stroke-width="' + str(sw)
+                     + '"/>')
     svg = (
-        '<svg class="tw-donut" width="140" height="140" '
-        + 'viewBox="0 0 140 140">' + "".join(rings)
+        '<svg width="140" height="140" viewBox="0 0 140 140">'
+        + "".join(rings)
         + '<text class="tw-donut-c1" x="' + str(cx) + '" y="'
-        + str(cy - 8) + '" text-anchor="middle">' + c1 + '</text>'
+        + str(cy - 8) + '" text-anchor="middle">'
+        + html.escape(str(center_sub)) + '</text>'
         + '<text class="tw-donut-c2" x="' + str(cx) + '" y="'
-        + str(cy + 12) + '" text-anchor="middle">' + c2 + '</text></svg>'
+        + str(cy + 12) + '" text-anchor="middle">'
+        + html.escape(str(center_top)) + '</text></svg>'
     )
     leg = []
-    for seg in segments:
-        name = seg[0]
-        val = seg[1]
-        color = seg[2]
-        if total > 0 and val > 0:
-            pct = val / total * 100
-        else:
-            pct = 0.0
-        if val > 0:
-            tone = "tw-win"
-        elif val < 0:
-            tone = "tw-loss"
-        else:
-            tone = "tw-mute"
+    for name, val, color in segments:
+        pct = (val / total * 100) if total > 0 and val > 0 else 0.0
         leg.append(
             '<div class="tw-leg-row">'
-            + '<span class="tw-leg-dot" style="background:' + color
-            + '"></span>'
-            + '<span class="tw-leg-name">' + html.escape(name) + '</span>'
-            + '<span class="tw-leg-val ' + tone + '">'
-            + format(val, "+,.0f") + '</span>'
-            + '<span class="tw-leg-pct">' + format(pct, ".0f")
-            + '%</span></div>'
+            '<span class="tw-leg-dot" style="background:' + color
+            + '"></span><span class="tw-leg-name">'
+            + html.escape(str(name)) + '</span>'
+            '<span class="tw-leg-val">' + format(val, "+,.0f")
+            + '</span><span class="tw-leg-pct">'
+            + format(pct, ".0f") + '%</span></div>'
         )
     return ('<div class="tw-donut-wrap">' + svg
-            + '<div class="tw-legend">' + "".join(leg) + '</div></div>')
+            + '<div class="tw-legend">' + "".join(leg)
+            + '</div></div>')
 
 
 def calendar_html(year, month, day_map, today=None, pct=False):
-    head = []
-    for d in WEEKDAYS:
-        head.append("<span>" + d + "</span>")
+    head = "".join("<span>" + d + "</span>" for d in WEEKDAYS)
     first_wd, ndays = _cal.monthrange(year, month)
-    cells = []
-    for _ in range(first_wd % 7):
-        cells.append('<div class="tw-day empty"></div>')
+    cells = ['<div class="tw-day empty"></div>'] * (first_wd % 7)
     for d in range(1, ndays + 1):
         date = _dt.date(year, month, d)
         v = day_map.get(date)
         cls = ["tw-day"]
-        if v is not None:
-            if pct:
-                if v >= 70:
-                    cls.append("up")
-                elif v < 40:
-                    cls.append("down")
-            else:
-                if v > 0:
-                    cls.append("up")
-                elif v < 0:
-                    cls.append("down")
-        if today == date:
-            cls.append("today")
-        if today and date > today:
-            cls.append("future")
         inner = '<div class="tw-day-num">' + str(d) + '</div>'
         if v is not None:
             if pct:
                 if v >= 70:
+                    cls.append("up")
                     tone = "tw-win"
                 elif v < 40:
+                    cls.append("down")
                     tone = "tw-loss"
                 else:
                     tone = "tw-mute"
-                inner = inner + (
-                    '<div class="tw-day-pnl ' + tone + '">'
-                    + str(int(round(v))) + '%</div>'
-                )
+                inner += ('<div class="tw-day-pnl ' + tone + '">'
+                          + str(int(round(v))) + '%</div>')
             else:
-                arrow = "+" if v >= 0 else "-"
                 tone = "tw-win" if v >= 0 else "tw-loss"
-                inner = inner + (
-                    '<div class="tw-day-pnl ' + tone + '">' + arrow
-                    + format(abs(v), ",.0f") + '</div>'
-                )
-        cells.append('<div class="' + " ".join(cls) + '">'
-                     + inner + '</div>')
-    return ('<div class="tw-cal-head">' + "".join(head) + '</div>'
-            + '<div class="tw-cal">' + "".join(cells) + '</div>')
-
-
-def heatmap_html(matrix, rlabels, clabels):
-    flat = [v for row in matrix for v in row if v != 0]
-    if flat:
-        mx = max(abs(v) for v in flat) or 1.0
-    else:
-        mx = 1.0
-    head = ['<div class="hl"></div>']
-    for c in clabels:
-        head.append('<div class="hl">' + html.escape(c) + '</div>')
-    body = []
-    for ri, row in enumerate(matrix):
-        body.append('<div class="rl">' + html.escape(rlabels[ri]) + '</div>')
-        for ci, v in enumerate(row):
-            if v == 0:
-                bg = "rgba(255,255,255,.012)"
-            else:
-                a = 0.18 + 0.55 * min(abs(v) / mx, 1.0)
-                col = "52,211,153" if v >= 0 else "240,85,107"
-                bg = "rgba(" + col + "," + format(a, ".2f") + ")"
-            tip = (rlabels[ri] + " " + clabels[ci] + "  "
-                   + format(v, "+,.0f"))
-            body.append('<div class="tw-cell" style="background:'
-                        + bg + '" title="' + html.escape(tip) + '"></div>')
-    return ('<div class="tw-heat">' + "".join(head) + "".join(body)
-            + '</div>')
+                cls.append("up" if v >= 0 else "down")
+                inner += ('<div class="tw-day-pnl ' + tone + '">'
+                          + format(v, "+,.0f") + '</div>')
+        if today == date:
+            cls.append("today")
+        if today and date > today:
+            cls.append("future")
+        cells.append('<div class="' + " ".join(cls) + '">' + inner
+                     + '</div>')
+    return ('<div class="tw-cal-head">' + head + '</div>'
+            '<div class="tw-cal">' + "".join(cells) + '</div>')
 
 
 def streaks_html(items):
     out = []
     for val, lab, tone in items:
         out.append(
-            '<div class="tw-streak">'
-            + '<div class="tw-streak-n ' + U.tone_cls(tone) + '">'
-            + str(val) + '</div>'
-            + '<div class="tw-streak-l">' + html.escape(lab)
+            '<div class="tw-streak"><div class="tw-streak-n '
+            + U.tone_cls(tone) + '">' + str(val) + '</div>'
+            '<div class="tw-streak-l">' + html.escape(lab)
             + '</div></div>'
         )
     grid = "grid-template-columns:repeat(" + str(len(items)) + ",1fr)"
@@ -628,67 +589,35 @@ def streaks_html(items):
 
 
 def table(headers, rows):
-    th = []
-    for h in headers:
-        th.append("<th>" + html.escape(h) + "</th>")
+    th = "".join("<th>" + html.escape(h) + "</th>" for h in headers)
     body = []
     for row in rows:
-        tds = []
-        for text, c in row:
-            tds.append('<td class="' + c + '">' + text + '</td>')
-        body.append("<tr>" + "".join(tds) + "</tr>")
+        tds = "".join('<td class="' + c + '">' + str(text) + '</td>'
+                      for text, c in row)
+        body.append("<tr>" + tds + "</tr>")
     if not body:
         body.append('<tr><td colspan="' + str(len(headers))
                     + '" class="tw-empty">No rows.</td></tr>')
     return ('<div class="tw-scroll"><table class="tw-table">'
-            + '<thead><tr>' + "".join(th) + '</tr></thead>'
-            + '<tbody>' + "".join(body) + '</tbody></table></div>')
-
-
-def hbars(items):
-    if not items:
-        return '<div class="tw-empty">No data.</div>'
-    mx = 1
-    for _n, v, _c in items:
-        if abs(v) > mx:
-            mx = abs(v)
-    rows = []
-    for i, triple in enumerate(items):
-        name = triple[0]
-        v = triple[1]
-        color = triple[2]
-        w = min(abs(v) / mx * 100, 100)
-        rows.append(
-            '<div style="margin-bottom:11px;'
-            + 'animation:tw-rise .5s ease both;animation-delay:'
-            + str(i * 45) + 'ms">'
-            + '<div style="display:flex;justify-content:space-between;'
-            + 'font:600 12px var(--body);margin-bottom:5px">'
-            + '<span style="color:var(--ink-2)">'
-            + html.escape(name) + '</span>'
-            + '<span style="font-family:var(--mono);color:' + color
-            + '">' + format(v, "+,.0f") + '</span></div>'
-            + '<div style="height:7px;background:rgba(255,255,255,.04);'
-            + 'border-radius:4px;overflow:hidden">'
-            + '<div style="height:100%;width:' + format(w, ".1f")
-            + '%;background:' + color + ';border-radius:4px;'
-            + 'transform-origin:left;animation:tw-grow .7s ease both">'
-            + '</div></div></div>'
-        )
-    return "".join(rows)
+            '<thead><tr>' + th + '</tr></thead><tbody>'
+            + "".join(body) + '</tbody></table></div>')
 
 
 def journal_card(date_str, entry):
-    g = html.escape(entry.get("gratitude", ""))
-    w = html.escape(entry.get("win", ""))
-    les = entry.get("lesson", "")
-    m = html.escape(entry.get("mood", ""))
-    rows = '<div class="row"><b>grateful -</b> ' + g + '</div>'
-    rows = rows + '<div class="row"><b>win -</b> ' + w + '</div>'
+    rows = ""
+    h = str(entry.get("happened", "") or "")
+    w = str(entry.get("win", "") or "")
+    les = str(entry.get("lesson", "") or "")
+    if h:
+        rows += ('<div class="row"><b>day -</b> ' + html.escape(h)
+                 + '</div>')
+    if w:
+        rows += ('<div class="row"><b>win -</b> ' + html.escape(w)
+                 + '</div>')
     if les:
-        rows = rows + ('<div class="row"><b>lesson -</b> '
-                       + html.escape(les) + '</div>')
-    rows = rows + ('<div class="row" style="margin-top:5px">'
-                   + m + '</div>')
+        rows += ('<div class="row"><b>lesson -</b> '
+                 + html.escape(les) + '</div>')
+    rows += ('<div class="row" style="margin-top:5px">'
+             + html.escape(str(entry.get("mood", ""))) + '</div>')
     return ('<div class="tw-jcard"><div class="d">'
             + html.escape(date_str) + '</div>' + rows + '</div>')
