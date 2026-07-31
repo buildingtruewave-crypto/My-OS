@@ -21,3 +21,22 @@ def habit_checklist(prefix, habits, log, today_str):
             changed = True
     if changed:
         D.save_habit_log(log)
+
+
+def task_checklist(prefix, tasks, today_iso):
+    if not tasks:
+        st.caption("No tasks here - add one below.")
+        return
+    changed = False
+    pri = {"High": "H", "Normal": "N", "Low": "L"}
+    for t in tasks:
+        icon = pri.get(t.get("priority", "Normal"), "*")
+        label = "[" + icon + "]   " + t["text"]
+        c = st.checkbox(label, value=bool(t.get("done")),
+                        key=prefix + "t" + t["id"])
+        if c != bool(t.get("done")):
+            t["done"] = c
+            t["done_date"] = today_iso if c else ""
+            changed = True
+    if changed:
+        D.save_tasks(tasks)
