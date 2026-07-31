@@ -5,7 +5,6 @@ import datetime as dt
 
 
 def now_local():
-    """Wall-clock time in Africa/Nairobi (EAT, UTC+3, no DST)."""
     try:
         from zoneinfo import ZoneInfo
         return dt.datetime.now(ZoneInfo("Africa/Nairobi"))
