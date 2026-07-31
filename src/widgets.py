@@ -1,4 +1,4 @@
-"""Interactive Streamlit widgets that write straight back to the data layer."""
+"""Interactive widgets that write straight back to the data layer."""
 from __future__ import annotations
 
 import streamlit as st
