@@ -1,7 +1,6 @@
-"""The weekly / monthly review - how the whole operation is managing."""
+"""The weekly / monthly review - how the whole operation is managing,
+across the pipeline, the money, the bots and the body."""
 from __future__ import annotations
-
-import datetime as dt
 
 import streamlit as st
 
@@ -21,6 +20,7 @@ def render(ctx):
     weights, today = ctx["weights"], ctx["today"]
     t_iso, score = ctx["today_iso"], ctx["score"]
     tasks, income = ctx["tasks"], ctx["income"]
+    vault = ctx["vault"]
 
     cons = M.overall_consistency(habits, log, 30)
     jcomp = M.journal_completion(journal, 30)
@@ -37,6 +37,7 @@ def render(ctx):
         if ctx["started"] else 0
     locked = [(s, i) for s, i in com["overdue"]
               if not M.comm_editable(s, i, today)]
+    wk_in, wk_out = M.flow_week_inout(vault.get("flow", []), today)
 
     row = [
         UI.tile("Life Score",
@@ -46,11 +47,12 @@ def render(ctx):
                 "star", "jewel", 0),
         UI.tile("Recording Day", str(days_in), "since Aug 1, 2026",
                 "mute", "ink", "cal", "accent", 40),
+        UI.tile("Net Worth", "KSh " + U.fmt_k(M.net_worth(vault)),
+                "everything, everywhere", "mute", "ink",
+                "star", "jewel", 80),
         UI.tile("Sold This Week", str(sold_week), "phones",
                 "win" if sold_week else "mute",
-                "win" if sold_week else "ink", "phone", "win", 80),
-        UI.tile("New Clients 7d", str(cc["new7"]), "inquiries",
-                "mute", "ink", "users", "accent", 120),
+                "win" if sold_week else "ink", "phone", "win", 120),
         UI.tile("Weight Change", format(wdelta, "+,.1f") + " kg",
                 "since first weigh-in",
                 "win" if wdelta >= 0 else "loss", "ink",
@@ -71,11 +73,20 @@ def render(ctx):
 
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
+    series = M.snapshots_series(vault)
+    if len(series) >= 2:
+        st.markdown(UI.panel(
+            "Net Worth - The Climb",
+            UI.equity_svg(series, "st_nw", kind="num",
+                          xfmt=lambda d: d.strftime("%d %b")),
+            right="every money move snapshots it"),
+            unsafe_allow_html=True)
+
     if any(log.values()):
-        series = M.consistency_series(log, habits, 30)
+        cseries = M.consistency_series(log, habits, 30)
         st.markdown(UI.panel(
             "Consistency Trend",
-            UI.equity_svg(series, "st_eq", kind="pct",
+            UI.equity_svg(cseries, "st_eq", kind="pct",
                           xfmt=lambda d: d.strftime("%d")),
             right="last 30 days"), unsafe_allow_html=True)
 
@@ -154,9 +165,11 @@ def render(ctx):
              str(len(locked)) + " - "
              + U.fmt_kes(sum(float(i.get("amount", 0))
                              for _s, i in locked))),
+            ("Money in - 7d", U.fmt_kes(wk_in)),
+            ("Money out - 7d", U.fmt_kes(wk_out)),
             ("Tasks cleared all-time", str(tc["done_all"])),
         ])
-        st.markdown(UI.panel("TrueWave - since Aug 1", body),
+        st.markdown(UI.panel("TrueWave + Money - since Aug 1", body),
                     unsafe_allow_html=True)
 
     c7, c8 = st.columns(2, gap="medium")
