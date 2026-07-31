@@ -1,8 +1,7 @@
-"""Empty-on-purpose, editable, persisted life data.
-Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked:
-the routine, habit names, bot names and vault targets come from the
-operator's real plan - every figure is entered by hand from day one.
-Everything persists to data/*.json so a reboot loses nothing.
+"""Empty-on-purpose, editable, persisted life + business data.
+Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked -
+every figure is entered by hand from day one. Every write lands in
+data/*.json immediately, so the system never forgets.
 """
 from __future__ import annotations
 
@@ -37,13 +36,52 @@ ACCENTS = {
     "Amber Edge": "#F5B544",
 }
 MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
-SOURCES = ["TikTok", "TikTok Live", "Instagram", "Facebook",
-           "WhatsApp", "Walk-in", "Referral"]
-HEATS = ["Hot", "Warm", "Cold"]
 DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
             "fri": 4, "sat": 5, "sun": 6}
 
-# (time, label, tag, scope)  scope: all | weekdays | sat | sun
+# ---------- TrueWave journey ----------
+STAGES = [
+    ("new", "New Lead", "#4C8DFF"),
+    ("no_pickup", "Called - No Pickup", "#F5B544"),
+    ("picked", "In Conversation", "#2DD4BF"),
+    ("declined_call", "Declined on Call", "#F0556B"),
+    ("application", "Application Started", "#8B7CFF"),
+    ("mpesa_review", "M-Pesa Review", "#D946EF"),
+    ("plan_choice", "Plan Selection", "#38BDF8"),
+    ("docs", "Docs Check", "#F5B544"),
+    ("credit_call", "Credit Team Call", "#F0556B"),
+    ("cash_offer", "CASH OFFER - CREDIT", "#F5B544"),
+    ("deposit", "Deposit & Delivery", "#34D399"),
+    ("delivered", "Delivered - Window Open", "#2DD4BF"),
+    ("paid", "Paid & Closed", "#34D399"),
+    ("returned", "Returned", "#F0556B"),
+    ("lost", "Lost / Declined", "#7C8AA5"),
+]
+STAGE_IDS = [s[0] for s in STAGES]
+STAGE_LABEL = {s[0]: s[1] for s in STAGES}
+STAGE_COLOR = {s[0]: s[2] for s in STAGES}
+JOURNEY = ["new", "picked", "application", "mpesa_review",
+           "plan_choice", "docs", "credit_call", "deposit",
+           "delivered", "paid"]
+SOURCES = ["Facebook Ads", "TikTok Live", "TikTok DM", "Instagram",
+           "WhatsApp", "Walk-in", "Referral", "Outbound Call"]
+HEATS = ["Hot", "Warm", "Cold"]
+PLANS = {
+    "Standard (12 mo)": "12 months - standard weekly",
+    "Lite (12 mo)": "12 months - lower weekly, slightly higher total",
+    "Saver (6 mo)": "6 months - higher deposit + higher weekly",
+}
+DOC_ITEMS = ["id_card", "selfie", "next_of_kin"]
+DOC_LABEL = {"id_card": "ID Card", "selfie": "Clear Selfie",
+             "next_of_kin": "Next of Kin"}
+DOC_STATES = ["pending", "passed", "failed"]
+CREDIT_OUTCOMES = ["pending", "APPROVED", "CASH OFFER - CREDIT",
+                   "PLAN CHANGE", "DECLINED"]
+COMM_WINDOWS = {1: 20, 2: 50}
+INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
+                "Stock Streamlit", "Gift", "Other"]
+
+# ---------- routine / habits / bots / vault seeds ----------
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
     ("06:10", "Morning coffee", "Life", "weekdays"),
@@ -89,7 +127,6 @@ ROUTINE_SEED = [
     ("14:00", "Out / free time", "Rest", "sun"),
     ("18:00", "Evening unwind", "Rest", "sun"),
 ]
-
 HABITS_SEED = [
     ("W", "Workout 45 min"),
     ("J", "Journal the day"),
@@ -99,13 +136,11 @@ HABITS_SEED = [
     ("R", "Morning routine done"),
     ("L", "Lights out by 10"),
 ]
-
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
     ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
      "testing"),
 ]
-
 BUCKET_SEED = [
     ("household", "Household", 0.0),
     ("enjoy", "Enjoyment", 0.0),
@@ -160,8 +195,8 @@ def parse_routine_text(text):
                      line, re.I)
         if not m:
             continue
-        hh, mm, ap, rest = int(m.group(1)), int(m.group(2)), \
-            m.group(3), m.group(4).strip()
+        hh, mm = int(m.group(1)), int(m.group(2))
+        ap, rest = m.group(3), m.group(4).strip()
         if ap and ap.upper() == "PM" and hh != 12:
             hh += 12
         if ap and ap.upper() == "AM" and hh == 12:
@@ -256,6 +291,7 @@ def _seed_vault():
         "buckets": [{"id": bid, "name": nm, "target": tg, "tx": []}
                     for (bid, nm, tg) in BUCKET_SEED],
         "items": [],
+        "flow": [],
     }
 
 
@@ -276,6 +312,8 @@ def ensure():
     _ensure_key("clients", "clients.json", list)
     _ensure_key("sales_daily", "sales_daily.json", dict)
     _ensure_key("sales", "sales.json", list)
+    _ensure_key("income", "income.json", list)
+    _ensure_key("tasks", "tasks.json", list)
     _ensure_key("bots", "bots.json", _seed_bots)
     _ensure_key("vault", "vault.json", _seed_vault)
     st.session_state.setdefault(
@@ -284,8 +322,8 @@ def ensure():
         "accent", prefs.get("accent", "#4C8DFF"))
     st.session_state.setdefault(
         "tz_offset", float(prefs.get("tz_offset", 0)))
-    st.session_state.setdefault("pin", str(prefs.get("pin",
-                                                     DEFAULT_PIN)))
+    st.session_state.setdefault(
+        "pin", str(prefs.get("pin", DEFAULT_PIN)))
 
 
 def get(k):
@@ -356,6 +394,16 @@ def save_sales(x):
     _write("sales.json", x)
 
 
+def save_income(x):
+    st.session_state["income"] = x
+    _write("income.json", x)
+
+
+def save_tasks(x):
+    st.session_state["tasks"] = x
+    _write("tasks.json", x)
+
+
 def save_bots(x):
     st.session_state["bots"] = x
     _write("bots.json", x)
@@ -366,24 +414,69 @@ def save_vault(x):
     _write("vault.json", x)
 
 
-# ---------- add helpers ----------
+# ---------- clients: the full journey ----------
 
-def add_client(c):
+def add_client(name, phone, source, heat, want, budget, note,
+               today_iso, now_str):
     clients = list(st.session_state["clients"])
-    c = dict(c)
-    c["id"] = _uid()
-    c.setdefault("status", "open")
-    c.setdefault("outcome_date", "")
+    c = {
+        "id": _uid(), "name": name, "phone": phone,
+        "source": source, "heat": heat, "want": want,
+        "budget": budget, "created": today_iso, "stage": "new",
+        "plan": "", "qualified": "", "deposit": 0.0, "weekly": 0.0,
+        "docs": {"id_card": "pending", "selfie": "pending",
+                 "next_of_kin": "pending"},
+        "credit": "pending", "delivery": "pending",
+        "delivered_date": "", "paid": False, "paid_date": "",
+        "returned": False, "returned_date": "",
+        "next_action": "First call", "next_date": today_iso,
+        "remark": "", "why_not": "",
+        "history": [{"ts": now_str,
+                     "note": note or ("Lead logged from " + source),
+                     "stage": "new"}],
+    }
     clients.insert(0, c)
     save_clients(clients)
 
 
-def add_issue(text, area, due):
-    issues = list(st.session_state["issues"])
-    issues.insert(0, {"id": _uid(), "text": text, "area": area,
-                      "due": due, "done": False})
-    save_issues(issues)
+def _find_client(cid):
+    for c in st.session_state["clients"]:
+        if c["id"] == cid:
+            return c
+    return None
 
+
+def touch_client(cid, note, now_str):
+    c = _find_client(cid)
+    if c:
+        c.setdefault("history", []).append(
+            {"ts": now_str, "note": note, "stage": c.get("stage", "")})
+        save_clients(st.session_state["clients"])
+
+
+def set_stage(cid, stage, now_str, note=""):
+    c = _find_client(cid)
+    if c:
+        c["stage"] = stage
+        label = STAGE_LABEL.get(stage, stage)
+        c.setdefault("history", []).append(
+            {"ts": now_str, "note": note or ("Stage -> " + label),
+             "stage": stage})
+        save_clients(st.session_state["clients"])
+
+
+def update_client(cid, patch, now_str, log_note=""):
+    c = _find_client(cid)
+    if c:
+        c.update(patch)
+        if log_note:
+            c.setdefault("history", []).append(
+                {"ts": now_str, "note": log_note,
+                 "stage": c.get("stage", "")})
+        save_clients(st.session_state["clients"])
+
+
+# ---------- goals / issues / weights / tasks ----------
 
 def add_goal(g):
     goals = list(st.session_state["goals"])
@@ -391,6 +484,13 @@ def add_goal(g):
     g["id"] = _uid()
     goals.append(g)
     save_goals(goals)
+
+
+def add_issue(text, area, due):
+    issues = list(st.session_state["issues"])
+    issues.insert(0, {"id": _uid(), "text": text, "area": area,
+                      "due": due, "done": False})
+    save_issues(issues)
 
 
 def add_weight(date_iso, kg):
@@ -401,16 +501,37 @@ def add_weight(date_iso, kg):
     save_weights(ws)
 
 
+def add_task(t):
+    tasks = list(st.session_state["tasks"])
+    t = dict(t)
+    t["id"] = _uid()
+    t.setdefault("done", False)
+    t.setdefault("done_date", "")
+    tasks.insert(0, t)
+    save_tasks(tasks)
+
+
+# ---------- sales / income ----------
+
 def add_sale(s):
+    """Instalment due dates are set automatically: 1st commission at
+    +20 days, 2nd at +50 days from the delivery (or sale) date."""
     sales = list(st.session_state["sales"])
     s = dict(s)
     s["id"] = _uid()
+    anchor = s.get("delivered_date") or s.get("date") or ""
+    try:
+        a = dt.date.fromisoformat(anchor)
+    except Exception:
+        a = dt.date.today()
     inst = []
     for i in s.get("inst", []):
         i = dict(i)
         i["id"] = _uid()
         i.setdefault("paid", False)
         i.setdefault("reason", "")
+        w = int(i.get("window", 20))
+        i["due"] = (a + dt.timedelta(days=w)).isoformat()
         inst.append(i)
     s["inst"] = inst
     sales.insert(0, s)
@@ -422,6 +543,15 @@ def save_daily_entry(date_iso, entry):
     d[date_iso] = entry
     save_sales_daily(d)
 
+
+def add_income(date_iso, kind, amount, note):
+    inc = list(st.session_state["income"])
+    inc.insert(0, {"id": _uid(), "date": date_iso, "type": kind,
+                   "amount": float(amount), "note": note})
+    save_income(inc)
+
+
+# ---------- bots ----------
 
 def add_bot_log(date_iso, bot_id, risk, pnl, notes):
     b = st.session_state["bots"]
@@ -447,6 +577,8 @@ def set_bot_status(bot_id, status, date_iso):
             x["live_date"] = date_iso if status == "live" else ""
     save_bots(b)
 
+
+# ---------- vault ----------
 
 def fund_tx(date_iso, kind, amount, source):
     v = st.session_state["vault"]
@@ -506,13 +638,23 @@ def buy_item(iid, date_iso):
     save_vault(v)
 
 
+def add_flow(date_iso, kind, amount, src, got):
+    v = st.session_state["vault"]
+    v.setdefault("flow", []).insert(
+        0, {"id": _uid(), "date": date_iso, "kind": kind,
+            "amount": float(amount), "src": src, "got": got})
+    save_vault(v)
+
+
+# ---------- housekeeping ----------
+
 def reset_all():
     defaults = {
         "routine": _seed_routine(),
         "habits": _seed_habits(),
         "habit_log": {}, "goals": [], "issues": [],
         "journal": {}, "weights": [], "clients": [],
-        "sales_daily": {}, "sales": [],
+        "sales_daily": {}, "sales": [], "income": [], "tasks": [],
         "bots": _seed_bots(), "vault": _seed_vault(),
     }
     for key, obj in defaults.items():
@@ -526,7 +668,7 @@ def export_zip():
     buf = io.BytesIO()
     keys = ["routine", "habits", "habit_log", "goals", "issues",
             "journal", "weights", "clients", "sales_daily", "sales",
-            "bots", "vault"]
+            "income", "tasks", "bots", "vault"]
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in keys:
             z.writestr(k + ".json", json.dumps(
