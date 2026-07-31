@@ -1,5 +1,5 @@
 """HTML / SVG components. Line-icons stroke with currentColor so chips
-tint them. Markup is built with short concatenated strings.
+tint them. The EKG is the signature heartbeat of the whole OS.
 """
 from __future__ import annotations
 
@@ -94,6 +94,19 @@ def _icon(name):
 
 def _tag_color(tag):
     return TAG_COLORS.get(tag, "#7C8AA5")
+
+
+def ekg_html():
+    """The heartbeat - a traveling EKG pulse under the header."""
+    pts = ("0,30 60,30 80,30 90,14 100,44 110,8 120,30 180,30 "
+           "260,30 280,30 290,18 300,38 310,30 400,30 480,30 "
+           "500,30 510,12 520,46 530,6 540,30 620,30 700,30")
+    return (
+        '<svg class="tw-ekg" viewBox="0 0 700 60" '
+        'preserveAspectRatio="none">'
+        '<polyline class="tw-ekg-line" points="' + pts + '"/>'
+        '</svg>'
+    )
 
 
 def brand_html():
@@ -333,7 +346,7 @@ def goal_html(g, pct, color):
 
 
 def client_card(c, today):
-    """Compact card used on the dashboard + follow-up lists."""
+    """Compact card used on the dashboard + call sheet."""
     heat = c.get("heat", "Warm")
     hcolor = _HEAT.get(heat, "#7C8AA5")
     days = 0
