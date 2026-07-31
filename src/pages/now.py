@@ -1,4 +1,8 @@
-"""The dashboard - the heart that pumps every module into one view."""
+"""The dashboard - the heart that pumps every module into one view.
+Privacy rule: no balances here. Only activity and expected money
+(commissions due / pending, income flow, counts). Net worth and cash
+live only inside the vault.
+"""
 from __future__ import annotations
 
 import datetime as dt
@@ -44,13 +48,10 @@ def render(ctx):
     sold_today = int(d_entry.get("sold", 0))
     rej_today = int(d_entry.get("system_rej", 0)) \
         + int(d_entry.get("cash_rej", 0))
+    sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     inc_week = M.income_total(
         income, (today - dt.timedelta(days=6)).isoformat(), t_iso)
-    net = M.net_worth(vault)
-    cash = M.cash_on_hand(vault)
-    bills_late = M.bills_overdue(vault, today)
 
-    # ---- row 1: five KPI tiles ----
     row1 = [
         UI.tile("Life Score",
                 str(score) if score is not None else "--",
@@ -73,7 +74,6 @@ def render(ctx):
     ]
     st.markdown(UI.tiles_grid(row1, 5), unsafe_allow_html=True)
 
-    # ---- row 2: consistency spine + right now ----
     c1, c2 = st.columns([3, 2], gap="medium")
     with c1:
         if any(log.values()):
@@ -98,7 +98,6 @@ def render(ctx):
                         nxt["label"] if nxt else "")),
             unsafe_allow_html=True)
 
-    # ---- row 3: eight stat tiles (life + business + money) ----
     row3 = [
         UI.tile("New Leads 7d", str(cc["new7"]), "ads + live",
                 "mute", "ink", "bolt", "accent", 0),
@@ -112,24 +111,22 @@ def render(ctx):
         UI.tile("Commissions Due", str(len(com["due_today"])),
                 "today", "win" if com["due_today"] else "mute",
                 "ink", "cash", "win", 120),
+        UI.tile("Commissions Pending", "KSh " + U.fmt_k(com["pending"]),
+                "expected", "mute", "ink", "clock", "accent", 150),
         UI.tile("Income 7d", "KSh " + U.fmt_k(inc_week),
-                "all sources", "win" if inc_week else "mute",
-                "win" if inc_week else "ink", "trend", "win", 150),
-        UI.tile("Net Worth", "KSh " + U.fmt_k(net), "everything",
-                "mute", "ink", "star", "jewel", 180),
-        UI.tile("Cash On Hand", "KSh " + U.fmt_k(cash),
-                str(len(bills_late)) + " bills overdue",
-                "loss" if bills_late else "mute", "ink",
-                "cash", "accent", 210),
+                "flow this week", "win" if inc_week else "mute",
+                "win" if inc_week else "ink", "trend", "win", 180),
+        UI.tile("Sold This Week", str(sold_week), "phones",
+                "win" if sold_week else "mute",
+                "win" if sold_week else "ink", "phone", "win", 210),
     ]
     st.markdown(UI.tiles_grid(row3, 8), unsafe_allow_html=True)
 
-    # ---- row 4: pipeline funnel + income mix ----
     f1, f2 = st.columns([3, 2], gap="medium")
     with f1:
         sc = M.stage_counts(clients)
-        items = [(D.STAGE_LABEL[sid], sc.get(sid, 0),
-                  D.STAGE_COLOR[sid]) for sid in D.STAGE_IDS
+        items = [(D.stage_label(sid, sid), sc.get(sid, 0),
+                  D.stage_color(sid)) for sid in D.all_stage_ids()
                  if sc.get(sid, 0) > 0]
         st.markdown(UI.panel("TrueWave Pipeline", UI.hbars(items),
                              right=str(len(clients)) + " clients"),
@@ -143,7 +140,6 @@ def render(ctx):
                              UI.hbars(items)),
                     unsafe_allow_html=True)
 
-    # ---- row 5: calendar + today + focus split ----
     c3, c4, c5 = st.columns([5, 3, 4], gap="medium")
     with c3:
         cmap = M.day_consistency_map(log, habits, today.year,
@@ -184,7 +180,6 @@ def render(ctx):
             UI.donut(split, str(total_b), "blocks", total_b)),
             unsafe_allow_html=True)
 
-    # ---- row 6: call sheet + streaks ----
     c6, c7 = st.columns([4, 1], gap="medium")
     with c6:
         if sheet:
@@ -210,7 +205,6 @@ def render(ctx):
                 (w_streak, "workout", "jewel"),
             ])), unsafe_allow_html=True)
 
-    # ---- row 7: commissions week + vault teaser ----
     c8, c9 = st.columns([3, 2], gap="medium")
     with c8:
         rows = []
@@ -224,22 +218,24 @@ def render(ctx):
         st.markdown(UI.panel(
             "Commissions Due - next 7 days",
             UI.table(["Due", "Client", "Phone", "Amount"], rows),
-            right="KSh " + U.fmt_k(com["pending"]) + " pending"),
+            right="KSh " + U.fmt_k(com["pending"]) + " expected"),
             unsafe_allow_html=True)
     with c9:
-        tgt = 150000.0
-        pct = max(0.0, min(100.0, net / tgt * 100)) if tgt else 0.0
+        lock_svg = UI.ICONS.get("lock", "")
         body = (
-            '<div class="tw-lab" style="margin-bottom:8px">'
-            'MONEY &middot; LOCKED</div>'
-            + UI.progress(pct, "var(--accent)")
-            + UI.kv([("Net worth", "KSh " + U.fmt_k(net)),
-                     ("Cash on hand", "KSh " + U.fmt_k(cash))])
+            '<div style="display:flex;align-items:center;gap:10px;'
+            'margin-bottom:10px">'
+            '<span class="tw-chip tw-jewel">' + lock_svg + '</span>'
+            '<span class="tw-val" style="font-size:20px">Vault</span>'
+            '</div>'
+            '<div class="tw-sub" style="margin-top:0">Bills &middot; '
+            'Fun &middot; Wishlist &middot; Ventures</div>'
+            '<div class="tw-sub">Your money lives here - behind '
+            'the code.</div>'
         )
-        st.markdown(UI.panel("Archive", body, right="PIN"),
+        st.markdown(UI.panel("Archive", body, right="locked"),
                     unsafe_allow_html=True)
 
-    # ---- row 8: tick habits + rhythm ----
     st.markdown("<div style='height:6px'></div>",
                 unsafe_allow_html=True)
     hc1, hc2 = st.columns([2, 3], gap="medium")
