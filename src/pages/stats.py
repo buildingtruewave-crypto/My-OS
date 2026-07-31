@@ -1,5 +1,7 @@
-"""The weekly / monthly review - how the whole operation is managing,
-across the pipeline, the money, the bots and the body."""
+"""The weekly / monthly review - how the whole operation is managing.
+Privacy rule: no balances here. Net worth and the climb chart live only
+in the vault. This page shows activity, expected money and process.
+"""
 from __future__ import annotations
 
 import streamlit as st
@@ -47,12 +49,11 @@ def render(ctx):
                 "star", "jewel", 0),
         UI.tile("Recording Day", str(days_in), "since Aug 1, 2026",
                 "mute", "ink", "cal", "accent", 40),
-        UI.tile("Net Worth", "KSh " + U.fmt_k(M.net_worth(vault)),
-                "everything, everywhere", "mute", "ink",
-                "star", "jewel", 80),
         UI.tile("Sold This Week", str(sold_week), "phones",
                 "win" if sold_week else "mute",
-                "win" if sold_week else "ink", "phone", "win", 120),
+                "win" if sold_week else "ink", "phone", "win", 80),
+        UI.tile("New Clients 7d", str(cc["new7"]), "inquiries",
+                "mute", "ink", "users", "accent", 120),
         UI.tile("Weight Change", format(wdelta, "+,.1f") + " kg",
                 "since first weigh-in",
                 "win" if wdelta >= 0 else "loss", "ink",
@@ -73,15 +74,6 @@ def render(ctx):
 
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
-    series = M.snapshots_series(vault)
-    if len(series) >= 2:
-        st.markdown(UI.panel(
-            "Net Worth - The Climb",
-            UI.equity_svg(series, "st_nw", kind="num",
-                          xfmt=lambda d: d.strftime("%d %b")),
-            right="every money move snapshots it"),
-            unsafe_allow_html=True)
-
     if any(log.values()):
         cseries = M.consistency_series(log, habits, 30)
         st.markdown(UI.panel(
@@ -110,12 +102,12 @@ def render(ctx):
     with c3:
         sc = M.stage_counts(clients)
         rows = []
-        for sid in D.STAGE_IDS:
+        for sid in D.all_stage_ids():
             n = sc.get(sid, 0)
             if n:
                 rows.append([
-                    (UI.badge(D.STAGE_LABEL[sid],
-                              D.STAGE_COLOR[sid]), ""),
+                    (UI.badge(D.stage_label(sid, sid),
+                              D.stage_color(sid)), ""),
                     (str(n), "num"),
                 ])
         st.markdown(UI.panel("Pipeline Distribution",
@@ -158,7 +150,7 @@ def render(ctx):
             ("Clients paid & closed", str(cc["sold"])),
             ("Returned", str(cc["returned"])),
             ("Lost / declined", str(cc["lost"])),
-            ("CASH OFFER queue", str(cc["cashq"])),
+            ("Cash-offer queue", str(cc["cashq"])),
             ("Commissions collected", U.fmt_kes(com["paid"])),
             ("Commissions pending", U.fmt_kes(com["pending"])),
             ("Locked unpaid (slipping)",
@@ -169,7 +161,7 @@ def render(ctx):
             ("Money out - 7d", U.fmt_kes(wk_out)),
             ("Tasks cleared all-time", str(tc["done_all"])),
         ])
-        st.markdown(UI.panel("TrueWave + Money - since Aug 1", body),
+        st.markdown(UI.panel("TrueWave + Activity - since Aug 1", body),
                     unsafe_allow_html=True)
 
     c7, c8 = st.columns(2, gap="medium")
@@ -195,9 +187,10 @@ def render(ctx):
                 "Checks start Aug 1.")), unsafe_allow_html=True)
     with c8:
         st.markdown(UI.panel("How the Score Works", UI.kv([
-            ("Life score formula", "40/20/20/20"),
+            ("Life score formula", "40 / 20 / 20 / 20"),
             ("Consistency weight", "40%"),
             ("Journal weight", "20%"),
             ("Sales logging weight", "20%"),
             ("Goal weight", "20%"),
+            ("Edit the blend", "metrics.life_score()"),
         ])), unsafe_allow_html=True)
