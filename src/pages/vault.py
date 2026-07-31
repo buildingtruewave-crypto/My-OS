@@ -1,7 +1,7 @@
 """The hidden money manager. Sits behind the innocent 'Archive' nav
 item and a PIN (default 2580 - change it in Settings). Holds the HHO
-Carbon Cleaning fund (150k-200k KSh by Jan 2027), the savings buckets
-and the wishlist - all amounts stay off the public pages."""
+Carbon Cleaning fund, the savings buckets, the wishlist and the daily
+flow book - amounts never appear on the public pages."""
 from __future__ import annotations
 
 import datetime as dt
@@ -37,13 +37,9 @@ def render(ctx):
 
     vault, today = ctx["vault"], ctx["today"]
     fund = vault["fund"]
+    flow = vault.get("flow", [])
 
-    lk, _ = st.columns([6, 1])
-    with lk:
-        st.markdown('<div class="tw-lab" style="margin-bottom:8px">'
-                    'VAULT &middot; PRIVATE</div>',
-                    unsafe_allow_html=True)
-    if st.button("Lock", key="v_lock"):
+    if st.button("Lock vault", key="v_lock"):
         st.session_state["vault_ok"] = False
         st.rerun()
 
@@ -124,11 +120,65 @@ def render(ctx):
              ""),
             (str(t.get("source", "")), ""),
             ('<span class="' + tone + '">'
-             + U.fmt_kes(float(t["amount"]), True) + "</span>", "num"),
+             + U.fmt_kes(float(t["amount"]), True) + "</span>",
+             "num"),
         ])
     st.markdown(UI.panel("Fund Ledger",
-                         UI.table(["Date", "Flow", "Source", "Amount"],
-                                  rows)), unsafe_allow_html=True)
+                         UI.table(["Date", "Flow", "Source",
+                                   "Amount"], rows)),
+                unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>",
+                unsafe_allow_html=True)
+    st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
+                'DAILY FLOW - MONEY IN &amp; OUT, EVERY DAY</div>',
+                unsafe_allow_html=True)
+    fl1, fl2 = st.columns([3, 2], gap="medium")
+    with fl1:
+        a, b, c = st.columns([1.1, 1.1, 1.2])
+        with a:
+            fld = st.date_input("date", value=today, key="fl_d")
+            flk = st.selectbox("flow", ["in", "out"], key="fl_k")
+            fla = st.number_input("amount (KSh)", 0.0, 100000000.0,
+                                  0.0, step=50.0, key="fl_a")
+        with b:
+            fls = st.text_input("from where", key="fl_s",
+                                placeholder="salary, client, gift...")
+        with c:
+            flg = st.text_input("where it went / what I got",
+                                key="fl_g",
+                                placeholder="rent, stock, lunch...")
+        if st.button("Log flow", type="primary",
+                     key="fl_add") and fla > 0:
+            D.add_flow(fld.isoformat(), flk, fla, fls.strip(),
+                       flg.strip())
+            st.rerun()
+    with fl2:
+        st.markdown(UI.panel("Flow Position", UI.kv([
+            ("Net since Aug 1",
+             U.fmt_kes(M.flow_balance(flow))),
+            ("This week",
+             U.fmt_kes(M.flow_week_net(flow, today), True)),
+            ("Entries", str(len(flow))),
+        ])), unsafe_allow_html=True)
+    rows = []
+    for f in flow[:20]:
+        tone = "tw-win" if f["kind"] == "in" else "tw-loss"
+        rows.append([
+            (f["date"], "num"),
+            (UI.badge(f["kind"].upper(),
+                      "#34D399" if f["kind"] == "in" else "#F0556B"),
+             ""),
+            (str(f.get("src", "")), ""),
+            (str(f.get("got", "")), ""),
+            ('<span class="' + tone + '">'
+             + U.fmt_kes(float(f["amount"]), True) + "</span>",
+             "num"),
+        ])
+    st.markdown(UI.panel("Ledger",
+                         UI.table(["Date", "Flow", "From",
+                                   "Got / Paid", "Amount"], rows)),
+                unsafe_allow_html=True)
 
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
@@ -167,7 +217,6 @@ def render(ctx):
                                 bn.strip())
                 st.rerun()
             for t in b.get("tx", [])[:4]:
-                tone = "tw-win" if t["kind"] == "in" else "tw-loss"
                 st.caption(t["date"] + "  " + t["kind"] + " "
                            + U.fmt_kes(t["amount"], True)
                            + ("  - " + t["note"] if t.get("note")
