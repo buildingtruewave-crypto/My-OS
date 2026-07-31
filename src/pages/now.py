@@ -29,23 +29,28 @@ def render(ctx):
     clients, daily, sales = ctx["clients"], ctx["sales_daily"], \
         ctx["sales"]
     bots, vault = ctx["bots"], ctx["vault"]
+    tasks, income = ctx["tasks"], ctx["income"]
     score, started = ctx["score"], ctx["started"]
 
     cons = M.overall_consistency(habits, log, 30)
     jstreak = M.journal_streak(journal)
     cc = M.client_counts(clients, today)
     com = M.commission_stats(sales, t_iso)
+    tc = M.task_counts(tasks, today)
+    window = M.clients_in_window(clients, today)
     done_today, total_h = _today_done(habits, log, today), len(habits)
     d_entry = daily.get(t_iso) or {}
     sold_today = int(d_entry.get("sold", 0))
     rej_today = int(d_entry.get("system_rej", 0)) \
         + int(d_entry.get("cash_rej", 0))
-    sys30, cash30 = M.rejects_30d(daily, today)
     sold_all = sum(int(e.get("sold", 0)) for e in daily.values())
+    inc_week = M.income_total(
+        income, (today - dt.timedelta(days=6)).isoformat(), t_iso)
 
     # ---- row 1: five KPI tiles ----
     row1 = [
-        UI.tile("Life Score", str(score) if score is not None else "--",
+        UI.tile("Life Score",
+                str(score) if score is not None else "--",
                 "composite 0-100" if started else "starts Aug 1",
                 "mute", "win" if (score or 0) >= 70 else "ink",
                 "star", "jewel", 0),
@@ -54,9 +59,8 @@ def render(ctx):
                 "loss" if cc["over"] else "mute",
                 "win" if cc["due"] else "ink", "users", "accent", 40),
         UI.tile("Sold Today", str(sold_today),
-                str(rej_today) + " rejected",
-                "mute", "win" if sold_today else "ink",
-                "phone", "win", 80),
+                str(rej_today) + " rejected", "mute",
+                "win" if sold_today else "ink", "phone", "win", 80),
         UI.tile("Journal Streak", str(jstreak), "consecutive days",
                 "win" if jstreak else "mute",
                 "win" if jstreak else "ink", "flame", "jewel", 120),
@@ -93,32 +97,50 @@ def render(ctx):
 
     # ---- row 3: eight stat tiles ----
     row3 = [
-        UI.tile("Clients Open", str(cc["open"]), "pipeline",
-                "mute", "ink", "users", "accent", 0),
+        UI.tile("New Leads 7d", str(cc["new7"]), "ads + live",
+                "mute", "ink", "bolt", "accent", 0),
+        UI.tile("Active Pipeline", str(cc["active"]), "in journey",
+                "mute", "ink", "users", "accent", 30),
         UI.tile("Due Today", str(len(cc["due"])), "follow up",
                 "win" if cc["due"] else "mute",
-                "win" if cc["due"] else "ink", "clock", "win", 30),
+                "win" if cc["due"] else "ink", "clock", "win", 60),
         UI.tile("Overdue", str(len(cc["over"])), "call them",
                 "loss" if cc["over"] else "mute",
-                "loss" if cc["over"] else "ink", "bolt", "loss", 60),
-        UI.tile("Phones Sold", str(sold_all), "since Aug 1",
-                "mute", "ink", "phone", "accent", 90),
-        UI.tile("System Rejects", str(sys30), "30 days",
-                "mute", "ink", "x", "jewel", 120),
-        UI.tile("Cash-Only Rejects", str(cash30), "30 days",
-                "mute", "ink", "cash", "jewel", 150),
-        UI.tile("Commissions Due", str(len(com["due_today"])), "today",
-                "win" if com["due_today"] else "mute", "ink",
-                "cash", "win", 180),
-        UI.tile("Commissions Overdue", str(len(com["overdue"])),
-                "KSh " + U.fmt_k(com["pending"]) + " pending",
-                "loss" if com["overdue"] else "mute",
-                "loss" if com["overdue"] else "ink", "bolt", "loss",
-                210),
+                "loss" if cc["over"] else "ink", "bolt", "loss", 90),
+        UI.tile("Return Windows", str(len(window)), "7-day open",
+                "mute", "ink", "cal", "jewel", 120),
+        UI.tile("CASH OFFER Queue", str(cc["cashq"]),
+                "credit referrals", "mute", "ink", "cash", "jewel",
+                150),
+        UI.tile("Commissions Due", str(len(com["due_today"])),
+                "today", "win" if com["due_today"] else "mute",
+                "ink", "cash", "win", 180),
+        UI.tile("Income 7d", "KSh " + U.fmt_k(inc_week),
+                "all sources", "win" if inc_week else "mute",
+                "win" if inc_week else "ink", "trend", "win", 210),
     ]
     st.markdown(UI.tiles_grid(row3, 8), unsafe_allow_html=True)
 
-    # ---- row 4: calendar + today + focus split ----
+    # ---- row 4: pipeline funnel + income mix ----
+    f1, f2 = st.columns([3, 2], gap="medium")
+    with f1:
+        sc = M.stage_counts(clients)
+        items = [(D.STAGE_LABEL[sid], sc.get(sid, 0),
+                  D.STAGE_COLOR[sid]) for sid in D.STAGE_IDS
+                 if sc.get(sid, 0) > 0]
+        st.markdown(UI.panel("TrueWave Pipeline", UI.hbars(items),
+                             right=str(len(clients)) + " clients"),
+                    unsafe_allow_html=True)
+    with f2:
+        ibt = M.income_by_type(income)
+        items = [(k, v, "#34D399") for k, v in
+                 sorted(ibt.items(), key=lambda x: x[1],
+                        reverse=True)]
+        st.markdown(UI.panel("Income Mix - since Aug 1",
+                             UI.hbars(items)),
+                    unsafe_allow_html=True)
+
+    # ---- row 5: calendar + today + focus split ----
     c3, c4, c5 = st.columns([5, 3, 4], gap="medium")
     with c3:
         cmap = M.day_consistency_map(log, habits, today.year,
@@ -132,7 +154,8 @@ def render(ctx):
         je = journal.get(t_iso)
         open_i, over_i = M.issues_open(issues, today)
         wl = M.weight_latest(weights)
-        day_n = max(1, (today - D.START_DATE).days + 1) if started else 0
+        day_n = max(1, (today - D.START_DATE).days + 1) \
+            if started else 0
         pairs = [
             ("Recording day",
              str(day_n) if started else "starts Aug 1"),
@@ -140,10 +163,12 @@ def render(ctx):
              str(max(idx + 1, 0)) + " / " + str(len(blocks))),
             ("Habits done", '<span class="tw-win">'
              + str(done_today) + " / " + str(total_h) + "</span>"),
+            ("Tasks", str(tc["done_today"]) + " done - "
+             + str(tc["open"]) + " open"),
             ("Journaled", "Yes" if je else "No"),
-            ("Follow-ups", str(len(cc["due"])) + " due"),
-            ("Fixes open", str(len(open_i)) + " ("
-             + str(len(over_i)) + " late)"),
+            ("Follow-ups", str(len(cc["due"])) + " due - "
+             + str(len(cc["over"])) + " late"),
+            ("Return windows", str(len(window))),
             ("Weight", (U.fmt_num(wl["kg"]) + " kg") if wl else "--"),
         ]
         st.markdown(UI.panel("Today", UI.kv(pairs), right="live"),
@@ -156,7 +181,7 @@ def render(ctx):
             UI.donut(split, str(total_b), "blocks", total_b)),
             unsafe_allow_html=True)
 
-    # ---- row 5: follow-ups + streaks ----
+    # ---- row 6: follow-ups + streaks ----
     c6, c7 = st.columns([4, 1], gap="medium")
     with c6:
         due_list = cc["over"] + cc["due"]
@@ -165,7 +190,8 @@ def render(ctx):
                            for c in due_list[:6])
         else:
             body = UI.empty_state(
-                "No follow-ups due. Log inquiries on the TrueWave page.")
+                "No follow-ups due. Log inquiries on the TrueWave "
+                "page and they surface here on their day.")
         st.markdown(UI.panel("Clients Promised - overdue + today",
                              body, right="TrueWave"),
                     unsafe_allow_html=True)
@@ -182,7 +208,7 @@ def render(ctx):
                 (w_streak, "workout", "jewel"),
             ])), unsafe_allow_html=True)
 
-    # ---- row 6: commissions week + vault teaser ----
+    # ---- row 7: commissions week + vault teaser ----
     c8, c9 = st.columns([3, 2], gap="medium")
     with c8:
         rows = []
@@ -215,7 +241,7 @@ def render(ctx):
         st.markdown(UI.panel("Archive", body, right="PIN"),
                     unsafe_allow_html=True)
 
-    # ---- row 7: tick habits + rhythm ----
+    # ---- row 8: tick habits + rhythm ----
     st.markdown("<div style='height:6px'></div>",
                 unsafe_allow_html=True)
     hc1, hc2 = st.columns([2, 3], gap="medium")
