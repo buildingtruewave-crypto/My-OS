@@ -2,32 +2,37 @@
 
 A self-hosted life operating system built with Streamlit. It does not track one
 thing - it tracks your day. The schedule is the spine, the habit wall is the
-heartbeat, and trading is just one of nine panels. The whole thing wears a
-single design language borrowed from a trading terminal: cold canvas, monospaced
-tabular figures, mint = done / coral = missed / blue = the live spine, and a
-signed-day grid that turns consistency into something you can see.
+heartbeat, and trading is one panel of nine. The whole thing wears a single
+design language borrowed from a trading terminal: cold canvas, monospaced
+tabular figures, monochrome line-icons in tinted chips, mint = done / coral =
+missed / blue = the live spine, and a signed-day grid that turns consistency
+into something you can see.
 
 Design rule: colour encodes outcome, never decoration. The routine is the data
 model - change it and every page re-orients.
 
 ## What it controls
 
-- Now: live right-now block, today timeline, today habits, goals, trading, last reflection
-- Routine: weekday-aware schedule, paste-your-routine parser, per-day timelines
-- Habits: 35-day consistency wall, today checklist, 30-day completion bars
-- Trading: KPIs, equity curve, monthly PnL, recent trades, signed-day calendar
-- Goals: quarterly targets with progress bars
-- Tasks: today list with priorities, areas, due dates
-- Journal: daily gratitude / win / lesson / mood
-- Stats: life score, streaks, consistency by weekday, habit outcomes
-- Settings: name, accent, clock offset, regenerate, export zip, deploy info
+- Now: the dashboard. 5 KPIs, a glowing consistency trend line, a live
+  right-now card, 8 stat tiles, a consistency calendar, a today summary, a
+  focus-split donut, recent trades, streaks, and today's habit checklist.
+- Routine: KPI strip, 7-day week grid, today timeline, paste-your-routine editor.
+- Habits: KPI strip, 35-day consistency wall, today checklist, 30-day bars, editor.
+- Trading: KPIs, equity curve, monthly PnL, recent trades, signed-day calendar,
+  PnL by strategy.
+- Goals: KPI strip (on-track / at-risk / done), progress cards, add/update.
+- Tasks: KPI strip (open / done / overdue / total), checklist, add.
+- Journal: KPI strip (streak / completion / total), daily entry, recent entries.
+- Stats: life score, streaks, consistency trend, consistency by weekday,
+  trading weekday x session heatmap, habit outcomes donut, score formula.
+- Settings: name, accent, clock offset, regenerate, export zip, deploy info.
 
 ## The routine format
 
 Every block is one line. The Routine page parses this directly:
 
     05:00  Wake - hydrate - light        #Body      @all
-    07:45  Pre-market analysis - levels  #Trade     @weekdays
+    07:45  Pre-market analysis           #Trade     @weekdays
     08:00  London open - execution       #Trade     @weekdays
     12:00  Lunch - no screens            #Rest      @all
     18:30  Dinner - family               #Life      @all
@@ -40,16 +45,18 @@ Tags (#Trade #Body #Mind #Life #Rest #Focus) drive chip colours; scopes
     pip install -r requirements.txt
     streamlit run app.py
 
-Data is generated relative to today at first run, so streaks always look
-current. Everything you edit is saved to data/*.json and data/trades.csv.
+The seed tells one coherent, improving story (ramping habit wall, live journal
+streak, climbing equity curve, today already in progress) so the dashboard
+looks alive on first run. Everything you edit saves to data/*.json and
+data/trades.csv.
 
 ## Project layout
 
-    app.py                 entry point + context + top bar
-    src/data.py            seed, parse, persist, export
+    app.py                 entry point + context + top bar + nav
+    src/data.py            coherent seed, parse, persist, export
     src/metrics.py         all derived stats
     src/theme.py           the whole design language (CSS)
-    src/ui.py              HTML / SVG components
+    src/ui.py              SVG icon set + HTML / SVG components
     src/widgets.py         interactive checkboxes that write back
     src/pages/*.py         the nine panels
     deploy/                systemd unit + nginx config
@@ -77,6 +84,7 @@ change, never a rewrite.
 ## Design language
 
 - Type: Space Grotesk (display), Manrope (body), JetBrains Mono (figures, tabular)
+- Icons: inline monochrome SVG line-icons, stroke = currentColor
 - Motion (pure CSS): equity line draw-in, staggered panel rise, pulsing live
   dot and active timeline node, growing bars, hover lifts
 - Ambient field: faint terminal grid plus drifting semantic glows
