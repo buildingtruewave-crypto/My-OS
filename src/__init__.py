@@ -1,1 +1,1 @@
-"""PULSE - life command center."""
+"""Page modules.  Each exposes render(ctx)."""
