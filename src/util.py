@@ -8,7 +8,7 @@ def fmt_money(x, sign=False):
     except (TypeError, ValueError):
         return "$0.00"
     pre = "-" if x < 0 else ("+" if sign else "")
-    return f"{pre}${abs(x):,.2f}"
+    return pre + "$" + format(abs(x), ",.2f")
 
 
 def fmt_pct(x, sign=True, d=1):
@@ -17,12 +17,14 @@ def fmt_pct(x, sign=True, d=1):
     except (TypeError, ValueError):
         return "0.0%"
     pre = "-" if x < 0 else ("+" if sign else "")
-    return f"{pre}{abs(x):.{d}f}%"
+    spec = ",." + str(d) + "f"
+    return pre + format(abs(x), spec) + "%"
 
 
 def fmt_num(x, d=1):
     try:
-        return f"{float(x):,.{d}f}"
+        spec = ",." + str(d) + "f"
+        return format(float(x), spec)
     except (TypeError, ValueError):
         return "0"
 
@@ -35,14 +37,16 @@ def hexa(color, alpha):
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     except ValueError:
         r, g, b = 76, 141, 255
-    return f"rgba({r},{g},{b},{alpha})"
+    return "rgba(" + str(r) + "," + str(g) + "," + str(b) + "," + str(alpha) + ")"
 
 
 def initials(name):
     p = [x for x in name.replace(".", " ").split() if x]
     if not p:
         return "?"
-    return (p[0][0] + (p[-1][0] if len(p) > 1 else p[0][1])).upper()
+    if len(p) == 1:
+        return p[0][:2].upper()
+    return (p[0][0] + p[-1][0]).upper()
 
 
 def slug(s):
