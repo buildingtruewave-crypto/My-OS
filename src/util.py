@@ -34,10 +34,13 @@ def hexa(color, alpha):
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
     try:
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        r = int(h[0:2], 16)
+        g = int(h[2:4], 16)
+        b = int(h[4:6], 16)
     except ValueError:
         r, g, b = 76, 141, 255
-    return "rgba(" + str(r) + "," + str(g) + "," + str(b) + "," + str(alpha) + ")"
+    return ("rgba(" + str(r) + "," + str(g) + ","
+            + str(b) + "," + str(alpha) + ")")
 
 
 def initials(name):
@@ -56,8 +59,14 @@ def slug(s):
     return "".join(out).strip("_") or "x"
 
 
-TONE = {"win": "tw-win", "loss": "tw-loss", "ink": "tw-ink",
-        "accent": "tw-accent", "mute": "tw-mute", "jewel": "tw-jewel"}
+TONE = {
+    "win": "tw-win",
+    "loss": "tw-loss",
+    "ink": "tw-ink",
+    "accent": "tw-accent",
+    "mute": "tw-mute",
+    "jewel": "tw-jewel",
+}
 
 
 def tone_cls(t):
