@@ -17,14 +17,14 @@ def render(ctx):
     counts = [len(M.today_blocks(routine, w)) for w in range(7)]
     avg_b = sum(counts) / 7.0 if counts else 0.0
     tb = M.today_blocks(routine, today.weekday())
-    trade_b = sum(1 for b in tb
-                  if b.get("tag") in ("Sales", "Content"))
+    work_b = sum(1 for b in tb
+                 if b.get("tag") in ("Sales", "Content"))
     earliest = tb[0]["time"] if tb else "--:--"
     latest = tb[-1]["time"] if tb else "--:--"
     row = [
         UI.tile("Avg Blocks / Day", format(avg_b, ".1f"), "7-day mean",
                 "mute", "ink", "list", "accent", 0),
-        UI.tile("Work Blocks", str(trade_b), "content + sales today",
+        UI.tile("Work Blocks", str(work_b), "content + sales today",
                 "mute", "ink", "trend", "accent", 40),
         UI.tile("First Block", earliest, "start",
                 "mute", "ink", "clock", "win", 80),
@@ -33,22 +33,6 @@ def render(ctx):
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
 
-    cols = st.columns(7, gap="small")
-    for w in range(7):
-        body = []
-        for b in M.today_blocks(routine, w):
-            body.append(
-                '<div class="tw-stat">'
-                '<span class="k" style="font-family:var(--mono)">'
-                + b["time"] + '</span>'
-                '<span class="v" style="font-size:11px;'
-                'font-family:var(--body);font-weight:600;'
-                'color:var(--ink-2)">' + html.escape(b["label"])
-                + '</span></div>')
-        st.markdown(UI.panel(
-            NAMES[w], "".join(body) or '<div class="tw-empty">rest</div>'),
-            unsafe_allow_html=True) if False else None
-    # panels must be rendered inside their column context:
     cols = st.columns(7, gap="small")
     for w in range(7):
         body = []
