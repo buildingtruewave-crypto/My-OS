@@ -1,5 +1,5 @@
 """HTML / SVG components. Line-icons stroke with currentColor so chips
-tint them. All markup is built with short concatenated strings.
+tint them. Markup is built with short concatenated strings.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import html
 import math
 
 from . import util as U
-from .data import TAG_COLORS
+from .data import (JOURNEY, STAGE_COLOR, STAGE_LABEL, TAG_COLORS)
 
 _SVG_OPEN = (
     '<svg viewBox="0 0 24 24" fill="none" '
@@ -85,7 +85,6 @@ WAVE = (
 )
 
 WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
-
 _HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
 
 
@@ -179,6 +178,11 @@ def badge(text, color):
             + U.hexa(color, 0.13) + ';color:' + color
             + ';border-color:' + U.hexa(color, 0.35) + '">'
             + html.escape(str(text)) + '</span>')
+
+
+def stage_chip(stage):
+    return badge(STAGE_LABEL.get(stage, stage),
+                 STAGE_COLOR.get(stage, "#7C8AA5"))
 
 
 def progress(pct, color):
@@ -329,6 +333,7 @@ def goal_html(g, pct, color):
 
 
 def client_card(c, today):
+    """Compact card used on the dashboard + follow-up lists."""
     heat = c.get("heat", "Warm")
     hcolor = _HEAT.get(heat, "#7C8AA5")
     days = 0
@@ -343,8 +348,13 @@ def client_card(c, today):
         rows.append(("Phone", '<a href="tel:' + p
                      + '" style="color:var(--accent);'
                      + 'text-decoration:none">' + p + '</a>'))
-    if c.get("promised"):
-        rows.append(("Promised", html.escape(c["promised"])))
+    if c.get("next_action"):
+        na = html.escape(c["next_action"])
+        if c.get("next_date"):
+            na += " &middot; " + html.escape(c["next_date"])
+        rows.append(("Next action", na))
+    if c.get("plan"):
+        rows.append(("Plan", html.escape(c["plan"])))
     if c.get("remark"):
         rows.append(("Remark", html.escape(c["remark"])))
     if c.get("why_not"):
@@ -359,10 +369,54 @@ def client_card(c, today):
         '<div class="tw-cc"><div class="tw-cc-top">'
         '<span class="tw-cc-name">'
         + html.escape(str(c.get("name", "?"))) + '</span>'
-        + badge(heat, hcolor) + '</div>'
+        '<span>' + stage_chip(c.get("stage", "new")) + " "
+        + badge(heat, hcolor) + '</span></div>'
         '<div class="tw-cc-meta">' + meta + '</div>'
         + kv(rows) + '</div>'
     )
+
+
+def stepper_html(c):
+    """The client's journey as a glowing dot-line."""
+    cur = c.get("stage", "new")
+    idx = JOURNEY.index(cur) if cur in JOURNEY else -1
+    parts = []
+    for i, sid in enumerate(JOURNEY):
+        if idx >= 0 and i < idx:
+            cls = "done"
+        elif i == idx:
+            cls = "cur"
+        else:
+            cls = ""
+        parts.append('<span class="tw-step ' + cls
+                     + '"><span class="dot"></span>'
+                     + html.escape(STAGE_LABEL.get(sid, sid))
+                     + '</span>')
+        if i < len(JOURNEY) - 1:
+            parts.append('<span class="tw-step-bar"></span>')
+    branch = ""
+    if cur not in JOURNEY:
+        branch = ('<div style="margin:0 0 10px">' + stage_chip(cur)
+                  + '</div>')
+    return ('<div class="tw-steps">' + "".join(parts) + '</div>'
+            + branch)
+
+
+def history_html(hist, limit=15):
+    items = list(hist)[-limit:][::-1]
+    if not items:
+        return ('<div class="tw-empty">No touches logged yet - '
+                'every call and text lands here.</div>')
+    out = []
+    for h in items:
+        stg = h.get("stage", "")
+        chip = (" " + stage_chip(stg)) if stg else ""
+        out.append('<div class="tw-hist"><div class="ts">'
+                   + html.escape(str(h.get("ts", ""))) + chip
+                   + '</div><div class="nt">'
+                   + html.escape(str(h.get("note", "")))
+                   + '</div></div>')
+    return "".join(out)
 
 
 def equity_svg(points, gid="eq", h=260, kind="num", xfmt=None):
@@ -385,7 +439,8 @@ def equity_svg(points, gid="eq", h=260, kind="num", xfmt=None):
         return pt + (1 - (v - vmin) / (vmax - vmin)) * span_y
 
     def ylab(v):
-        return str(int(round(v))) + "%" if kind == "pct" else U.fmt_k(v)
+        return str(int(round(v))) + "%" if kind == "pct" \
+            else U.fmt_k(v)
 
     def xlab(d):
         return xfmt(d) if xfmt else d.strftime("%b %y")
@@ -465,7 +520,7 @@ def bars(rows):
 def hbars(items):
     """items = [(name, value, color), ...] signed horizontal bars."""
     if not items:
-        return '<div class="tw-empty">No data.</div>'
+        return '<div class="tw-empty">No data yet.</div>'
     mx = max([abs(v) for _n, v, _c in items] + [1])
     rows = []
     for i, (name, v, color) in enumerate(items):
