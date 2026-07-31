@@ -1,1 +1,1 @@
-"""PULSE — life command center."""
+"""PULSE - life command center."""
