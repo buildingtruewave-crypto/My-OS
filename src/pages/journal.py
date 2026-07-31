@@ -3,54 +3,60 @@ from __future__ import annotations
 import streamlit as st
 
 from .. import data as D
+from .. import metrics as M
 from .. import ui as UI
+from .. import util as U
 
 
 def render(ctx):
     journal = ctx["journal"]
     today = ctx["today"]
-    intro = (
-        '<div class="tw-empty" '
-        + 'style="padding:4px 0 12px;text-align:left">'
-        + "One entry a day. Gratitude, the win, "
-        + "the lesson, the mood.</div>"
-    )
-    st.markdown(UI.panel("Daily Reflection", intro),
-                unsafe_allow_html=True)
+    streak = M.journal_streak(journal)
+    comp = M.journal_completion(journal, 30)
+    total = len(journal)
+
+    row = [
+        UI.tile("Current Streak", str(streak), "consecutive days",
+                "win" if streak else "mute",
+                "win" if streak else "ink", "flame", "jewel", 0),
+        UI.tile("30-day Completion", U.fmt_pct(comp, False), "consistency",
+                "win" if comp >= 70 else "mute",
+                "win" if comp >= 70 else "ink", "check", "win", 40),
+        UI.tile("Total Entries", str(total), "all time",
+                "mute", "ink", "edit", "accent", 80),
+        UI.tile("Last 7 Days",
+                str(sum(1 for o in range(7)
+                        if (today - __import__("datetime").timedelta(days=o)).isoformat() in journal)),
+                "of 7", "mute", "ink", "star", "accent", 120),
+    ]
+    st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
 
     day = st.date_input("Date", value=today, key="j_date")
     key = day.isoformat()
     cur = journal.get(key, {})
+    st.markdown(UI.panel("Write Today's Entry",
+                         '<div style="height:2px"></div>'),
+                unsafe_allow_html=True)
     a, b = st.columns(2)
     with a:
-        grat = st.text_input(
-            "Grateful for",
-            value=cur.get("gratitude", ""), key="j_g",
-        )
-        win = st.text_input(
-            "Today's win",
-            value=cur.get("win", ""), key="j_w",
-        )
+        grat = st.text_input("Grateful for",
+                             value=cur.get("gratitude", ""), key="j_g")
+        win = st.text_input("Today's win",
+                            value=cur.get("win", ""), key="j_w")
     with b:
-        lesson = st.text_input(
-            "Lesson", value=cur.get("lesson", ""),
-            key="j_l",
-        )
+        lesson = st.text_input("Lesson",
+                               value=cur.get("lesson", ""), key="j_l")
         mood_idx = 2
         if cur.get("mood") in D.MOODS:
             mood_idx = D.MOODS.index(cur["mood"])
-        mood = st.selectbox("Mood", D.MOODS,
-                            index=mood_idx, key="j_m")
+        mood = st.selectbox("Mood", D.MOODS, index=mood_idx, key="j_m")
     s1, s2, _ = st.columns([1, 1, 4])
     with s1:
-        if st.button("Save entry", type="primary",
-                     key="j_save"):
+        if st.button("Save entry", type="primary", key="j_save"):
             j = dict(journal)
             if any([grat, win, lesson]):
-                j[key] = {
-                    "gratitude": grat, "win": win,
-                    "lesson": lesson, "mood": mood,
-                }
+                j[key] = {"gratitude": grat, "win": win,
+                          "lesson": lesson, "mood": mood}
             else:
                 j.pop(key, None)
             D.save_journal(j)
@@ -67,12 +73,9 @@ def render(ctx):
                 unsafe_allow_html=True)
     recent = sorted(journal.items(), reverse=True)[:12]
     if recent:
-        body = "".join(UI.journal_card(d, e)
-                       for d, e in recent)
+        body = "".join(UI.journal_card(d, e) for d, e in recent)
         st.markdown(UI.panel("Recent entries", body),
                     unsafe_allow_html=True)
     else:
-        st.markdown(
-            UI.empty_state("No entries yet."),
-            unsafe_allow_html=True,
-        )
+        st.markdown(UI.empty_state("No entries yet."),
+                    unsafe_allow_html=True)
