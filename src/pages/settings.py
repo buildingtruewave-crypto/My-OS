@@ -19,8 +19,8 @@ def render(ctx):
         if name != st.session_state.get("name"):
             D.set_pref("name", name)
         cur = st.session_state.get("accent", "#4C8DFF")
-        cur_label = next((k for k, v in D.ACCENTS.items() if v == cur),
-                         "Electric Blue")
+        cur_label = next((k for k, v in D.ACCENTS.items()
+                          if v == cur), "Electric Blue")
         keys = list(D.ACCENTS.keys())
         acc = st.radio("accent", keys, index=keys.index(cur_label),
                        label_visibility="collapsed", key="s_acc")
@@ -51,7 +51,7 @@ def render(ctx):
         st.markdown(UI.kv([
             ("Recording starts", "Friday, 1 August 2026"),
             ("Timezone", "Africa/Nairobi (EAT, UTC+3)"),
-            ("Persistence", "data/*.json - survives reboot"),
+            ("Persistence", "data/*.json - every write is instant"),
             ("Fake data", "none - everything is hand-entered"),
         ]), unsafe_allow_html=True)
         ea, eb = st.columns(2)
@@ -73,7 +73,7 @@ def render(ctx):
         '<div class="tw-stat"><span class="k">VPS</span>'
         '<span class="v">docker compose up -d</span></div>'
         '<div class="tw-stat"><span class="k">Phone</span>'
-        '<span class="v">open the same URL - layout is responsive</span>'
+        '<span class="v">same URL - layout is fully responsive</span>'
         '</div>'
         '<div class="tw-stat"><span class="k">Design rule</span>'
         '<span class="v tw-accent">colour = outcome - routine = spine'
