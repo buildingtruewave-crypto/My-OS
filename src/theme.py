@@ -1,8 +1,7 @@
 """The whole design language in one static stylesheet.
-Colour encodes outcome (done / missed); the blue line is the only glowing
-spine; chrome stays cold slate. Motion is pure CSS so it survives
-Streamlit's no-JS markdown sandbox. Under 760px every Streamlit row
-stacks to one column so the whole OS lives on a phone.
+Colour encodes outcome; the blue line is the glowing spine; an EKG pulse
+is the signature heartbeat. Motion is pure CSS so it survives Streamlit's
+no-JS markdown sandbox. Under 760px every row stacks for the phone.
 """
 
 CSS = (
@@ -69,6 +68,13 @@ CSS = (
 "@keyframes tw-pulse2{0%{box-shadow:0 0 0 0 var(--accent);}"
 "70%{box-shadow:0 0 0 8px transparent;}"
 "100%{box-shadow:0 0 0 0 transparent;}}\n"
+"@keyframes tw-ekg{from{stroke-dashoffset:1240;}"
+"to{stroke-dashoffset:0;}}\n"
+".tw-ekg{width:100%;height:34px;display:block;margin:-4px 0 10px;}\n"
+".tw-ekg-line{fill:none;stroke:var(--accent);stroke-width:2;"
+"stroke-linecap:round;stroke-linejoin:round;"
+"filter:drop-shadow(0 0 6px rgba(76,141,255,.7));"
+"stroke-dasharray:300 940;animation:tw-ekg 2.8s linear infinite;}\n"
 ".tw-greet{display:flex;align-items:center;gap:.55rem;"
 "padding:.3rem 0 .1rem;}\n"
 ".tw-greet-hi{font:500 15px/1 var(--body);color:var(--mute);}\n"
@@ -368,6 +374,14 @@ CSS = (
 "label>div:first-child{display:none;}\n"
 ".stExpander{background:var(--panel);border:1px solid var(--hair);"
 "border-radius:12px;}\n"
+".stTabs [data-baseweb='tab-list']{gap:8px;"
+"border-bottom:1px solid var(--hair);}\n"
+".stTabs [data-baseweb='tab']{background:var(--panel);"
+"border:1px solid var(--hair);border-radius:9px 9px 0 0;"
+"color:var(--mute);font:600 12px var(--disp);padding:8px 16px;}\n"
+".stTabs [aria-selected='true']{background:var(--accent-soft);"
+"color:var(--ink);border-color:var(--accent);}\n"
+".stTabs [data-baseweb='tab-highlight']{background:var(--accent);}\n"
 ".stSelectbox label,.stTextInput label,.stDateInput label,"
 ".stNumberInput label,.stTimeInput label,.stMultiSelect label,"
 ".stTextArea label{font:600 10px/1 var(--disp)!important;"
