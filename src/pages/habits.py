@@ -25,8 +25,8 @@ def render(ctx):
     best = M.best_habit_streak(log, habits)
 
     row = [
-        UI.tile("Consistency 30d", U.fmt_pct(cons, False), "all habits",
-                "win" if cons >= 70 else "mute",
+        UI.tile("Consistency 30d", U.fmt_pct(cons, False),
+                "all habits", "win" if cons >= 70 else "mute",
                 "win" if cons >= 70 else "ink", "pulse", "win", 0),
         UI.tile("Done Today", str(done_today) + "/" + str(total_h),
                 "checked", "mute", "ink", "check", "accent", 40),
