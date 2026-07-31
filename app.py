@@ -1,4 +1,4 @@
-"""PULSE - Life Command Center (TrueWave edition). Entry point.
+"""PULSE - Life Command Center. The heart of the whole operation.
 Run:  pip install -r requirements.txt && streamlit run app.py
 Time: Africa/Nairobi (EAT). Recording starts Friday 1 August 2026.
 """
@@ -132,5 +132,7 @@ with s:
         '<div class="tw-lab">life score</div>'
         '<div class="tw-val ' + tone + '" style="font-size:30px">'
         + sv + "</div></div>", unsafe_allow_html=True)
+
+st.markdown(UI.ekg_html(), unsafe_allow_html=True)
 
 PAGES[page_name].render(ctx)
