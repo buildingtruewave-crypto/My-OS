@@ -234,7 +234,7 @@ def render(ctx):
             'MONEY &middot; LOCKED</div>'
             + UI.progress(pct, "var(--accent)")
             + UI.kv([("Net worth", "KSh " + U.fmt_k(net)),
-                     ("Cash on hand", "KSh " + U.fmt_k(cash)]))
+                     ("Cash on hand", "KSh " + U.fmt_k(cash))]))
         )
         st.markdown(UI.panel("Archive", body, right="PIN"),
                     unsafe_allow_html=True)
