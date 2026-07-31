@@ -1,5 +1,5 @@
 """The day's record. The Day Pulse is picked up automatically from
-TrueWave, Sales, Income, Flow, Bots, Tasks and Body - no re-typing."""
+TrueWave, Sales, Income, Money, Bots, Tasks and Body - no re-typing."""
 from __future__ import annotations
 
 import streamlit as st
@@ -48,6 +48,8 @@ def _pulse_html(p):
                   else -float(f["amount"]) for f in p["flow"])
         pairs.append(("Daily flow", str(len(p["flow"]))
                       + " entries - net " + U.fmt_kes(net, True)))
+    pairs.append(("Net worth", U.fmt_kes(p["net_worth"])))
+    pairs.append(("Cash on hand", U.fmt_kes(p["cash"])))
     if p["bot_logs"]:
         net = sum(float(l["pnl"]) for l in p["bot_logs"])
         pairs.append(("Bot logs", str(len(p["bot_logs"]))
@@ -57,8 +59,6 @@ def _pulse_html(p):
     if p["weight"]:
         pairs.append(("Weigh-in",
                       U.fmt_num(p["weight"]["kg"]) + " kg"))
-    if not pairs:
-        return UI.empty_state("Quiet day - nothing logged yet.")
     return UI.kv(pairs)
 
 
