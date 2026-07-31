@@ -1,7 +1,11 @@
+"""The weekly / monthly review - how the whole operation is managing."""
 from __future__ import annotations
+
+import datetime as dt
 
 import streamlit as st
 
+from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
@@ -10,67 +14,69 @@ WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def render(ctx):
-    habits = ctx["habits"]
-    log = ctx["habit_log"]
-    goals = ctx["goals"]
-    journal = ctx["journal"]
-    ts = ctx["trade"]
-    trades = ctx["trades"]
+    habits, log = ctx["habits"], ctx["habit_log"]
+    goals, journal = ctx["goals"], ctx["journal"]
+    daily, sales = ctx["sales_daily"], ctx["sales"]
+    clients, bots = ctx["clients"], ctx["bots"]
+    weights, today = ctx["weights"], ctx["today"]
+    t_iso, score = ctx["today_iso"], ctx["score"]
 
     cons = M.overall_consistency(habits, log, 30)
     jcomp = M.journal_completion(journal, 30)
-    if goals:
-        gavg = sum(M.goal_pct(g) for g in goals) / len(goals)
-    else:
-        gavg = 0.0
-    score = M.life_score(cons, jcomp, ts["wr"], gavg)
     jstreak = M.journal_streak(journal)
-
-    if score >= 70:
-        s_d, s_v = "win", "win"
-    elif score < 40:
-        s_d, s_v = "loss", "loss"
-    else:
-        s_d, s_v = "mute", "ink"
+    gavg = (sum(M.goal_pct(g) for g in goals) / len(goals)) \
+        if goals else 0.0
+    com = M.commission_stats(sales, t_iso)
+    cc = M.client_counts(clients, today)
+    wk = M.week_sales(daily, today, 7)
+    sold_week = sum(v for _l, v in wk)
+    clients_week = sum(1 for c in clients
+                       if c.get("created", "") >=
+                       (today - dt.timedelta(days=6)).isoformat())
+    wdelta = M.weight_delta(weights)
+    days_in = max(0, (today - D.START_DATE).days + 1) \
+        if ctx["started"] else 0
 
     row = [
-        UI.tile("Life Score", str(score), "composite 0-100", s_d, s_v,
+        UI.tile("Life Score",
+                str(score) if score is not None else "--",
+                "composite 0-100", "mute",
+                "win" if (score or 0) >= 70 else "ink",
                 "star", "jewel", 0),
-        UI.tile("Consistency", U.fmt_pct(cons, False), "30-day habits",
-                "mute", "ink", "pulse", "win", 40),
-        UI.tile("Journal", U.fmt_pct(jcomp, False),
-                "streak " + str(jstreak), "mute", "ink",
-                "edit", "accent", 80),
-        UI.tile("Trade Win Rate", U.fmt_pct(ts["wr"], False),
-                str(ts["n"]) + " trades", "mute", "ink",
-                "target", "jewel", 120),
-        UI.tile("Goal Progress", U.fmt_pct(gavg, False),
-                str(len(goals)) + " active", "mute", "ink",
-                "flag", "accent", 160),
+        UI.tile("Recording Day", str(days_in), "since Aug 1, 2026",
+                "mute", "ink", "cal", "accent", 40),
+        UI.tile("Sold This Week", str(sold_week), "phones",
+                "win" if sold_week else "mute",
+                "win" if sold_week else "ink", "phone", "win", 80),
+        UI.tile("New Clients 7d", str(clients_week), "inquiries",
+                "mute", "ink", "users", "accent", 120),
+        UI.tile("Weight Change", format(wdelta, "+,.1f") + " kg",
+                "since first weigh-in",
+                "win" if wdelta >= 0 else "loss", "ink",
+                "scale", "jewel", 160),
     ]
     st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
 
-    first_name = habits[0]["name"] if habits else "habit"
-    first_streak = M.habit_streak(log, habits[0]["id"]) if habits else 0
-    st.markdown(
-        UI.streaks_html([
-            (first_streak, first_name, "win"),
-            (jstreak, "journal days", "accent"),
-            (ts["win_streak"], "trade wins", "win"),
-            (ts["loss_streak"], "trade losses", "loss"),
-        ]),
-        unsafe_allow_html=True,
-    )
+    w_streak = 0
+    for h in habits:
+        if h["name"].startswith("Workout"):
+            w_streak = M.habit_streak(log, h["id"])
+    st.markdown(UI.streaks_html([
+        (jstreak, "journal days", "accent"),
+        (M.sales_streak(daily, today), "sales tallies", "win"),
+        (w_streak, "workout", "jewel"),
+        (M.best_habit_streak(log, habits), "best habit", "win"),
+    ]), unsafe_allow_html=True)
 
-    # consistency trend line (the glowing spine, in %)
-    series = M.consistency_series(log, habits, 30)
-    st.markdown(
-        UI.panel("Consistency Trend",
-                 UI.equity_svg(series, "st_eq", kind="pct",
-                               xfmt=lambda d: d.strftime("%d")),
-                 right="last 30 days"),
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='height:10px'></div>",
+                unsafe_allow_html=True)
+    if any(log.values()):
+        series = M.consistency_series(log, habits, 30)
+        st.markdown(UI.panel(
+            "Consistency Trend",
+            UI.equity_svg(series, "st_eq", kind="pct",
+                          xfmt=lambda d: d.strftime("%d")),
+            right="last 30 days"), unsafe_allow_html=True)
 
     c1, c2 = st.columns(2, gap="medium")
     with c1:
@@ -78,61 +84,77 @@ def render(ctx):
         items = []
         for i, nm in enumerate(WEEK):
             v = cwd[i]
-            if v >= 60:
-                color = "#34D399"
-            elif v < 35:
-                color = "#F0556B"
-            else:
-                color = "#F5B544"
+            color = ("#34D399" if v >= 60 else
+                     ("#F0556B" if v < 35 else "#F5B544"))
             items.append((nm, v - 50, color))
         st.markdown(UI.panel("Consistency by Weekday",
-                             UI.hbars(items)),
-                    unsafe_allow_html=True)
+                             UI.hbars(items)), unsafe_allow_html=True)
     with c2:
-        mat = M.trade_heatmap(trades)
-        st.markdown(
-            UI.panel("Trading - Weekday x Session",
-                     UI.heatmap_html(mat, WEEK, M.HOUR_BUCKETS)),
-            unsafe_allow_html=True,
-        )
+        st.markdown(UI.panel("Phones Sold - last 7 days",
+                             UI.bars(wk), right="per day"),
+                    unsafe_allow_html=True)
 
     c3, c4 = st.columns(2, gap="medium")
     with c3:
-        last = [(today_iso(o)) for o in range(30)]
-        done = 0
-        missed = 0
-        for h in habits:
-            s = log.get(h["id"], {})
-            for d in last:
-                if s.get(d):
-                    done += 1
-                elif d in s:
-                    missed += 1
-        segs = [("Done", done, "#34D399"),
-                ("Missed", missed, "#F0556B")]
-        tot = max(done + missed, 1)
-        st.markdown(
-            UI.panel("Habit Outcomes - 30d",
-                     UI.donut(segs, str(tot), "checks", tot)),
-            unsafe_allow_html=True,
-        )
+        rows = []
+        for b in bots["bots"]:
+            s = M.bot_stats(bots["logs"], b["id"])
+            chip = {"testing": ("TESTING", "#F5B544"),
+                    "demo": ("DEMO", "#7C8AA5"),
+                    "live": ("LIVE", "#34D399")}.get(
+                        b["status"], ("?", "#7C8AA5"))
+            tone = "tw-win" if s["pnl"] >= 0 else "tw-loss"
+            rows.append([
+                (b["name"], ""),
+                (UI.badge(chip[0], chip[1]), ""),
+                (str(s["n"]), "num"),
+                (format(s["wr"], ".0f") + "%", "num"),
+                ('<span class="' + tone + '">'
+                 + format(s["pnl"], "+,.2f") + "</span>", "num"),
+                (format(s["rr"], ".2f") + ":1", "num"),
+            ])
+        st.markdown(UI.panel("Ventures - Risk vs Reward",
+                             UI.table(["Venture", "Status", "Logs",
+                                       "WR", "Net", "RR"], rows)),
+                    unsafe_allow_html=True)
     with c4:
-        body = (
-            '<div class="tw-stat"><span class="k">Life score formula</span>'
-            + '<span class="v">40/20/20/20</span></div>'
-            + '<div class="tw-stat"><span class="k">Consistency weight</span>'
-            + '<span class="v">40%</span></div>'
-            + '<div class="tw-stat"><span class="k">Journal weight</span>'
-            + '<span class="v">20%</span></div>'
-            + '<div class="tw-stat"><span class="k">Trade win weight</span>'
-            + '<span class="v">20%</span></div>'
-            + '<div class="tw-stat"><span class="k">Goal weight</span>'
-            + '<span class="v">20%</span></div>'
-        )
-        st.markdown(UI.panel("How the Score Works", body),
+        body = UI.kv([
+            ("Commissions collected", U.fmt_kes(com["paid"])),
+            ("Commissions pending", U.fmt_kes(com["pending"])),
+            ("Instalments overdue", str(len(com["overdue"]))),
+            ("Clients sold", str(cc["sold"])),
+            ("Rejected (sys + cash)", str(cc["rej"])),
+            ("Follow-ups open", str(cc["open"])),
+        ])
+        st.markdown(UI.panel("TrueWave - since Aug 1", body),
                     unsafe_allow_html=True)
 
-
-def today_iso(o):
-    import datetime as dt
-    return (dt.date.today() - dt.timedelta(days=o)).isoformat()
+    c5, c6 = st.columns(2, gap="medium")
+    with c5:
+        done_n = miss_n = 0
+        for h in habits:
+            s = log.get(h["id"], {})
+            for d, v in s.items():
+                if v:
+                    done_n += 1
+                else:
+                    miss_n += 1
+        if done_n + miss_n:
+            tot = done_n + miss_n
+            st.markdown(UI.panel(
+                "Habit Outcomes - all time",
+                UI.donut([("Done", done_n, "#34D399"),
+                          ("Missed", miss_n, "#F0556B")],
+                         str(tot), "checks", tot)),
+                unsafe_allow_html=True)
+        else:
+            st.markdown(UI.panel("Habit Outcomes", UI.empty_state(
+                "Checks start Aug 1.")), unsafe_allow_html=True)
+    with c6:
+        st.markdown(UI.panel("How the Score Works", UI.kv([
+            ("Life score formula", "40/20/20/20"),
+            ("Consistency weight", "40%"),
+            ("Journal weight", "20%"),
+            ("Sales logging weight", "20%"),
+            ("Goal weight", "20%"),
+        ])), unsafe_allow_html=True)
