@@ -32,7 +32,7 @@ def render(ctx):
         UI.tile("Cash-Only Rejects", str(cash30), "30 days",
                 "mute", "ink", "cash", "jewel", 80),
         UI.tile("Commissions Pending",
-                "KSh " + U.fmt_k(com["pending"]), "uncollected",
+                "KSh " + U.fmt_k(com["pending"]), "expected",
                 "mute", "ink", "clock", "accent", 120),
         UI.tile("Locked Overdue", str(len(locked)),
                 "KSh " + U.fmt_k(sum(float(i.get("amount", 0))
