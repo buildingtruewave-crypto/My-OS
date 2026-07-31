@@ -1,3 +1,7 @@
+"""Settings - profile, look, data engine. NOTE: the vault access code is
+NOT here. It is a fixed constant (ARCHIVE_PIN) in src/data.py, never shown
+or editable in the app, so no one at the screen can read it.
+"""
 from __future__ import annotations
 
 import streamlit as st
@@ -35,15 +39,9 @@ def render(ctx):
             D.set_pref("tz_offset", float(off))
         st.caption("Clock is Africa/Nairobi (EAT). Adjust only if "
                    "the host drifts.")
-        pin = st.text_input("Archive PIN", type="password",
-                            value=str(st.session_state.get(
-                                "pin", D.DEFAULT_PIN)), key="s_pin")
-        if st.button("Save PIN", key="s_pinb"):
-            D.set_pref("pin", pin.strip() or D.DEFAULT_PIN)
-            st.success("PIN saved.")
-            st.rerun()
-        st.caption("The money manager hides inside the Archive nav "
-                   "item. Default PIN is 2580 - change it.")
+        st.caption("The Archive (your money) is locked by a fixed "
+                   "access code set in the source - it is never shown "
+                   "or changeable here, so the screen can't leak it.")
     with c2:
         st.markdown(UI.panel("Data Engine",
                              '<div style="height:2px"></div>'),
@@ -52,6 +50,8 @@ def render(ctx):
             ("Recording starts", "Friday, 1 August 2026"),
             ("Timezone", "Africa/Nairobi (EAT, UTC+3)"),
             ("Persistence", "data/*.json - every write is instant"),
+            ("Pipeline", "editable on the TrueWave page"),
+            ("Balances", "vault only - never on public pages"),
             ("Fake data", "none - everything is hand-entered"),
         ]), unsafe_allow_html=True)
         ea, eb = st.columns(2)
@@ -65,8 +65,8 @@ def render(ctx):
                          disabled=not confirm):
                 D.reset_all()
                 st.rerun()
-        st.caption("Wipe keeps your routine, habit names and profile "
-                   "but clears every record back to empty.")
+        st.caption("Wipe keeps your routine, habit names, pipeline "
+                   "and profile but clears every record to empty.")
     deploy = (
         '<div class="tw-stat"><span class="k">Now</span>'
         '<span class="v">streamlit run app.py</span></div>'
