@@ -1,14 +1,43 @@
-"""Formatting + colour helpers (no Streamlit dependency)."""
+"""Formatting, colour and Nairobi-time helpers (no Streamlit dep)."""
 from __future__ import annotations
 
+import datetime as dt
 
-def fmt_money(x, sign=False):
+
+def now_local():
+    """Wall-clock time in Africa/Nairobi (EAT, UTC+3, no DST)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.datetime.now(ZoneInfo("Africa/Nairobi"))
+    except Exception:
+        return dt.datetime.utcnow() + dt.timedelta(hours=3)
+
+
+def today_local():
+    return now_local().date()
+
+
+def fmt_kes(x, sign=False):
     try:
         x = float(x)
     except (TypeError, ValueError):
-        return "$0.00"
+        return "KSh 0"
     pre = "-" if x < 0 else ("+" if sign else "")
-    return pre + "$" + format(abs(x), ",.2f")
+    return pre + "KSh " + format(abs(x), ",.0f")
+
+
+def fmt_k(x, sign=False):
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return "0"
+    pre = "-" if x < 0 else ("+" if sign else "")
+    a = abs(x)
+    if a >= 1000000:
+        return pre + format(a / 1000000, ".1f") + "m"
+    if a >= 1000:
+        return pre + format(a / 1000, ".1f") + "k"
+    return pre + format(a, ".0f")
 
 
 def fmt_pct(x, sign=True, d=1):
@@ -17,20 +46,18 @@ def fmt_pct(x, sign=True, d=1):
     except (TypeError, ValueError):
         return "0.0%"
     pre = "-" if x < 0 else ("+" if sign else "")
-    spec = ",." + str(d) + "f"
-    return pre + format(abs(x), spec) + "%"
+    return pre + format(abs(x), ",." + str(d) + "f") + "%"
 
 
 def fmt_num(x, d=1):
     try:
-        spec = ",." + str(d) + "f"
-        return format(float(x), spec)
+        return format(float(x), ",." + str(d) + "f")
     except (TypeError, ValueError):
         return "0"
 
 
 def hexa(color, alpha):
-    h = color.lstrip("#")
+    h = str(color).lstrip("#")
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
     try:
@@ -39,12 +66,11 @@ def hexa(color, alpha):
         b = int(h[4:6], 16)
     except ValueError:
         r, g, b = 76, 141, 255
-    return ("rgba(" + str(r) + "," + str(g) + ","
-            + str(b) + "," + str(alpha) + ")")
+    return "rgba(%d,%d,%d,%s)" % (r, g, b, alpha)
 
 
 def initials(name):
-    p = [x for x in name.replace(".", " ").split() if x]
+    p = [x for x in str(name).replace(".", " ").split() if x]
     if not p:
         return "?"
     if len(p) == 1:
@@ -53,20 +79,13 @@ def initials(name):
 
 
 def slug(s):
-    out = []
-    for ch in str(s).lower():
-        out.append(ch if ch.isalnum() else "_")
-    return "".join(out).strip("_") or "x"
+    out = [ch for ch in str(s).lower() if ch.isalnum()]
+    return "".join(out) or "x"
 
 
-TONE = {
-    "win": "tw-win",
-    "loss": "tw-loss",
-    "ink": "tw-ink",
-    "accent": "tw-accent",
-    "mute": "tw-mute",
-    "jewel": "tw-jewel",
-}
+TONE = {"win": "tw-win", "loss": "tw-loss", "ink": "tw-ink",
+        "accent": "tw-accent", "mute": "tw-mute",
+        "jewel": "tw-jewel"}
 
 
 def tone_cls(t):
