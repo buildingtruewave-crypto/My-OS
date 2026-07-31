@@ -1,15 +1,23 @@
 """TrueWave - the full client journey, from the first ad-text to the
-closed deal. Opens with a live Call Sheet so you always know who to
-phone next. Every stage is timestamped; the memory of each client is
-total, so you talk like you remember everything - because you do.
+closed deal. Opens with a live Call Sheet. The conversion pipeline and
+payment plans are fully editable from the panel at the bottom: rename,
+recolor, reorder, add stages, mark the linear path and tag the roles the
+engine needs. Change business, keep the machine.
 """
 from __future__ import annotations
+
+import html
 
 import streamlit as st
 
 from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
+from .. import util as U
+
+
+def _plan_options():
+    return [""] + [p["label"] for p in D.get_plans()]
 
 
 def _add_lead(ctx):
@@ -37,13 +45,13 @@ def _add_lead(ctx):
 
 def _journey(c, ctx, k):
     today, now_str = ctx["today"], ctx["now_str"]
+    ids = D.all_stage_ids()
     st.markdown(UI.stepper_html(c), unsafe_allow_html=True)
     j1, j2 = st.columns([2, 1])
     with j1:
-        cur_idx = D.STAGE_IDS.index(c["stage"]) \
-            if c["stage"] in D.STAGE_IDS else 0
-        ns = st.selectbox("Move to stage", D.STAGE_IDS,
-                          format_func=lambda s: D.STAGE_LABEL[s],
+        cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
+        ns = st.selectbox("Move to stage", ids,
+                          format_func=D.stage_label,
                           index=cur_idx, key=k + "st")
     with j2:
         st.markdown("<div style='height:26px'></div>",
@@ -53,7 +61,7 @@ def _journey(c, ctx, k):
                 D.set_stage(c["id"], ns, now_str)
                 st.rerun()
 
-    plan_opts = [""] + list(D.PLANS.keys())
+    plan_opts = _plan_options()
     cur_p = c.get("plan", "") or ""
     pi = plan_opts.index(cur_p) if cur_p in plan_opts else 0
     plan = st.radio("Payment plan", plan_opts, index=pi,
@@ -65,11 +73,13 @@ def _journey(c, ctx, k):
                         "Plan -> " + (plan or "none"))
         st.rerun()
     if plan:
-        st.caption(D.PLANS[plan])
+        note = D.plan_note(plan)
+        if note:
+            st.caption(note)
 
     q1, q2 = st.columns(2)
     with q1:
-        qual = st.text_input("Qualified phones (M-Pesa review)",
+        qual = st.text_input("Qualified (M-Pesa review)",
                              value=c.get("qualified", ""),
                              key=k + "qf")
         dep = st.number_input("Deposit (KSh)", 0.0, 1000000.0,
@@ -94,6 +104,11 @@ def _journey(c, ctx, k):
 
 def _verify(c, ctx, k):
     today, now_str = ctx["today"], ctx["now_str"]
+    ids = D.all_stage_ids()
+    dr = D.role_id("delivered")
+    wr = D.role_id("won")
+    rr = D.role_id("returned")
+
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
                 'DOCS &amp; VERIFICATION</div>',
                 unsafe_allow_html=True)
@@ -125,12 +140,23 @@ def _verify(c, ctx, k):
         "Credit team outcome", D.CREDIT_OUTCOMES,
         index=D.CREDIT_OUTCOMES.index(cur_credit)
         if cur_credit in D.CREDIT_OUTCOMES else 0, key=k + "cr")
-    if credit != cur_credit:
+    default_stage = c.get("stage", "")
+    if credit == "CASH OFFER - CREDIT":
+        cand = D.role_id("cash")
+        if cand and cand in ids:
+            default_stage = cand
+    ri = ids.index(default_stage) if default_stage in ids else 0
+    res_stage = st.selectbox("Resulting stage", ids, index=ri,
+                             format_func=D.stage_label,
+                             key=k + "rs")
+    if st.button("Save credit & stage", key=k + "cs"):
         patch = {"credit": credit}
-        if credit == "CASH OFFER - CREDIT":
-            patch["stage"] = "cash_offer"
+        if credit != "pending":
+            patch["stage"] = res_stage
         D.update_client(c["id"], patch, now_str,
-                        "Credit -> " + credit)
+                        "Credit -> " + credit
+                        + (" / stage -> " + D.stage_label(res_stage)
+                           if credit != "pending" else ""))
         st.rerun()
 
     st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
@@ -152,34 +178,40 @@ def _verify(c, ctx, k):
     e1, e2, e3 = st.columns(3)
     with e1:
         dd = st.date_input("delivered date", value=today, key=k + "dd")
-        if st.button("Set delivered", key=k + "ds"):
+        if st.button("Set delivered", key=k + "ds",
+                     disabled=dr is None):
             D.update_client(
                 c["id"],
-                {"delivered_date": dd.isoformat(),
-                 "stage": "delivered"},
-                now_str, "Phone delivered - 7-day return window OPEN")
+                {"delivered_date": dd.isoformat(), "stage": dr},
+                now_str, "Delivered - 7-day return window OPEN")
             st.rerun()
+        if dr is None:
+            st.caption("tag a stage 'delivered'")
     with e2:
         if st.button("Mark PAID", key=k + "pd",
-                     disabled=bool(c.get("paid"))):
+                     disabled=(wr is None) or bool(c.get("paid"))):
             D.update_client(
                 c["id"],
                 {"paid": True, "paid_date": today.isoformat(),
-                 "stage": "paid"},
+                 "stage": wr},
                 now_str, "Client PAID - deal closed")
             st.rerun()
+        if wr is None:
+            st.caption("tag a stage 'won'")
     with e3:
         window_open = bool(w) and not w["closed"]
         if st.button("Mark RETURNED", key=k + "rt",
-                     disabled=bool(c.get("returned"))
+                     disabled=(rr is None) or bool(c.get("returned"))
                      or not window_open):
             D.update_client(
                 c["id"],
                 {"returned": True,
                  "returned_date": today.isoformat(),
-                 "stage": "returned"},
+                 "stage": rr},
                 now_str, "Phone RETURNED inside the window")
             st.rerun()
+        if rr is None:
+            st.caption("tag a stage 'returned'")
 
     r1, r2 = st.columns(2)
     with r1:
@@ -188,7 +220,7 @@ def _verify(c, ctx, k):
     with r2:
         why = st.text_input("Why not today?",
                             value=c.get("why_not", ""), key=k + "wn")
-    if st.button("Save remarks", key=k + "rs"):
+    if st.button("Save remarks", key=k + "rs2"):
         D.update_client(c["id"], {"remark": rem, "why_not": why},
                         now_str)
         st.rerun()
@@ -212,7 +244,7 @@ def _memory(c, ctx, k):
 def _client_block(c, ctx):
     k = "c" + c["id"]
     label = (str(c.get("name", "?")) + "  ·  "
-             + D.STAGE_LABEL.get(c.get("stage", "new"), "?") + "  ·  "
+             + D.stage_label(c.get("stage", "new"), "?") + "  ·  "
              + str(c.get("phone", "")))
     with st.expander(label):
         d1, d2, d3 = st.columns([5, 4, 3], gap="medium")
@@ -222,6 +254,188 @@ def _client_block(c, ctx):
             _verify(c, ctx, k)
         with d3:
             _memory(c, ctx, k)
+
+
+def _pipeline_editor():
+    obj = D.get_pipeline_obj()
+    stages = list(obj.get("stages", []))
+    plans = list(obj.get("plans", []))
+    counts = M.stage_counts(st.session_state["clients"])
+    with st.expander("⚙  Configure my conversion pipeline & plans"):
+        st.caption(
+            "Change businesses without touching code. Rename, recolor, "
+            "reorder or add stages; mark which sit on the linear path; "
+            "tag the five roles the engine needs (won / lost / cash / "
+            "delivered / returned) - one stage each. The dashboard, call "
+            "sheet, search and funnel all follow. Edit your payment "
+            "plans too.")
+        st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
+                    'STAGES - IN ORDER</div>',
+                    unsafe_allow_html=True)
+        for i, s in enumerate(stages):
+            cnt = counts.get(s["id"], 0)
+            c1, c2, c3, c4, c5, c6 = st.columns(
+                [2.6, 1.3, 1.5, 0.6, 0.6, 0.6])
+            with c1:
+                st.markdown(
+                    '<div style="padding-top:8px;font:600 13px '
+                    'var(--body);color:var(--ink-2)">'
+                    + html.escape(s.get("label", "?")) + '</div>',
+                    unsafe_allow_html=True)
+            with c2:
+                st.markdown(
+                    '<div style="padding-top:8px">'
+                    + UI.badge(D.ROLE_LABEL.get(s.get("role", ""),
+                                              "—"),
+                               s.get("color", "#7C8AA5")) + '</div>',
+                    unsafe_allow_html=True)
+            with c3:
+                st.markdown(
+                    '<div style="padding-top:8px" class="tw-sub">'
+                    + ("on path" if s.get("track") else "branch")
+                    + " · " + str(cnt) + " here</div>",
+                    unsafe_allow_html=True)
+            with c4:
+                if st.button("▲", key="pu" + s["id"],
+                             disabled=i == 0):
+                    stages[i - 1], stages[i] = stages[i], stages[i - 1]
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+            with c5:
+                if st.button("▼", key="pd" + s["id"],
+                             disabled=i == len(stages) - 1):
+                    stages[i + 1], stages[i] = stages[i], stages[i + 1]
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+            with c6:
+                if st.button("✕", key="px" + s["id"],
+                             disabled=cnt > 0 or len(stages) <= 1):
+                    stages.pop(i)
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+        a1, a2, a3 = st.columns([3, 1.4, 1])
+        with a1:
+            nl = st.text_input("new stage label", key="ns_l")
+        with a2:
+            nc = st.color_input("color", value="#4C8DFF", key="ns_c")
+        with a3:
+            st.markdown("<div style='height:26px'></div>",
+                        unsafe_allow_html=True)
+            if st.button("Add stage", key="ns_add") and nl.strip():
+                nid = U.slug(nl)
+                base = nid
+                kk = 2
+                while any(x["id"] == nid for x in stages):
+                    nid = base + str(kk)
+                    kk += 1
+                stages.append({"id": nid, "label": nl.strip(),
+                               "color": nc, "track": False,
+                               "role": ""})
+                obj["stages"] = stages
+                D.save_pipeline_obj(obj)
+                st.rerun()
+
+        with st.form("pf"):
+            st.markdown('<div class="tw-lab" style="margin:8px 0 8px">'
+                        'EDIT LABELS / COLOR / PATH / ROLE</div>',
+                        unsafe_allow_html=True)
+            new_labels = {}
+            new_colors = {}
+            new_tracks = {}
+            new_roles = {}
+            for s in stages:
+                r1, r2, r3, r4 = st.columns([2.4, 1.2, 1.2, 1.8])
+                cur_role = s.get("role", "")
+                role_idx = D.ROLES.index(cur_role) \
+                    if cur_role in D.ROLES else 0
+                with r1:
+                    new_labels[s["id"]] = st.text_input(
+                        "label", value=s.get("label", ""),
+                        key="fl_" + s["id"])
+                with r2:
+                    new_colors[s["id"]] = st.color_input(
+                        "color", value=s.get("color", "#7C8AA5"),
+                        key="fc_" + s["id"])
+                with r3:
+                    new_tracks[s["id"]] = st.checkbox(
+                        "on path", value=bool(s.get("track")),
+                        key="ft_" + s["id"])
+                with r4:
+                    new_roles[s["id"]] = st.selectbox(
+                        "role", D.ROLES, index=role_idx,
+                        format_func=lambda r: D.ROLE_LABEL.get(r, r),
+                        key="fr_" + s["id"])
+            st.markdown('<div class="tw-lab" style="margin:12px 0 8px">'
+                        'PAYMENT PLANS</div>',
+                        unsafe_allow_html=True)
+            plan_labels = {}
+            plan_notes = {}
+            for p in plans:
+                q1, q2 = st.columns([2, 3])
+                with q1:
+                    plan_labels[p["id"]] = st.text_input(
+                        "plan", value=p.get("label", ""),
+                        key="pl_" + p["id"])
+                with q2:
+                    plan_notes[p["id"]] = st.text_input(
+                        "note", value=p.get("note", ""),
+                        key="pn_" + p["id"])
+            na2, nb2 = st.columns([3, 2])
+            with na2:
+                new_plan = st.text_input("new plan label", key="np_l")
+            with nb2:
+                new_plan_note = st.text_input("new plan note",
+                                              key="np_n")
+            submitted = st.form_submit_button(
+                "Save labels / roles / plans")
+            add_plan = st.form_submit_button("Add plan")
+            if add_plan and new_plan.strip():
+                pid = U.slug(new_plan)
+                base = pid
+                kk = 2
+                while any(x["id"] == pid for x in plans):
+                    pid = base + str(kk)
+                    kk += 1
+                plans.append({"id": pid, "label": new_plan.strip(),
+                              "note": new_plan_note.strip()})
+                obj["plans"] = plans
+                D.save_pipeline_obj(obj)
+                st.rerun()
+            if submitted:
+                seen = {}
+                dup = None
+                for sid, role in new_roles.items():
+                    if role:
+                        if role in seen:
+                            dup = role
+                            break
+                        seen[role] = sid
+                if dup:
+                    st.error("Role '" + D.ROLE_LABEL.get(dup, dup)
+                             + "' is on two stages - each role "
+                             "belongs to one stage only.")
+                else:
+                    for s in stages:
+                        lab = new_labels[s["id"]].strip()
+                        s["label"] = lab or s["label"]
+                        s["color"] = new_colors[s["id"]]
+                        s["track"] = bool(new_tracks[s["id"]])
+                        s["role"] = new_roles[s["id"]]
+                    for p in plans:
+                        lab = plan_labels[p["id"]].strip()
+                        p["label"] = lab or p["label"]
+                        p["note"] = plan_notes[p["id"]]
+                    obj["stages"] = stages
+                    obj["plans"] = plans
+                    D.save_pipeline_obj(obj)
+                    st.success("Pipeline saved.")
+                    st.rerun()
+        if st.button("Reset to phone-sales default", key="pf_reset"):
+            D.save_pipeline_obj(D._seed_pipeline())
+            st.rerun()
 
 
 def render(ctx):
@@ -240,7 +454,7 @@ def render(ctx):
                 "mute", "ink", "users", "accent", 80),
         UI.tile("Return Windows", str(len(window)), "7-day open",
                 "mute", "ink", "cal", "jewel", 120),
-        UI.tile("CASH OFFER Queue", str(cc["cashq"]), "credit refs",
+        UI.tile("Cash-Offer Queue", str(cc["cashq"]), "credit refs",
                 "mute", "ink", "cash", "jewel", 160),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
                 "win", "win", "check", "win", 200),
@@ -255,9 +469,12 @@ def render(ctx):
 
     _add_lead(ctx)
 
+    _pipeline_editor()
+
     sc = M.stage_counts(clients)
-    items = [(D.STAGE_LABEL[sid], sc.get(sid, 0), D.STAGE_COLOR[sid])
-             for sid in D.STAGE_IDS if sc.get(sid, 0) > 0]
+    items = [(D.stage_label(sid, sid), sc.get(sid, 0),
+              D.stage_color(sid)) for sid in D.all_stage_ids()
+             if sc.get(sid, 0) > 0]
     st.markdown(UI.panel("Pipeline by Stage", UI.hbars(items),
                          right=str(len(clients)) + " total"),
                 unsafe_allow_html=True)
@@ -268,9 +485,11 @@ def render(ctx):
             "Search", key="cw_q",
             placeholder="name, number, model, remark, next action...")
     with s2:
-        sf = st.selectbox("Stage filter", ["All stages"] + D.STAGE_IDS,
+        sf = st.selectbox("Stage filter",
+                          ["All stages"] + D.all_stage_ids(),
                           format_func=lambda s: "All stages"
-                          if s == "All stages" else D.STAGE_LABEL[s],
+                          if s == "All stages"
+                          else D.stage_label(s, s),
                           key="cw_s")
 
     ql = q.strip().lower()
@@ -289,8 +508,9 @@ def render(ctx):
             if ql not in hay:
                 continue
         shown.append(c)
+    term = M.terminal_ids()
     shown.sort(key=lambda c: (
-        1 if c.get("stage") in M.TERMINAL else 0,
+        1 if c.get("stage") in term else 0,
         c.get("next_date") or c.get("created") or "9999"))
 
     if not shown:
