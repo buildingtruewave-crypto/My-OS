@@ -1,8 +1,10 @@
 """Seeded, editable, persisted life data.
 
-Generated relative to date.today() at seed time so streaks / calendar always
-look current.  Writes go to data/*.json (VPS) and are silently skipped where
-the filesystem is read-only (Streamlit Cloud).
+The seed tells ONE coherent story (a disciplined, improving operator) so the
+dashboard never looks like random noise: the habit wall ramps green toward
+today, the journal carries a live streak, the equity curve climbs with a
+current win streak, and today already has habits ticked plus a green trade.
+Generated relative to date.today() so it always looks current.
 """
 from __future__ import annotations
 
@@ -23,12 +25,42 @@ DEFAULT_SEED = 73126
 DEFAULT_NAME = "Mwangi.Alex"
 START_BALANCE = 16000.0
 
-TAG_COLORS = {"Trade": "#4C8DFF", "Body": "#34D399", "Mind": "#D946EF",
-              "Life": "#F5B544", "Rest": "#7C8AA5", "Focus": "#8B7CFF"}
-ACCENTS = {"Electric Blue": "#4C8DFF", "Terminal Teal": "#2DD4BF",
-           "Signal Violet": "#8B7CFF", "Amber Edge": "#F5B544"}
+TAG_COLORS = {
+    "Trade": "#4C8DFF",
+    "Body": "#34D399",
+    "Mind": "#D946EF",
+    "Life": "#F5B544",
+    "Rest": "#7C8AA5",
+    "Focus": "#8B7CFF",
+}
+ACCENTS = {
+    "Electric Blue": "#4C8DFF",
+    "Terminal Teal": "#2DD4BF",
+    "Signal Violet": "#8B7CFF",
+    "Amber Edge": "#F5B544",
+}
 MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
-DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+DAY_ABBR = {
+    "mon": 0, "tue": 1, "wed": 2, "thu": 3,
+    "fri": 4, "sat": 5, "sun": 6,
+}
+
+# letters double as monogram badges in the habit wall (monochrome, copy-safe)
+HABITS_SEED = [
+    ("S", "Sleep 7h+", 0.74),
+    ("W", "Workout", 0.80),
+    ("M", "Pray / meditate", 0.88),
+    ("J", "Journal", 0.82),
+    ("P", "Pre-market plan", 0.78),
+    ("N", "No phone 1st hr", 0.62),
+    ("R", "Read 20 min", 0.70),
+    ("H", "Hydrate 2L", 0.66),
+    ("C", "Clean desk", 0.58),
+    ("E", "EOD review", 0.84),
+    ("F", "No junk food", 0.60),
+    ("K", "Walk outside", 0.72),
+]
+TODAY_DONE = {"S", "W", "M", "J", "P", "H", "E", "K"}
 
 ROUTINE_SEED = [
     ("05:00", "Wake - hydrate - light", "Body", "all"),
@@ -36,7 +68,7 @@ ROUTINE_SEED = [
     ("05:45", "Workout - mobility", "Body", "weekdays"),
     ("06:45", "Shower - breakfast", "Life", "all"),
     ("07:15", "Journal - plan the day", "Mind", "all"),
-    ("07:45", "Pre-market analysis - levels", "Trade", "weekdays"),
+    ("07:45", "Pre-market analysis", "Trade", "weekdays"),
     ("08:00", "London open - execution", "Trade", "weekdays"),
     ("10:30", "Step away - walk", "Body", "weekdays"),
     ("11:00", "Review morning trades", "Trade", "weekdays"),
@@ -52,36 +84,30 @@ ROUTINE_SEED = [
     ("21:30", "Sleep", "Rest", "all"),
 ]
 
-HABITS_SEED = [
-    ("Z", "Sleep 7h+", 0.74), ("W", "Workout", 0.80), ("M", "Pray / meditate", 0.88),
-    ("J", "Journal", 0.82), ("P", "Pre-market plan", 0.78), ("N", "No phone 1st hr", 0.62),
-    ("R", "Read 20 min", 0.70), ("H", "Hydrate 2L", 0.66), ("C", "Clean desk", 0.58),
-    ("E", "EOD review", 0.84), ("F", "No junk food", 0.60), ("K", "Walk outside", 0.72),
-]
-
 GOALS_SEED = [
     ("Account +12% this quarter", "return %", 12.0, 7.4, "Q3"),
     ("Win rate >= 60%", "win %", 60.0, 58.0, "Q3"),
     ("Log 25 trading days", "days", 25.0, 17.0, "Q3"),
     ("Read 6 books", "books", 6.0, 3.0, "Q3"),
     ("90% routine adherence", "consistency %", 90.0, 76.0, "Q3"),
-    ("Journal 30 days straight", "day streak", 30.0, 12.0, "Q3"),
+    ("Journal 30 days straight", "day streak", 30.0, 9.0, "Q3"),
 ]
 
 TASKS_SEED = [
     ("Backtest the London fade on EURUSD", "Trade", "High", -1, False),
     ("Renew gym membership", "Life", "Normal", 2, False),
-    ("Finish chapter 4 of Trading in the Zone", "Focus", "Normal", 0, False),
+    ("Finish chapter 4 of Trading in the Zone", "Focus", "Normal", 1, False),
     ("Call dad", "Life", "High", 0, False),
     ("Review last week journal for repeats", "Mind", "Normal", -2, True),
     ("Prep NY bias notes", "Trade", "Normal", 0, True),
 ]
 
 TRADE_ASSETS = {
-    "XAUUSD": (2350.0, 2, 0.10, 100.0, 0.05, 0.50, 0.42, 0.70),
-    "BTCUSD": (67000.0, 1, 1.00, 1.0, 0.30, 3.00, 0.18, 0.62),
-    "EURUSD": (1.0850, 5, 0.0001, 100000.0, 0.50, 3.00, 0.16, 0.66),
+    "XAUUSD": (2350.0, 2, 0.10, 100.0, 0.05, 0.50, 0.62),
+    "BTCUSD": (67000.0, 1, 1.00, 1.0, 0.30, 3.00, 0.58),
+    "EURUSD": (1.0850, 5, 0.0001, 100000.0, 0.50, 3.00, 0.64),
 }
+_TRADE_MULT = {a: v[3] for a, v in TRADE_ASSETS.items()}
 TRADE_STRATS = ["Pullback + Trend", "Breakout", "Range Fade", "Scalp"]
 
 
@@ -124,7 +150,10 @@ def parse_routine_text(text):
         line = raw.strip()
         if not line:
             continue
-        m = re.match(r"^(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-|]?\s*(.+)$", line, re.I)
+        m = re.match(
+            r"^(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-|]?\s*(.+)$",
+            line, re.I,
+        )
         if not m:
             continue
         hh = int(m.group(1))
@@ -147,8 +176,10 @@ def parse_routine_text(text):
         if tag not in TAG_COLORS:
             tag = "Life"
         tstr = str(hh).zfill(2) + ":" + str(mm).zfill(2)
-        blocks.append({"time": tstr, "label": rest.strip(),
-                       "tag": tag, "days": _scope_days(scope)})
+        blocks.append({
+            "time": tstr, "label": rest.strip(),
+            "tag": tag, "days": _scope_days(scope),
+        })
     blocks.sort(key=lambda b: b["time"])
     return blocks
 
@@ -163,11 +194,13 @@ def routine_to_text(blocks):
         elif b["days"] == list(range(7)):
             scope = "all"
         else:
-            scope = ",".join(k for k, v in DAY_ABBR.items() if v in b["days"])
-        t = b["time"]
-        lab = b["label"]
-        tg = b["tag"]
-        lines.append(t + "  " + lab + "  #" + tg + "  @" + scope)
+            scope = ",".join(
+                k for k, v in DAY_ABBR.items() if v in b["days"]
+            )
+        lines.append(
+            b["time"] + "  " + b["label"]
+            + "  #" + b["tag"] + "  @" + scope
+        )
     return "\n".join(lines)
 
 
@@ -198,38 +231,58 @@ def habits_to_text(habits):
 
 
 def _seed_routine():
-    return [{"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
-            for (t, l, tg, sc) in ROUTINE_SEED]
+    return [
+        {"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
+        for (t, l, tg, sc) in ROUTINE_SEED
+    ]
 
 
 def _seed_habits():
-    return [{"id": U.slug(n), "icon": i, "name": n} for (i, n, _) in HABITS_SEED]
+    return [
+        {"id": U.slug(n), "icon": i, "name": n}
+        for (i, n, _) in HABITS_SEED
+    ]
 
 
 def _seed_habit_log(habits, rng, days=120):
     rates = {U.slug(n): r for (_, n, r) in HABITS_SEED}
+    names = {U.slug(n): n for (_, n, _) in HABITS_SEED}
     log = {}
     today = dt.date.today()
     for h in habits:
-        rate = rates.get(h["id"], 0.7)
+        hid = h["id"]
+        rate = rates.get(hid, 0.7)
+        name = names.get(hid, "")
         prev = False
         series = {}
         for off in range(days - 1, -1, -1):
             d = today - dt.timedelta(days=off)
-            p = rate + (0.18 if prev else -0.06)
-            done = bool(rng.random() < max(0.08, min(0.97, p)))
-            if d.weekday() >= 5 and h["name"] in ("Pre-market plan", "EOD review"):
+            recency = 1.0 - (off / float(days))
+            p = rate + 0.20 * recency
+            p += 0.16 if prev else -0.05
+            p = max(0.10, min(0.97, p))
+            done = bool(rng.random() < p)
+            if d.weekday() >= 5 and name in (
+                "Pre-market plan", "EOD review",
+            ):
                 done = bool(rng.random() < 0.25)
             series[d.isoformat()] = done
             prev = done
-        log[h["id"]] = series
+        # today is a fixed, pleasing pattern (not random)
+        series[today.isoformat()] = h["icon"] in TODAY_DONE
+        log[hid] = series
     return log
 
 
 def _seed_goals():
-    return [{"id": str(uuid.uuid4())[:8], "title": t, "metric": m,
-             "target": tg, "current": cu, "quarter": q}
-            for (t, m, tg, cu, q) in GOALS_SEED]
+    return [
+        {
+            "id": str(uuid.uuid4())[:8], "title": t,
+            "metric": m, "target": tg, "current": cu,
+            "quarter": q,
+        }
+        for (t, m, tg, cu, q) in GOALS_SEED
+    ]
 
 
 def _seed_tasks(rng):
@@ -237,21 +290,34 @@ def _seed_tasks(rng):
     out = []
     for (text, area, pri, off, done) in TASKS_SEED:
         due = (today + dt.timedelta(days=off)).isoformat()
-        out.append({"id": str(uuid.uuid4())[:8], "text": text, "area": area,
-                    "priority": pri, "due": due, "done": bool(done)})
+        out.append({
+            "id": str(uuid.uuid4())[:8], "text": text,
+            "area": area, "priority": pri, "due": due,
+            "done": bool(done),
+        })
     return out
 
 
-def _seed_journal(rng, days=30):
+def _seed_journal(rng, days=60):
     today = dt.date.today()
-    grat = ["health", "my discipline", "a clean chart", "family", "small wins", "the process"]
-    win = ["followed my rules", "took the A+ setup", "walked away from a bad one",
-           "hit the gym", "no phone morning", "journalled honestly"]
-    lesson = ["size down after 2 losses", "do not chase the London open",
-              "sleep beats one more hour of charts", "the plan over the mood"]
+    grat = ["health", "my discipline", "a clean chart",
+            "family", "small wins", "the process"]
+    win = ["followed my rules", "took the A+ setup",
+           "walked away from a bad one", "hit the gym",
+           "no phone morning", "journalled honestly"]
+    lesson = ["size down after 2 losses",
+              "do not chase the London open",
+              "sleep beats one more hour of charts",
+              "the plan over the mood"]
     out = {}
     for off in range(days - 1, -1, -1):
-        if rng.random() < 0.82:
+        if off < 9:
+            present = True           # live 9-day streak
+        elif off == 9:
+            present = False          # the gap that bounds it
+        else:
+            present = bool(rng.random() < 0.72)
+        if present:
             d = today - dt.timedelta(days=off)
             les = str(rng.choice(lesson)) if rng.random() < 0.7 else ""
             out[d.isoformat()] = {
@@ -263,38 +329,74 @@ def _seed_journal(rng, days=30):
     return out
 
 
+def _force_win(r):
+    if r["pnl"] > 0:
+        return
+    mult = _TRADE_MULT.get(r["asset"], 1.0)
+    lots = max(float(r["lots"]), 0.01)
+    target = 45.0
+    move = target / (lots * mult)
+    if r["direction"] == "BUY":
+        r["exit"] = round(r["entry"] + move, 5)
+    else:
+        r["exit"] = round(r["entry"] - move, 5)
+    dsign = 1 if r["direction"] == "BUY" else -1
+    r["pnl"] = round(
+        (r["exit"] - r["entry"]) * dsign * lots * mult, 2,
+    )
+
+
 def _seed_trades(rng, days=300):
     today = dt.date.today()
     names = list(TRADE_ASSETS.keys())
     rows = []
     day = today - dt.timedelta(days=days)
     while day <= today:
-        if day.weekday() < 5 and rng.random() < 0.8:
+        if day.weekday() < 5 and rng.random() < 0.82:
             for _ in range(int(rng.choice([1, 1, 2, 2, 3]))):
                 a = str(rng.choice(names))
-                bp, dec, pip, mult, llo, lhi, _w, wp = TRADE_ASSETS[a]
+                bp, dec, pip, mult, llo, lhi, wp = TRADE_ASSETS[a]
                 entry = round(bp + rng.normal(0, pip * 8), dec)
                 direction = "BUY" if rng.random() < 0.5 else "SELL"
                 lots = round(float(rng.uniform(llo, lhi)), 2)
                 win = rng.random() < wp
                 if win:
-                    target = float(rng.lognormal(np.log(90), 0.6))
+                    target = float(rng.lognormal(np.log(95), 0.55))
                 else:
-                    target = -float(rng.lognormal(np.log(45), 0.5))
+                    target = -float(rng.lognormal(np.log(42), 0.5))
                 dsign = 1.0 if direction == "BUY" else -1.0
                 imp = abs(target) / max(lots * mult, 1e-9)
                 sign = 1 if target > 0 else -1
                 exitp = round(entry + sign * dsign * imp, dec)
-                pnl = round((exitp - entry) * dsign * lots * mult, 2)
+                pnl = round(
+                    (exitp - entry) * dsign * lots * mult, 2,
+                )
                 hh = int(rng.integers(7, 21))
                 mm = int(rng.integers(0, 60))
                 tstr = str(hh).zfill(2) + ":" + str(mm).zfill(2)
-                rows.append({"date": day.isoformat(), "time": tstr,
-                             "asset": a, "direction": direction, "entry": entry,
-                             "exit": exitp, "lots": lots, "pnl": pnl,
-                             "strategy": str(rng.choice(TRADE_STRATS)),
-                             "duration_min": int(rng.integers(5, 240))})
+                rows.append({
+                    "date": day.isoformat(), "time": tstr,
+                    "asset": a, "direction": direction,
+                    "entry": entry, "exit": exitp,
+                    "lots": lots, "pnl": pnl,
+                    "strategy": str(rng.choice(TRADE_STRATS)),
+                    "duration_min": int(rng.integers(5, 240)),
+                })
         day += dt.timedelta(days=1)
+    # guarantee today shows a live, green trade
+    today_iso = today.isoformat()
+    if not any(r["date"] == today_iso for r in rows):
+        rows.append({
+            "date": today_iso, "time": "09:30",
+            "asset": "XAUUSD", "direction": "BUY",
+            "entry": 2380.0, "exit": 2382.5, "lots": 0.2,
+            "pnl": 50.0, "strategy": "Pullback + Trend",
+            "duration_min": 90,
+        })
+    rows.sort(key=lambda r: (r["date"], r["time"]))
+    # close the book on a current 3-trade win streak
+    for r in rows[-3:]:
+        _force_win(r)
     return rows
 
 
@@ -326,44 +428,66 @@ def _finalize_trades(df):
     df = df.copy()
     for c in ("entry", "exit", "lots", "pnl"):
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
-    df["dt"] = pd.to_datetime(df["date"] + " " + df["time"].astype(str).str.slice(0, 5))
+    tcol = df["date"] + " " + df["time"].astype(str).str.slice(0, 5)
+    df["dt"] = pd.to_datetime(tcol)
     df["dt_date"] = df["dt"].dt.date
     return df.sort_values("dt").reset_index(drop=True)
 
 
 def ensure():
-    rng = np.random.default_rng(int(st.session_state.get("seed", DEFAULT_SEED)))
+    rng = np.random.default_rng(
+        int(st.session_state.get("seed", DEFAULT_SEED))
+    )
     prefs = _read("prefs.json") or {}
     if "routine" not in st.session_state:
-        st.session_state["routine"] = _read("routine.json") or _seed_routine()
+        st.session_state["routine"] = (
+            _read("routine.json") or _seed_routine()
+        )
     if "habits" not in st.session_state:
-        st.session_state["habits"] = _read("habits.json") or _seed_habits()
+        st.session_state["habits"] = (
+            _read("habits.json") or _seed_habits()
+        )
     if "habit_log" not in st.session_state:
-        st.session_state["habit_log"] = _read("habit_log.json") or _seed_habit_log(st.session_state["habits"], rng)
+        st.session_state["habit_log"] = (
+            _read("habit_log.json")
+            or _seed_habit_log(st.session_state["habits"], rng)
+        )
     if "goals" not in st.session_state:
-        st.session_state["goals"] = _read("goals.json") or _seed_goals()
+        st.session_state["goals"] = (
+            _read("goals.json") or _seed_goals()
+        )
     if "tasks" not in st.session_state:
-        st.session_state["tasks"] = _read("tasks.json") or _seed_tasks(rng)
+        st.session_state["tasks"] = (
+            _read("tasks.json") or _seed_tasks(rng)
+        )
     if "journal" not in st.session_state:
-        st.session_state["journal"] = _read("journal.json") or _seed_journal(rng)
+        st.session_state["journal"] = (
+            _read("journal.json") or _seed_journal(rng)
+        )
     if "trades" not in st.session_state:
         rows = _read_trades()
         if rows is not None:
             st.session_state["trades"] = _finalize_trades(rows)
         else:
             seeded = _seed_trades(rng)
-            st.session_state["trades"] = _finalize_trades(pd.DataFrame(seeded))
+            st.session_state["trades"] = _finalize_trades(
+                pd.DataFrame(seeded)
+            )
             _write_trades(seeded)
     st.session_state.setdefault("name", prefs.get("name", DEFAULT_NAME))
     st.session_state.setdefault("accent", prefs.get("accent", "#4C8DFF"))
-    st.session_state.setdefault("tz_offset", float(prefs.get("tz_offset", 0)))
+    st.session_state.setdefault(
+        "tz_offset", float(prefs.get("tz_offset", 0))
+    )
     st.session_state.setdefault("seed", DEFAULT_SEED)
 
 
 def _save_prefs():
-    _write("prefs.json", {"name": st.session_state.get("name"),
-                          "accent": st.session_state.get("accent"),
-                          "tz_offset": st.session_state.get("tz_offset", 0)})
+    _write("prefs.json", {
+        "name": st.session_state.get("name"),
+        "accent": st.session_state.get("accent"),
+        "tz_offset": st.session_state.get("tz_offset", 0),
+    })
 
 
 def get(k):
@@ -434,7 +558,9 @@ def regenerate(seed):
     st.session_state["tasks"] = _seed_tasks(rng)
     st.session_state["journal"] = _seed_journal(rng)
     seeded = _seed_trades(rng)
-    st.session_state["trades"] = _finalize_trades(pd.DataFrame(seeded))
+    st.session_state["trades"] = _finalize_trades(
+        pd.DataFrame(seeded)
+    )
     _write("routine.json", st.session_state["routine"])
     _write("habits.json", st.session_state["habits"])
     _write("habit_log.json", st.session_state["habit_log"])
@@ -449,12 +575,20 @@ def export_zip():
     import zipfile
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("routine.json", json.dumps(st.session_state["routine"], default=str))
-        z.writestr("habits.json", json.dumps(st.session_state["habits"], default=str))
-        z.writestr("habit_log.json", json.dumps(st.session_state["habit_log"], default=str))
-        z.writestr("goals.json", json.dumps(st.session_state["goals"], default=str))
-        z.writestr("tasks.json", json.dumps(st.session_state["tasks"], default=str))
-        z.writestr("journal.json", json.dumps(st.session_state["journal"], default=str))
-        tr = st.session_state["trades"].drop(columns=["dt", "dt_date"], errors="ignore")
+        z.writestr("routine.json",
+                   json.dumps(st.session_state["routine"], default=str))
+        z.writestr("habits.json",
+                   json.dumps(st.session_state["habits"], default=str))
+        z.writestr("habit_log.json",
+                   json.dumps(st.session_state["habit_log"], default=str))
+        z.writestr("goals.json",
+                   json.dumps(st.session_state["goals"], default=str))
+        z.writestr("tasks.json",
+                   json.dumps(st.session_state["tasks"], default=str))
+        z.writestr("journal.json",
+                   json.dumps(st.session_state["journal"], default=str))
+        tr = st.session_state["trades"].drop(
+            columns=["dt", "dt_date"], errors="ignore",
+        )
         z.writestr("trades.csv", tr.to_csv(index=False))
     return buf.getvalue()
