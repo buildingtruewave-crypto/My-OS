@@ -1,4 +1,4 @@
-"""Derived stats for the life OS + the TrueWave pipeline."""
+"""Derived stats for the life OS, the TrueWave pipeline and the money OS."""
 from __future__ import annotations
 
 import calendar as _cal
@@ -250,6 +250,17 @@ def stage_counts(clients):
     return out
 
 
+def call_sheet(clients, today):
+    """Who to phone today - due + overdue, hottest first."""
+    t = today.isoformat()
+    act = [c for c in clients if c.get("stage") not in TERMINAL]
+    due = [c for c in act if c.get("next_date") and c["next_date"] <= t]
+    heat_order = {"Hot": 0, "Warm": 1, "Cold": 2}
+    due.sort(key=lambda c: (heat_order.get(c.get("heat", "Warm"), 1),
+                            c.get("next_date", "")))
+    return due
+
+
 def window_info(c, today):
     dd = c.get("delivered_date")
     if not dd:
@@ -274,7 +285,6 @@ def clients_in_window(clients, today):
 
 
 def moves_on(clients, d_iso):
-    """Every touch / stage move recorded on a given date."""
     out = []
     for c in clients:
         for h in c.get("history", []):
@@ -317,7 +327,6 @@ def commissions_window(sales, today, days=7):
 
 
 def comm_editable(sale, inst, today):
-    """1st commission editable for 20 days, 2nd for 50 - then locked."""
     anchor = sale.get("delivered_date") or sale.get("date") or ""
     try:
         a = dt.date.fromisoformat(anchor)
@@ -341,48 +350,74 @@ def income_by_type(income):
     return d
 
 
-def flow_balance(flow):
-    return sum(float(f["amount"]) if f["kind"] == "in"
-               else -float(f["amount"]) for f in flow)
-
-
-def flow_week_net(flow, today):
-    lo = (today - dt.timedelta(days=6)).isoformat()
-    return sum(float(f["amount"]) if f["kind"] == "in"
-               else -float(f["amount"])
-               for f in flow if f.get("date", "") >= lo)
-
-
-# ---------- vault ----------
-
-def fund_balance(fund):
-    bal = float(fund.get("start_capital", 0) or 0)
-    for t in fund.get("tx", []):
-        bal += float(t["amount"]) if t["kind"] == "in" \
-            else -float(t["amount"])
-    return bal
-
-
-def bucket_balance(b):
-    bal = 0.0
-    for t in b.get("tx", []):
-        bal += float(t["amount"]) if t["kind"] == "in" \
-            else -float(t["amount"])
-    return bal
-
+# ---------- the money OS ----------
 
 def item_saved(it):
     return sum(float(t.get("amount", 0)) for t in it.get("tx", []))
 
 
-def fund_week_net(fund, today):
+def cash_on_hand(v):
+    return sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
+
+
+def bills_saved(v):
+    return sum(float(b.get("saved", 0)) for b in v.get("bills", []))
+
+
+def fun_remaining(v):
+    f = v.get("fun", {})
+    return max(0.0, float(f.get("budget", 0)) - float(f.get("used", 0)))
+
+
+def items_saved(v):
+    return sum(item_saved(it) for it in v.get("items", []))
+
+
+def funds_balance(v):
+    return sum(float(x.get("balance", 0)) for x in v.get("funds", []))
+
+
+def allocated(v):
+    return (bills_saved(v) + fun_remaining(v) + items_saved(v)
+            + funds_balance(v))
+
+
+def net_worth(v):
+    return cash_on_hand(v) + allocated(v)
+
+
+def flow_week_inout(flow, today):
     lo = (today - dt.timedelta(days=6)).isoformat()
-    net = 0.0
-    for t in fund.get("tx", []):
-        if t["date"] >= lo:
-            net += float(t["amount"]) if t["kind"] == "in" \
-                else -float(t["amount"])
-    return net
+    i = sum(float(f["amount"]) for f in flow
+            if f.get("date", "") >= lo and f["kind"] == "in")
+    o = sum(float(f["amount"]) for f in flow
+            if f.get("date", "") >= lo and f["kind"] == "out")
+    return i, o
+
+
+def snapshots_series(v):
+    out = []
+    for s in v.get("snapshots", []):
+        try:
+            out.append((dt.date.fromisoformat(s["date"]),
+                        float(s["net"])))
+        except Exception:
+            pass
+    return out
+
+
+def bills_due_soon(v, today, days=7):
+    t = today.isoformat()
+    hi = (today + dt.timedelta(days=days)).isoformat()
+    return [b for b in v.get("bills", []) if not b.get("paid")
+            and b.get("due") and t <= b["due"] <= hi]
+
+
+def bills_overdue(v, today):
+    t = today.isoformat()
+    return [b for b in v.get("bills", []) if not b.get("paid")
+            and b.get("due") and b["due"] < t]
 
 
 # ---------- bots ----------
@@ -463,8 +498,8 @@ def day_pulse(d_iso, ctx):
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
-    flow = [f for f in ctx["vault"].get("flow", [])
-            if f.get("date") == d_iso]
+    v = ctx["vault"]
+    flow = [f for f in v.get("flow", []) if f.get("date") == d_iso]
     return {
         "new_clients": [c for c in clients
                         if c.get("created") == d_iso],
@@ -481,6 +516,8 @@ def day_pulse(d_iso, ctx):
         "income": [x for x in ctx["income"]
                    if x.get("date") == d_iso],
         "flow": flow,
+        "net_worth": net_worth(v),
+        "cash": cash_on_hand(v),
         "bot_logs": [l for l in ctx["bots"].get("logs", [])
                      if l.get("date") == d_iso],
         "weight": next((w for w in ctx["weights"]
