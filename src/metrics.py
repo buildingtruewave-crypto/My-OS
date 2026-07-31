@@ -1,12 +1,15 @@
-"""Derived stats for the life OS, the TrueWave pipeline and the money OS."""
+"""Derived stats for the life OS, the TrueWave pipeline and the money OS.
+Pipeline-aware: 'active', 'won', 'lost', 'returned', 'cash' are resolved
+from the editable roles, never from hard-coded ids.
+"""
 from __future__ import annotations
 
 import calendar as _cal
 import datetime as dt
 
-from .data import START_DATE, TAG_COLORS
-
-TERMINAL = ("paid", "returned", "lost")
+from .data import (START_DATE, TAG_COLORS, all_stage_ids,
+                   non_terminal_ids, role_id, stage_color,
+                   stage_label, terminal_ids)
 
 
 def _mins(t):
@@ -223,7 +226,12 @@ def rejects_30d(daily, today):
 def client_counts(clients, today):
     t = today.isoformat()
     wk = (today + dt.timedelta(days=7)).isoformat()
-    act = [c for c in clients if c.get("stage") not in TERMINAL]
+    term = terminal_ids()
+    won = role_id("won")
+    ret = role_id("returned")
+    lost = role_id("lost")
+    cash = role_id("cash")
+    act = [c for c in clients if c.get("stage") not in term]
     return dict(
         active=len(act),
         due=[c for c in act if c.get("next_date") == t],
@@ -233,12 +241,10 @@ def client_counts(clients, today):
             and t < c["next_date"] <= wk],
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
-        sold=sum(1 for c in clients if c.get("stage") == "paid"),
-        cashq=sum(1 for c in clients
-                  if c.get("stage") == "cash_offer"),
-        returned=sum(1 for c in clients
-                     if c.get("stage") == "returned"),
-        lost=sum(1 for c in clients if c.get("stage") == "lost"),
+        sold=sum(1 for c in clients if won and c.get("stage") == won),
+        cashq=sum(1 for c in clients if cash and c.get("stage") == cash),
+        returned=sum(1 for c in clients if ret and c.get("stage") == ret),
+        lost=sum(1 for c in clients if lost and c.get("stage") == lost),
     )
 
 
@@ -251,9 +257,9 @@ def stage_counts(clients):
 
 
 def call_sheet(clients, today):
-    """Who to phone today - due + overdue, hottest first."""
     t = today.isoformat()
-    act = [c for c in clients if c.get("stage") not in TERMINAL]
+    term = terminal_ids()
+    act = [c for c in clients if c.get("stage") not in term]
     due = [c for c in act if c.get("next_date") and c["next_date"] <= t]
     heat_order = {"Hot": 0, "Warm": 1, "Cold": 2}
     due.sort(key=lambda c: (heat_order.get(c.get("heat", "Warm"), 1),
@@ -350,7 +356,7 @@ def income_by_type(income):
     return d
 
 
-# ---------- the money OS ----------
+# ---------- the money OS (used only inside the vault) ----------
 
 def item_saved(it):
     return sum(float(t.get("amount", 0)) for t in it.get("tx", []))
@@ -486,15 +492,18 @@ def task_counts(tasks, today):
 
 
 def life_score(cons, jcomp, srate, goal_avg):
+    """The composite 0-100 'is the operation running cleanly' number.
+    Weights live here, in one place, on purpose: 40% habit consistency,
+    20% journal completion, 20% sales-logging rate, 20% goal progress."""
     v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
     return int(max(0, min(100, round(v))))
 
 
 def day_pulse(d_iso, ctx):
-    """Everything the system recorded on one date - the journal's
-    memory is picked up automatically, nothing is re-typed."""
+    """Everything recorded on one date - flows only, never balances."""
     clients = ctx["clients"]
-    non_t = [c for c in clients if c.get("stage") not in TERMINAL]
+    term = terminal_ids()
+    non_t = [c for c in clients if c.get("stage") not in term]
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
@@ -516,8 +525,6 @@ def day_pulse(d_iso, ctx):
         "income": [x for x in ctx["income"]
                    if x.get("date") == d_iso],
         "flow": flow,
-        "net_worth": net_worth(v),
-        "cash": cash_on_hand(v),
         "bot_logs": [l for l in ctx["bots"].get("logs", [])
                      if l.get("date") == d_iso],
         "weight": next((w for w in ctx["weights"]
