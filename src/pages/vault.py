@@ -1,9 +1,9 @@
-"""The hidden money operating system. Behind the innocent 'Archive' nav
-item and a PIN (default 2580). This is not about one business - it is
-about your whole money life: cash in every pocket, every shilling that
-moves, bills covered before they bite, fun without guilt, things you are
-saving for, and ventures that grow in the background. Net worth is
-snapshotted on every move so the line climbs as you do.
+"""The hidden money operating system - the ONLY place balances live.
+Behind the Archive nav item and the fixed access code (ARCHIVE_PIN in
+src/data.py). Your whole money life: cash in every pocket, every shilling
+that moves, bills covered before they bite, fun without guilt, things you
+are saving for, and ventures that grow in the background. Net worth is
+snapshotted on every move so the line climbs - and it is shown nowhere else.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _gate():
                             label_visibility="collapsed",
                             placeholder="····")
         if st.button("Open", key="v_open"):
-            if pin == str(st.session_state.get("pin", D.DEFAULT_PIN)):
+            if pin == D.ARCHIVE_PIN:
                 st.session_state["vault_ok"] = True
                 st.rerun()
             else:
@@ -272,14 +272,19 @@ def _tab_fun(vault):
             D.fun_tx("spend", spend, snote.strip())
             st.rerun()
     with c:
-        st.markdown(UI.panel("Recent fun", "".join(
-            '<div class="tw-stat"><span class="k">'
-            + t["date"] + (" - " + t["note"] if t.get("note") else "")
-            + '</span><span class="v tw-jewel">'
-            + U.fmt_kes(t["amount"]) + '</span></div>'
-            for t in f.get("tx", [])[:6]) or UI.empty_state(
-                "Nothing spent yet - go live a little.")),
-            unsafe_allow_html=True)
+        recent = f.get("tx", [])[:6]
+        if recent:
+            inner = "".join(
+                '<div class="tw-stat"><span class="k">'
+                + t["date"] + (" - " + t["note"] if t.get("note")
+                               else "") + '</span>'
+                + '<span class="v tw-jewel">'
+                + U.fmt_kes(t["amount"]) + '</span></div>'
+                for t in recent)
+        else:
+            inner = UI.empty_state("Nothing spent yet - go live a little.")
+        st.markdown(UI.panel("Recent fun", inner),
+                    unsafe_allow_html=True)
 
 
 def _tab_items(vault, today):
