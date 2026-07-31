@@ -341,13 +341,17 @@ def _tab_funds(vault, today):
         hi = float(f.get("target_hi", 0) or 0)
         pct = max(0.0, min(100.0, bal / lo * 100)) if lo else 0.0
         with cols[i % len(cols)]:
-            body = (UI.progress(pct, "var(--accent)")
-                    + UI.kv([("Balance", U.fmt_kes(bal)),
-                             ("Target", U.fmt_kes(lo) + " - "
-                              + U.fmt_kes(hi)),
-                             ("To target", format(pct, ".1f") + "%"),
-                             ("Deadline",
-                              str(f.get("deadline", "--")))]))
+            body = (
+                UI.progress(pct, "var(--accent)")
+                + UI.kv([
+                    ("Balance", U.fmt_kes(bal)),
+                    ("Target", U.fmt_kes(lo) + " - "
+                     + U.fmt_kes(hi)),
+                    ("To target", format(pct, ".1f") + "%"),
+                    ("Deadline",
+                     str(f.get("deadline", "--"))),
+                ])
+            )
             st.markdown(UI.panel(f["name"], body),
                         unsafe_allow_html=True)
             a, b = st.columns(2)
