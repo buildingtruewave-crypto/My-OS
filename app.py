@@ -1,6 +1,6 @@
 """PULSE - Life Command Center (TrueWave edition). Entry point.
-Run locally:  pip install -r requirements.txt && streamlit run app.py
-Time: Africa/Nairobi (EAT). Recording starts 1 August 2026.
+Run:  pip install -r requirements.txt && streamlit run app.py
+Time: Africa/Nairobi (EAT). Recording starts Friday 1 August 2026.
 """
 from __future__ import annotations
 
@@ -12,14 +12,15 @@ from src import metrics as M
 from src import theme
 from src import ui as UI
 from src import util as U
-from src.pages import (bots, clients, goals, habits, journal,
-                       now, routine, sales, settings, stats, vault)
+from src.pages import (bots, clients, goals, habits, journal, now,
+                       routine, sales, settings, stats, tasks, vault)
 
 NAV = [
     ("\u25c9", "Now"),
     ("\u25a6", "Routine"),
     ("\u25c8", "TrueWave"),
     ("\u25a4", "Sales"),
+    ("\u2610", "Tasks"),
     ("\u270e\ufe0e", "Journal"),
     ("\u2713\ufe0e", "Habits"),
     ("\u25d4", "Bots"),
@@ -32,9 +33,9 @@ NAV = [(g.encode().decode("unicode_escape"), n) for g, n in NAV]
 OPTIONS = [g + "   " + n for g, n in NAV]
 PAGES = {
     "Now": now, "Routine": routine, "TrueWave": clients,
-    "Sales": sales, "Journal": journal, "Habits": habits,
-    "Bots": bots, "Goals": goals, "Stats": stats,
-    "Archive": vault, "Settings": settings,
+    "Sales": sales, "Tasks": tasks, "Journal": journal,
+    "Habits": habits, "Bots": bots, "Goals": goals,
+    "Stats": stats, "Archive": vault, "Settings": settings,
 }
 
 st.set_page_config(page_title="PULSE - Life Command Center",
@@ -62,6 +63,7 @@ offset = float(st.session_state.get("tz_offset", 0))
 now_dt = U.now_local() + timedelta(hours=offset)
 today = now_dt.date()
 today_iso = today.isoformat()
+now_str = now_dt.strftime("%Y-%m-%d %H:%M")
 wd = today.weekday()
 day_type = "Weekday" if wd < 5 else ("Saturday" if wd == 5 else "Sunday")
 
@@ -77,6 +79,8 @@ sales_daily = D.get("sales_daily")
 sales_l = D.get("sales")
 bots_d = D.get("bots")
 vault_d = D.get("vault")
+tasks_l = D.get("tasks")
+income_l = D.get("income")
 
 today_blocks = M.today_blocks(routine, wd)
 active_idx, progress, current, next_block = M.active_block_info(
@@ -90,15 +94,15 @@ started = today >= D.START_DATE
 score = M.life_score(cons, jcomp, srate, gavg) if started else None
 
 ctx = dict(today=today, today_iso=today_iso, now_dt=now_dt,
-           day_type=day_type, routine=routine,
+           now_str=now_str, day_type=day_type, routine=routine,
            today_blocks=today_blocks, active_idx=active_idx,
            progress=progress, current=current,
            next_block=next_block, habits=habits, habit_log=log,
            goals=goals, issues=issues, journal=journal,
            weights=weights, clients=clients_l,
            sales_daily=sales_daily, sales=sales_l, bots=bots_d,
-           vault=vault_d, started=started, score=score,
-           accent=accent,
+           vault=vault_d, tasks=tasks_l, income=income_l,
+           started=started, score=score, accent=accent,
            name=st.session_state.get("name", D.DEFAULT_NAME))
 
 g, d, s = st.columns([5, 3, 2], gap="medium")
