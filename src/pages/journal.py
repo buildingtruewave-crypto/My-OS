@@ -1,5 +1,5 @@
 """The day's record. The Day Pulse is picked up automatically from
-TrueWave, Sales, Bots and Body - no re-typing."""
+TrueWave, Sales, Income, Flow, Bots, Tasks and Body - no re-typing."""
 from __future__ import annotations
 
 import streamlit as st
@@ -20,8 +20,14 @@ def _pulse_html(p):
         names = ", ".join(c["name"] for c in p["followups"])
         pairs.append(("Follow-ups due", str(len(p["followups"]))
                       + " - " + names))
+    if p["moves"]:
+        bits = []
+        for name, h in p["moves"][:8]:
+            bits.append(name + ": " + str(h.get("note", "")))
+        pairs.append(("Client touches", " | ".join(bits)))
     if p["outcomes"]:
-        pairs.append(("Outcomes recorded", str(len(p["outcomes"]))))
+        names = ", ".join(c["name"] for c in p["outcomes"])
+        pairs.append(("Deals closed / returned", names))
     if p["daily"]:
         e = p["daily"]
         pairs.append(("Sales tally",
@@ -32,10 +38,22 @@ def _pulse_html(p):
         pairs.append(("Sales logged", str(len(p["sales"]))))
     if p["inst_due"]:
         pairs.append(("Commissions due", str(len(p["inst_due"]))))
+    if p["income"]:
+        tot = sum(float(x.get("amount", 0)) for x in p["income"])
+        pairs.append(("Money in", U.fmt_kes(tot) + " - "
+                      + ", ".join(x.get("type", "")
+                                  for x in p["income"])))
+    if p["flow"]:
+        net = sum(float(f["amount"]) if f["kind"] == "in"
+                  else -float(f["amount"]) for f in p["flow"])
+        pairs.append(("Daily flow", str(len(p["flow"]))
+                      + " entries - net " + U.fmt_kes(net, True)))
     if p["bot_logs"]:
         net = sum(float(l["pnl"]) for l in p["bot_logs"])
         pairs.append(("Bot logs", str(len(p["bot_logs"]))
                       + " - net " + format(net, "+,.0f")))
+    if p["tasks_done"]:
+        pairs.append(("Tasks cleared", str(len(p["tasks_done"]))))
     if p["weight"]:
         pairs.append(("Weigh-in",
                       U.fmt_num(p["weight"]["kg"]) + " kg"))
@@ -60,8 +78,8 @@ def render(ctx):
                 "mute", "ink", "edit", "accent", 80),
         UI.tile("Sales Streak",
                 str(M.sales_streak(ctx["sales_daily"], today)),
-                "days with a tally", "mute", "ink", "phone", "accent",
-                120),
+                "days with a tally", "mute", "ink", "phone",
+                "accent", 120),
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
 
@@ -69,8 +87,7 @@ def render(ctx):
     key = day.isoformat()
     cur = journal.get(key, {})
 
-    p = M.day_pulse(key, ctx["clients"], ctx["sales"],
-                    ctx["sales_daily"], ctx["bots"], ctx["weights"])
+    p = M.day_pulse(key, ctx)
     st.markdown(UI.panel("Day Pulse - picked up automatically",
                          _pulse_html(p), right=key),
                 unsafe_allow_html=True)
@@ -85,14 +102,16 @@ def render(ctx):
                             key="j_h")
     a, b, c = st.columns(3)
     with a:
-        win = st.text_input("Win", value=cur.get("win", ""), key="j_w")
+        win = st.text_input("Win", value=cur.get("win", ""),
+                            key="j_w")
     with b:
         lesson = st.text_input("Lesson", value=cur.get("lesson", ""),
                                key="j_l")
     with c:
         mood_idx = D.MOODS.index(cur["mood"]) \
             if cur.get("mood") in D.MOODS else 2
-        mood = st.selectbox("Mood", D.MOODS, index=mood_idx, key="j_m")
+        mood = st.selectbox("Mood", D.MOODS, index=mood_idx,
+                            key="j_m")
     s1, s2, _ = st.columns([1, 1, 4])
     with s1:
         if st.button("Save entry", type="primary", key="j_save"):
