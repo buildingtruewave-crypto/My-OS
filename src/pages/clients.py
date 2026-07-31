@@ -320,7 +320,7 @@ def _pipeline_editor():
         with a1:
             nl = st.text_input("new stage label", key="ns_l")
         with a2:
-            nc = st.color_input("color", value="#4C8DFF", key="ns_c")
+            nc = st.color_picker("color", value="#4C8DFF", key="ns_c")
         with a3:
             st.markdown("<div style='height:26px'></div>",
                         unsafe_allow_html=True)
@@ -356,7 +356,7 @@ def _pipeline_editor():
                         "label", value=s.get("label", ""),
                         key="fl_" + s["id"])
                 with r2:
-                    new_colors[s["id"]] = st.color_input(
+                    new_colors[s["id"]] = st.color_picker(
                         "color", value=s.get("color", "#7C8AA5"),
                         key="fc_" + s["id"])
                 with r3:
