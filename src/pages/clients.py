@@ -1,6 +1,7 @@
 """TrueWave - the full client journey, from the first ad-text to the
-closed deal. Every stage is recorded with a timestamp, so the memory
-of each client is total: what was said, what failed, what happens next.
+closed deal. Opens with a live Call Sheet so you always know who to
+phone next. Every stage is timestamped; the memory of each client is
+total, so you talk like you remember everything - because you do.
 """
 from __future__ import annotations
 
@@ -35,7 +36,6 @@ def _add_lead(ctx):
 
 
 def _journey(c, ctx, k):
-    """Stepper, stage move, plan + numbers."""
     today, now_str = ctx["today"], ctx["now_str"]
     st.markdown(UI.stepper_html(c), unsafe_allow_html=True)
     j1, j2 = st.columns([2, 1])
@@ -93,7 +93,6 @@ def _journey(c, ctx, k):
 
 
 def _verify(c, ctx, k):
-    """Docs, credit call, delivery + return window."""
     today, now_str = ctx["today"], ctx["now_str"]
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
                 'DOCS &amp; VERIFICATION</div>',
@@ -196,7 +195,6 @@ def _verify(c, ctx, k):
 
 
 def _memory(c, ctx, k):
-    """The conversation memory - every touch, timestamped."""
     now_str = ctx["now_str"]
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
                 'CLIENT MEMORY</div>', unsafe_allow_html=True)
@@ -230,24 +228,30 @@ def render(ctx):
     clients, today = ctx["clients"], ctx["today"]
     cc = M.client_counts(clients, today)
     window = M.clients_in_window(clients, today)
+    sheet = M.call_sheet(clients, today)
 
     row = [
+        UI.tile("Call Sheet", str(len(sheet)), "phone them now",
+                "win" if sheet else "mute",
+                "win" if sheet else "ink", "phone", "win", 0),
         UI.tile("New This Week", str(cc["new7"]), "ads + live",
-                "mute", "ink", "bolt", "accent", 0),
+                "mute", "ink", "bolt", "accent", 40),
         UI.tile("Active Pipeline", str(cc["active"]), "in journey",
-                "mute", "ink", "users", "accent", 40),
-        UI.tile("Follow-ups Today", str(len(cc["due"])), "call now",
-                "win" if cc["due"] else "mute",
-                "win" if cc["due"] else "ink", "clock", "win", 80),
-        UI.tile("Overdue", str(len(cc["over"])), "promised earlier",
-                "loss" if cc["over"] else "mute",
-                "loss" if cc["over"] else "ink", "bolt", "loss", 120),
+                "mute", "ink", "users", "accent", 80),
         UI.tile("Return Windows", str(len(window)), "7-day open",
-                "mute", "ink", "cal", "jewel", 160),
+                "mute", "ink", "cal", "jewel", 120),
+        UI.tile("CASH OFFER Queue", str(cc["cashq"]), "credit refs",
+                "mute", "ink", "cash", "jewel", 160),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
                 "win", "win", "check", "win", 200),
     ]
     st.markdown(UI.tiles_grid(row, 6), unsafe_allow_html=True)
+
+    if sheet:
+        st.markdown(UI.panel(
+            "Today's Call Sheet - hottest first",
+            "".join(UI.client_card(c, today) for c in sheet[:8]),
+            right="tap a number to dial"), unsafe_allow_html=True)
 
     _add_lead(ctx)
 
