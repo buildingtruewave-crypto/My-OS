@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import datetime as dt
-
 import streamlit as st
 
 from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
 
-
-def _last30():
-    today = dt.date.today()
-    out = []
-    for o in range(30):
-        day = today - dt.timedelta(days=o)
-        out.append(day.isoformat())
-    return out
+WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def render(ctx):
@@ -24,6 +15,7 @@ def render(ctx):
     goals = ctx["goals"]
     journal = ctx["journal"]
     ts = ctx["trade"]
+    trades = ctx["trades"]
 
     cons = M.overall_consistency(habits, log, 30)
     jcomp = M.journal_completion(journal, 30)
@@ -32,48 +24,34 @@ def render(ctx):
     else:
         gavg = 0.0
     score = M.life_score(cons, jcomp, ts["wr"], gavg)
-    n_trades = ts["n"]
-    n_goals = len(goals)
     jstreak = M.journal_streak(journal)
 
     if score >= 70:
-        s_d = "win"
-        s_v = "win"
+        s_d, s_v = "win", "win"
     elif score < 40:
-        s_d = "loss"
-        s_v = "loss"
+        s_d, s_v = "loss", "loss"
     else:
-        s_d = "mute"
-        s_v = "ink"
+        s_d, s_v = "mute", "ink"
 
     row = [
-        UI.tile("Life Score", str(score),
-                "composite 0-100", s_d, s_v,
-                "*", "jewel", 0),
-        UI.tile("Consistency", U.fmt_pct(cons, False),
-                "30-day habits", "mute", "ink",
-                "v", "win", 40),
+        UI.tile("Life Score", str(score), "composite 0-100", s_d, s_v,
+                "star", "jewel", 0),
+        UI.tile("Consistency", U.fmt_pct(cons, False), "30-day habits",
+                "mute", "ink", "pulse", "win", 40),
         UI.tile("Journal", U.fmt_pct(jcomp, False),
-                "streak " + str(jstreak), "mute",
-                "ink", "j", "accent", 80),
-        UI.tile("Trade Win Rate",
-                U.fmt_pct(ts["wr"], False),
-                str(n_trades) + " trades", "mute",
-                "ink", "@", "jewel", 120),
-        UI.tile("Goal Progress",
-                U.fmt_pct(gavg, False),
-                str(n_goals) + " active", "mute",
-                "ink", "g", "accent", 160),
+                "streak " + str(jstreak), "mute", "ink",
+                "edit", "accent", 80),
+        UI.tile("Trade Win Rate", U.fmt_pct(ts["wr"], False),
+                str(ts["n"]) + " trades", "mute", "ink",
+                "target", "jewel", 120),
+        UI.tile("Goal Progress", U.fmt_pct(gavg, False),
+                str(len(goals)) + " active", "mute", "ink",
+                "flag", "accent", 160),
     ]
-    st.markdown(UI.tiles_grid(row, 5),
-                unsafe_allow_html=True)
+    st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
 
-    if habits:
-        first_name = habits[0]["name"]
-        first_streak = M.habit_streak(log, habits[0]["id"])
-    else:
-        first_name = "habit"
-        first_streak = 0
+    first_name = habits[0]["name"] if habits else "habit"
+    first_streak = M.habit_streak(log, habits[0]["id"]) if habits else 0
     st.markdown(
         UI.streaks_html([
             (first_streak, first_name, "win"),
@@ -84,13 +62,21 @@ def render(ctx):
         unsafe_allow_html=True,
     )
 
+    # consistency trend line (the glowing spine, in %)
+    series = M.consistency_series(log, habits, 30)
+    st.markdown(
+        UI.panel("Consistency Trend",
+                 UI.equity_svg(series, "st_eq", kind="pct",
+                               xfmt=lambda d: d.strftime("%d")),
+                 right="last 30 days"),
+        unsafe_allow_html=True,
+    )
+
     c1, c2 = st.columns(2, gap="medium")
     with c1:
         cwd = M.consistency_by_weekday(habits, log, 60)
-        names = ["Mon", "Tue", "Wed", "Thu",
-                 "Fri", "Sat", "Sun"]
         items = []
-        for i, nm in enumerate(names):
+        for i, nm in enumerate(WEEK):
             v = cwd[i]
             if v >= 60:
                 color = "#34D399"
@@ -99,13 +85,20 @@ def render(ctx):
             else:
                 color = "#F5B544"
             items.append((nm, v - 50, color))
+        st.markdown(UI.panel("Consistency by Weekday",
+                             UI.hbars(items)),
+                    unsafe_allow_html=True)
+    with c2:
+        mat = M.trade_heatmap(trades)
         st.markdown(
-            UI.panel("Consistency by Weekday",
-                     UI.hbars(items)),
+            UI.panel("Trading - Weekday x Session",
+                     UI.heatmap_html(mat, WEEK, M.HOUR_BUCKETS)),
             unsafe_allow_html=True,
         )
-    with c2:
-        last = _last30()
+
+    c3, c4 = st.columns(2, gap="medium")
+    with c3:
+        last = [(today_iso(o)) for o in range(30)]
         done = 0
         missed = 0
         for h in habits:
@@ -120,7 +113,26 @@ def render(ctx):
         tot = max(done + missed, 1)
         st.markdown(
             UI.panel("Habit Outcomes - 30d",
-                     UI.donut(segs, str(tot),
-                              "checks", tot)),
+                     UI.donut(segs, str(tot), "checks", tot)),
             unsafe_allow_html=True,
         )
+    with c4:
+        body = (
+            '<div class="tw-stat"><span class="k">Life score formula</span>'
+            + '<span class="v">40/20/20/20</span></div>'
+            + '<div class="tw-stat"><span class="k">Consistency weight</span>'
+            + '<span class="v">40%</span></div>'
+            + '<div class="tw-stat"><span class="k">Journal weight</span>'
+            + '<span class="v">20%</span></div>'
+            + '<div class="tw-stat"><span class="k">Trade win weight</span>'
+            + '<span class="v">20%</span></div>'
+            + '<div class="tw-stat"><span class="k">Goal weight</span>'
+            + '<span class="v">20%</span></div>'
+        )
+        st.markdown(UI.panel("How the Score Works", body),
+                    unsafe_allow_html=True)
+
+
+def today_iso(o):
+    import datetime as dt
+    return (dt.date.today() - dt.timedelta(days=o)).isoformat()
