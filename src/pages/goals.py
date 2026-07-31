@@ -21,7 +21,8 @@ def render(ctx):
     row = [
         UI.tile("Avg Progress", U.fmt_pct(gavg, False), "all goals",
                 "win" if gavg >= 60 else "mute",
-                "win" if gavg >= 60 else "ink", "target", "accent", 0),
+                "win" if gavg >= 60 else "ink", "target", "accent",
+                0),
         UI.tile("On Track", str(on), ">= 60%", "win", "win",
                 "check", "win", 40),
         UI.tile("At Risk", str(at), "< 60%", "loss", "loss",
