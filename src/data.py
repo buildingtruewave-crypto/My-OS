@@ -1,7 +1,8 @@
-"""Empty-on-purpose, editable, persisted life + business data.
-Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked -
-every figure is entered by hand from day one. Every write lands in
-data/*.json immediately, so the system never forgets.
+"""Empty-on-purpose, editable, persisted life + business + money data.
+Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked - every
+figure is hand-entered from day one. Every write lands in data/*.json
+instantly, and every money move snapshots the net worth, so the system
+never forgets and growth is visible day by day.
 """
 from __future__ import annotations
 
@@ -81,7 +82,7 @@ COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
 
-# ---------- routine / habits / bots / vault seeds ----------
+# ---------- routine / habits / bots ----------
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
     ("06:10", "Morning coffee", "Life", "weekdays"),
@@ -141,10 +142,24 @@ BOT_SEED = [
     ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
      "testing"),
 ]
-BUCKET_SEED = [
-    ("household", "Household", 0.0),
-    ("enjoy", "Enjoyment", 0.0),
-    ("emergency", "Emergency Fund", 0.0),
+
+# ---------- money (the Vault) ----------
+POSITION_SEED = [
+    ("wallet", "Cash Wallet"),
+    ("mpesa", "M-Pesa"),
+    ("bank", "Bank Account"),
+]
+BILL_SEED = [
+    ("rent", "Rent"),
+    ("power", "Power (KPLC)"),
+    ("water", "Water"),
+    ("internet", "Internet / WiFi"),
+    ("food", "Food & Shopping"),
+    ("transport", "Transport"),
+]
+FUND_SEED = [
+    ("hho", "HHO Carbon Cleaning - Nairobi",
+     150000.0, 200000.0, "2027-01-31"),
 ]
 
 
@@ -280,18 +295,19 @@ def _seed_bots():
 
 def _seed_vault():
     return {
-        "fund": {
-            "name": "HHO Carbon Cleaning - Nairobi",
-            "target_lo": 150000.0,
-            "target_hi": 200000.0,
-            "deadline": "2027-01-31",
-            "start_capital": 0.0,
-            "tx": [],
-        },
-        "buckets": [{"id": bid, "name": nm, "target": tg, "tx": []}
-                    for (bid, nm, tg) in BUCKET_SEED],
+        "positions": [{"id": pid, "name": nm, "balance": 0.0, "tx": []}
+                      for (pid, nm) in POSITION_SEED],
+        "bills": [{"id": bid, "name": nm, "need": 0.0, "saved": 0.0,
+                   "due": "", "paid": False, "paid_date": "", "tx": []}
+                  for (bid, nm) in BILL_SEED],
+        "fun": {"budget": 0.0, "used": 0.0, "tx": []},
         "items": [],
+        "funds": [{"id": fid, "name": nm, "target_lo": lo,
+                   "target_hi": hi, "deadline": dl,
+                   "balance": 0.0, "tx": []}
+                  for (fid, nm, lo, hi, dl) in FUND_SEED],
         "flow": [],
+        "snapshots": [],
     }
 
 
@@ -514,8 +530,8 @@ def add_task(t):
 # ---------- sales / income ----------
 
 def add_sale(s):
-    """Instalment due dates are set automatically: 1st commission at
-    +20 days, 2nd at +50 days from the delivery (or sale) date."""
+    """Instalment due dates set automatically: 1st at +20 days,
+    2nd at +50 days from the delivery (or sale) date."""
     sales = list(st.session_state["sales"])
     s = dict(s)
     s["id"] = _uid()
@@ -578,37 +594,120 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
-# ---------- vault ----------
+# ---------- the Vault: a full money operating system ----------
 
-def fund_tx(date_iso, kind, amount, source):
+def _net(v):
+    cash = sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
+    bills = sum(float(b.get("saved", 0)) for b in v.get("bills", []))
+    f = v.get("fun", {})
+    fun = max(0.0, float(f.get("budget", 0)) - float(f.get("used", 0)))
+    items = sum(sum(float(t.get("amount", 0)) for t in it.get("tx", []))
+                for it in v.get("items", []))
+    funds = sum(float(x.get("balance", 0)) for x in v.get("funds", []))
+    return cash + bills + fun + items + funds
+
+
+def _snap(v):
+    today = U.today_local().isoformat()
+    snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
+    snaps.append({"date": today, "net": _net(v)})
+    snaps.sort(key=lambda s: s["date"])
+    v["snapshots"] = snaps
+
+
+def pos_tx(pid, kind, amount, note=""):
     v = st.session_state["vault"]
-    v["fund"]["tx"].insert(0, {"id": _uid(), "date": date_iso,
-                               "kind": kind, "amount": float(amount),
-                               "source": source})
-    save_vault(v)
-
-
-def set_fund_capital(x):
-    v = st.session_state["vault"]
-    v["fund"]["start_capital"] = float(x)
-    save_vault(v)
-
-
-def bucket_tx(bid, date_iso, kind, amount, note):
-    v = st.session_state["vault"]
-    for b in v["buckets"]:
-        if b["id"] == bid:
-            b["tx"].insert(0, {"id": _uid(), "date": date_iso,
-                               "kind": kind, "amount": float(amount),
+    for p in v["positions"]:
+        if p["id"] == pid:
+            amt = float(amount)
+            if kind == "in":
+                p["balance"] = float(p["balance"]) + amt
+            else:
+                p["balance"] = float(p["balance"]) - amt
+            p["tx"].insert(0, {"id": _uid(),
+                               "date": U.today_local().isoformat(),
+                               "kind": kind, "amount": amt,
                                "note": note})
+    _snap(v)
     save_vault(v)
 
 
-def set_bucket_target(bid, target):
+def add_position(name):
     v = st.session_state["vault"]
-    for b in v["buckets"]:
+    v["positions"].append({"id": U.slug(name), "name": name,
+                           "balance": 0.0, "tx": []})
+    save_vault(v)
+
+
+def bill_tx(bid, kind, amount):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
         if b["id"] == bid:
-            b["target"] = float(target)
+            amt = float(amount)
+            if kind == "save":
+                b["saved"] = float(b["saved"]) + amt
+            else:
+                b["saved"] = max(0.0, float(b["saved"]) - amt)
+            b["tx"].insert(0, {"id": _uid(),
+                               "date": U.today_local().isoformat(),
+                               "kind": kind, "amount": amt})
+    _snap(v)
+    save_vault(v)
+
+
+def add_bill(name, need, due):
+    v = st.session_state["vault"]
+    v["bills"].append({"id": U.slug(name), "name": name,
+                       "need": float(need), "saved": 0.0, "due": due,
+                       "paid": False, "paid_date": "", "tx": []})
+    save_vault(v)
+
+
+def set_bill(bid, need=None, due=None):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            if need is not None:
+                b["need"] = float(need)
+            if due is not None:
+                b["due"] = due
+    save_vault(v)
+
+
+def bill_paid(bid, date_iso):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            b["paid"] = True
+            b["paid_date"] = date_iso
+    _snap(v)
+    save_vault(v)
+
+
+def bill_reopen(bid):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            b["paid"] = False
+            b["paid_date"] = ""
+            b["saved"] = 0.0
+    _snap(v)
+    save_vault(v)
+
+
+def fun_tx(kind, amount, note=""):
+    v = st.session_state["vault"]
+    f = v["fun"]
+    amt = float(amount)
+    if kind == "add":
+        f["budget"] = float(f["budget"]) + amt
+    else:
+        f["used"] = float(f["used"]) + amt
+    f["tx"].insert(0, {"id": _uid(),
+                       "date": U.today_local().isoformat(),
+                       "kind": kind, "amount": amt, "note": note})
+    _snap(v)
     save_vault(v)
 
 
@@ -620,12 +719,15 @@ def add_item(name, price):
     save_vault(v)
 
 
-def item_tx(iid, date_iso, amount):
+def item_tx(iid, amount):
+    """amount may be negative to pull money back out."""
     v = st.session_state["vault"]
     for it in v["items"]:
         if it["id"] == iid:
-            it["tx"].append({"date": date_iso,
+            it["tx"].append({"id": _uid(),
+                             "date": U.today_local().isoformat(),
                              "amount": float(amount)})
+    _snap(v)
     save_vault(v)
 
 
@@ -635,6 +737,33 @@ def buy_item(iid, date_iso):
         if it["id"] == iid:
             it["bought"] = True
             it["bought_date"] = date_iso
+    _snap(v)
+    save_vault(v)
+
+
+def fund_tx(fid, kind, amount, note=""):
+    v = st.session_state["vault"]
+    for f in v["funds"]:
+        if f["id"] == fid:
+            amt = float(amount)
+            if kind == "in":
+                f["balance"] = float(f["balance"]) + amt
+            else:
+                f["balance"] = max(0.0, float(f["balance"]) - amt)
+            f["tx"].insert(0, {"id": _uid(),
+                               "date": U.today_local().isoformat(),
+                               "kind": kind, "amount": amt,
+                               "note": note})
+    _snap(v)
+    save_vault(v)
+
+
+def add_fund(name, target_lo, target_hi, deadline):
+    v = st.session_state["vault"]
+    v["funds"].append({"id": U.slug(name), "name": name,
+                       "target_lo": float(target_lo),
+                       "target_hi": float(target_hi),
+                       "deadline": deadline, "balance": 0.0, "tx": []})
     save_vault(v)
 
 
@@ -643,6 +772,7 @@ def add_flow(date_iso, kind, amount, src, got):
     v.setdefault("flow", []).insert(
         0, {"id": _uid(), "date": date_iso, "kind": kind,
             "amount": float(amount), "src": src, "got": got})
+    _snap(v)
     save_vault(v)
 
 
