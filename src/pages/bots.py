@@ -27,7 +27,8 @@ def render(ctx):
                 "mute", "ink", "list", "accent", 40),
         UI.tile("Net Result", format(all_pnl, "+,.0f"),
                 "all ventures", "win" if all_pnl >= 0 else "loss",
-                "win" if all_pnl >= 0 else "loss", "trend", "win", 80),
+                "win" if all_pnl >= 0 else "loss", "trend", "win",
+                80),
         UI.tile("Win Rate", format(wr, ".0f") + "%", "all logs",
                 "mute", "ink", "target", "jewel", 120),
     ]
