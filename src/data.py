@@ -1,8 +1,14 @@
 """Empty-on-purpose, editable, persisted life + business + money data.
-Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked - every
-figure is hand-entered from day one. Every write lands in data/*.json
-instantly, and every money move snapshots the net worth, so the system
-never forgets and growth is visible day by day.
+Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
+
+Privacy rule: balances / net worth / assets / liabilities live ONLY in the
+vault. The vault is gated by ARCHIVE_PIN - a fixed constant, never stored in
+prefs, never shown or editable in the app. Change it by editing this one line.
+
+The conversion pipeline (lead stages + payment plans) is DATA, not code: it
+lives in pipeline.json and is edited from the TrueWave page. The engine only
+knows five semantic ROLES (won / lost / cash / delivered / returned); every
+label, colour, order and intermediate step is yours.
 """
 from __future__ import annotations
 
@@ -19,7 +25,8 @@ from . import util as U
 DATA = Path(__file__).resolve().parent.parent / "data"
 START_DATE = dt.date(2026, 8, 1)
 DEFAULT_NAME = "Mwangi.Alex"
-DEFAULT_PIN = "2580"
+# The vault access code. Hard-wired on purpose: not in prefs, not in the UI.
+ARCHIVE_PIN = "0444"
 
 TAG_COLORS = {
     "Content": "#4C8DFF",
@@ -40,38 +47,21 @@ MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
 DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
             "fri": 4, "sat": 5, "sun": 6}
 
-# ---------- TrueWave journey ----------
-STAGES = [
-    ("new", "New Lead", "#4C8DFF"),
-    ("no_pickup", "Called - No Pickup", "#F5B544"),
-    ("picked", "In Conversation", "#2DD4BF"),
-    ("declined_call", "Declined on Call", "#F0556B"),
-    ("application", "Application Started", "#8B7CFF"),
-    ("mpesa_review", "M-Pesa Review", "#D946EF"),
-    ("plan_choice", "Plan Selection", "#38BDF8"),
-    ("docs", "Docs Check", "#F5B544"),
-    ("credit_call", "Credit Team Call", "#F0556B"),
-    ("cash_offer", "CASH OFFER - CREDIT", "#F5B544"),
-    ("deposit", "Deposit & Delivery", "#34D399"),
-    ("delivered", "Delivered - Window Open", "#2DD4BF"),
-    ("paid", "Paid & Closed", "#34D399"),
-    ("returned", "Returned", "#F0556B"),
-    ("lost", "Lost / Declined", "#7C8AA5"),
-]
-STAGE_IDS = [s[0] for s in STAGES]
-STAGE_LABEL = {s[0]: s[1] for s in STAGES}
-STAGE_COLOR = {s[0]: s[2] for s in STAGES}
-JOURNEY = ["new", "picked", "application", "mpesa_review",
-           "plan_choice", "docs", "credit_call", "deposit",
-           "delivered", "paid"]
+# ---------- pipeline roles (the only thing the engine hard-codes) ----------
+ROLES = ["", "won", "lost", "cash", "delivered", "returned"]
+ROLE_LABEL = {
+    "": "— (none)",
+    "won": "Closed won",
+    "lost": "Closed lost",
+    "cash": "Cash-offer hold",
+    "delivered": "Delivered (window)",
+    "returned": "Returned",
+}
+TERMINAL_ROLES = {"won", "lost", "returned"}
+
 SOURCES = ["Facebook Ads", "TikTok Live", "TikTok DM", "Instagram",
            "WhatsApp", "Walk-in", "Referral", "Outbound Call"]
 HEATS = ["Hot", "Warm", "Cold"]
-PLANS = {
-    "Standard (12 mo)": "12 months - standard weekly",
-    "Lite (12 mo)": "12 months - lower weekly, slightly higher total",
-    "Saver (6 mo)": "6 months - higher deposit + higher weekly",
-}
 DOC_ITEMS = ["id_card", "selfie", "next_of_kin"]
 DOC_LABEL = {"id_card": "ID Card", "selfie": "Clear Selfie",
              "next_of_kin": "Next of Kin"}
@@ -82,7 +72,6 @@ COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
 
-# ---------- routine / habits / bots ----------
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
     ("06:10", "Morning coffee", "Life", "weekdays"),
@@ -142,8 +131,6 @@ BOT_SEED = [
     ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
      "testing"),
 ]
-
-# ---------- money (the Vault) ----------
 POSITION_SEED = [
     ("wallet", "Cash Wallet"),
     ("mpesa", "M-Pesa"),
@@ -311,6 +298,116 @@ def _seed_vault():
     }
 
 
+# ---------- the editable conversion pipeline ----------
+
+def _seed_pipeline():
+    stages = [
+        ("new", "New Lead", "#4C8DFF", True, ""),
+        ("no_pickup", "Called - No Pickup", "#F5B544", False, ""),
+        ("picked", "In Conversation", "#2DD4BF", True, ""),
+        ("declined_call", "Declined on Call", "#F0556B", False, ""),
+        ("application", "Application Started", "#8B7CFF", True, ""),
+        ("mpesa_review", "M-Pesa Review", "#D946EF", True, ""),
+        ("plan_choice", "Plan Selection", "#38BDF8", True, ""),
+        ("docs", "Docs Check", "#F5B544", True, ""),
+        ("credit_call", "Credit Team Call", "#F0556B", True, ""),
+        ("cash_offer", "CASH OFFER - CREDIT", "#F5B544", False, "cash"),
+        ("deposit", "Deposit & Delivery", "#34D399", True, ""),
+        ("delivered", "Delivered - Window Open", "#2DD4BF", True,
+         "delivered"),
+        ("paid", "Paid & Closed", "#34D399", True, "won"),
+        ("returned", "Returned", "#F0556B", False, "returned"),
+        ("lost", "Lost / Declined", "#7C8AA5", False, "lost"),
+    ]
+    plans = [
+        ("std", "Standard (12 mo)", "12 months - standard weekly"),
+        ("lite", "Lite (12 mo)",
+         "12 months - lower weekly, slightly higher total"),
+        ("saver", "Saver (6 mo)",
+         "6 months - higher deposit + higher weekly"),
+    ]
+    return {
+        "stages": [{"id": i, "label": l, "color": c,
+                    "track": tr, "role": ro}
+                   for (i, l, c, tr, ro) in stages],
+        "plans": [{"id": i, "label": l, "note": n}
+                  for (i, l, n) in plans],
+    }
+
+
+def get_pipeline_obj():
+    return st.session_state.get("pipeline") or _seed_pipeline()
+
+
+def save_pipeline_obj(o):
+    st.session_state["pipeline"] = o
+    _write("pipeline.json", o)
+
+
+def get_stages():
+    return get_pipeline_obj().get("stages", [])
+
+
+def get_plans():
+    return get_pipeline_obj().get("plans", [])
+
+
+def all_stage_ids():
+    return [s["id"] for s in get_stages()]
+
+
+def _stage(sid):
+    for s in get_stages():
+        if s["id"] == sid:
+            return s
+    return None
+
+
+def stage_label(sid, default="?"):
+    s = _stage(sid)
+    if s:
+        return s.get("label") or str(sid)
+    return str(sid) if default is None else default
+
+
+def stage_color(sid, default="#7C8AA5"):
+    s = _stage(sid)
+    return s.get("color", default) if s else default
+
+
+def stage_role(sid):
+    s = _stage(sid)
+    return s.get("role", "") if s else ""
+
+
+def role_id(role):
+    for s in get_stages():
+        if s.get("role") == role:
+            return s["id"]
+    return None
+
+
+def terminal_ids():
+    return [s["id"] for s in get_stages()
+            if s.get("role") in TERMINAL_ROLES]
+
+
+def non_terminal_ids():
+    return [s["id"] for s in get_stages()
+            if s.get("role") not in TERMINAL_ROLES]
+
+
+def journey_ids():
+    return [s["id"] for s in get_stages() if s.get("track")]
+
+
+def plan_note(label):
+    for p in get_plans():
+        if p.get("label") == label:
+            return p.get("note", "")
+    return ""
+
+
 def _ensure_key(key, fname, factory):
     if key not in st.session_state:
         st.session_state[key] = _read(fname) or factory()
@@ -318,6 +415,7 @@ def _ensure_key(key, fname, factory):
 
 def ensure():
     prefs = _read("prefs.json") or {}
+    _ensure_key("pipeline", "pipeline.json", _seed_pipeline)
     _ensure_key("routine", "routine.json", _seed_routine)
     _ensure_key("habits", "habits.json", _seed_habits)
     _ensure_key("habit_log", "habit_log.json", dict)
@@ -338,8 +436,6 @@ def ensure():
         "accent", prefs.get("accent", "#4C8DFF"))
     st.session_state.setdefault(
         "tz_offset", float(prefs.get("tz_offset", 0)))
-    st.session_state.setdefault(
-        "pin", str(prefs.get("pin", DEFAULT_PIN)))
 
 
 def get(k):
@@ -351,7 +447,6 @@ def _save_prefs():
         "name": st.session_state.get("name"),
         "accent": st.session_state.get("accent"),
         "tz_offset": st.session_state.get("tz_offset", 0),
-        "pin": st.session_state.get("pin", DEFAULT_PIN),
     })
 
 
@@ -435,10 +530,12 @@ def save_vault(x):
 def add_client(name, phone, source, heat, want, budget, note,
                today_iso, now_str):
     clients = list(st.session_state["clients"])
+    ids = all_stage_ids()
+    first = ids[0] if ids else "new"
     c = {
         "id": _uid(), "name": name, "phone": phone,
         "source": source, "heat": heat, "want": want,
-        "budget": budget, "created": today_iso, "stage": "new",
+        "budget": budget, "created": today_iso, "stage": first,
         "plan": "", "qualified": "", "deposit": 0.0, "weekly": 0.0,
         "docs": {"id_card": "pending", "selfie": "pending",
                  "next_of_kin": "pending"},
@@ -449,7 +546,7 @@ def add_client(name, phone, source, heat, want, budget, note,
         "remark": "", "why_not": "",
         "history": [{"ts": now_str,
                      "note": note or ("Lead logged from " + source),
-                     "stage": "new"}],
+                     "stage": first}],
     }
     clients.insert(0, c)
     save_clients(clients)
@@ -474,7 +571,7 @@ def set_stage(cid, stage, now_str, note=""):
     c = _find_client(cid)
     if c:
         c["stage"] = stage
-        label = STAGE_LABEL.get(stage, stage)
+        label = stage_label(stage, stage)
         c.setdefault("history", []).append(
             {"ts": now_str, "note": note or ("Stage -> " + label),
              "stage": stage})
@@ -530,8 +627,6 @@ def add_task(t):
 # ---------- sales / income ----------
 
 def add_sale(s):
-    """Instalment due dates set automatically: 1st at +20 days,
-    2nd at +50 days from the delivery (or sale) date."""
     sales = list(st.session_state["sales"])
     s = dict(s)
     s["id"] = _uid()
@@ -720,7 +815,6 @@ def add_item(name, price):
 
 
 def item_tx(iid, amount):
-    """amount may be negative to pull money back out."""
     v = st.session_state["vault"]
     for it in v["items"]:
         if it["id"] == iid:
@@ -780,6 +874,7 @@ def add_flow(date_iso, kind, amount, src, got):
 
 def reset_all():
     defaults = {
+        "pipeline": _seed_pipeline(),
         "routine": _seed_routine(),
         "habits": _seed_habits(),
         "habit_log": {}, "goals": [], "issues": [],
@@ -796,9 +891,9 @@ def export_zip():
     import io
     import zipfile
     buf = io.BytesIO()
-    keys = ["routine", "habits", "habit_log", "goals", "issues",
-            "journal", "weights", "clients", "sales_daily", "sales",
-            "income", "tasks", "bots", "vault"]
+    keys = ["pipeline", "routine", "habits", "habit_log", "goals",
+            "issues", "journal", "weights", "clients", "sales_daily",
+            "sales", "income", "tasks", "bots", "vault"]
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in keys:
             z.writestr(k + ".json", json.dumps(
