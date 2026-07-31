@@ -16,7 +16,6 @@ def render(ctx):
     today, t_iso = ctx["today"], ctx["today_iso"]
 
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
-    sold_all = sum(int(e.get("sold", 0)) for e in daily.values())
     sys30, cash30 = M.rejects_30d(daily, today)
     com = M.commission_stats(sales, t_iso)
     locked = [(s, i) for s, i in com["overdue"]
