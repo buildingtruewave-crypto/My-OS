@@ -20,6 +20,7 @@ def render(ctx):
     clients, bots = ctx["clients"], ctx["bots"]
     weights, today = ctx["weights"], ctx["today"]
     t_iso, score = ctx["today_iso"], ctx["score"]
+    tasks, income = ctx["tasks"], ctx["income"]
 
     cons = M.overall_consistency(habits, log, 30)
     jcomp = M.journal_completion(journal, 30)
@@ -28,14 +29,14 @@ def render(ctx):
         if goals else 0.0
     com = M.commission_stats(sales, t_iso)
     cc = M.client_counts(clients, today)
+    tc = M.task_counts(tasks, today)
     wk = M.week_sales(daily, today, 7)
     sold_week = sum(v for _l, v in wk)
-    clients_week = sum(1 for c in clients
-                       if c.get("created", "") >=
-                       (today - dt.timedelta(days=6)).isoformat())
     wdelta = M.weight_delta(weights)
     days_in = max(0, (today - D.START_DATE).days + 1) \
         if ctx["started"] else 0
+    locked = [(s, i) for s, i in com["overdue"]
+              if not M.comm_editable(s, i, today)]
 
     row = [
         UI.tile("Life Score",
@@ -48,7 +49,7 @@ def render(ctx):
         UI.tile("Sold This Week", str(sold_week), "phones",
                 "win" if sold_week else "mute",
                 "win" if sold_week else "ink", "phone", "win", 80),
-        UI.tile("New Clients 7d", str(clients_week), "inquiries",
+        UI.tile("New Clients 7d", str(cc["new7"]), "inquiries",
                 "mute", "ink", "users", "accent", 120),
         UI.tile("Weight Change", format(wdelta, "+,.1f") + " kg",
                 "since first weigh-in",
@@ -96,6 +97,30 @@ def render(ctx):
 
     c3, c4 = st.columns(2, gap="medium")
     with c3:
+        sc = M.stage_counts(clients)
+        rows = []
+        for sid in D.STAGE_IDS:
+            n = sc.get(sid, 0)
+            if n:
+                rows.append([
+                    (UI.badge(D.STAGE_LABEL[sid],
+                              D.STAGE_COLOR[sid]), ""),
+                    (str(n), "num"),
+                ])
+        st.markdown(UI.panel("Pipeline Distribution",
+                             UI.table(["Stage", "Clients"], rows)),
+                    unsafe_allow_html=True)
+    with c4:
+        ibt = M.income_by_type(income)
+        items = [(k, v, "#34D399") for k, v in
+                 sorted(ibt.items(), key=lambda x: x[1],
+                        reverse=True)]
+        st.markdown(UI.panel("Income by Source", UI.hbars(items),
+                             right=U.fmt_kes(M.income_total(income))),
+                    unsafe_allow_html=True)
+
+    c5, c6 = st.columns(2, gap="medium")
+    with c5:
         rows = []
         for b in bots["bots"]:
             s = M.bot_stats(bots["logs"], b["id"])
@@ -117,20 +142,25 @@ def render(ctx):
                              UI.table(["Venture", "Status", "Logs",
                                        "WR", "Net", "RR"], rows)),
                     unsafe_allow_html=True)
-    with c4:
+    with c6:
         body = UI.kv([
+            ("Clients paid & closed", str(cc["sold"])),
+            ("Returned", str(cc["returned"])),
+            ("Lost / declined", str(cc["lost"])),
+            ("CASH OFFER queue", str(cc["cashq"])),
             ("Commissions collected", U.fmt_kes(com["paid"])),
             ("Commissions pending", U.fmt_kes(com["pending"])),
-            ("Instalments overdue", str(len(com["overdue"]))),
-            ("Clients sold", str(cc["sold"])),
-            ("Rejected (sys + cash)", str(cc["rej"])),
-            ("Follow-ups open", str(cc["open"])),
+            ("Locked unpaid (slipping)",
+             str(len(locked)) + " - "
+             + U.fmt_kes(sum(float(i.get("amount", 0))
+                             for _s, i in locked))),
+            ("Tasks cleared all-time", str(tc["done_all"])),
         ])
         st.markdown(UI.panel("TrueWave - since Aug 1", body),
                     unsafe_allow_html=True)
 
-    c5, c6 = st.columns(2, gap="medium")
-    with c5:
+    c7, c8 = st.columns(2, gap="medium")
+    with c7:
         done_n = miss_n = 0
         for h in habits:
             s = log.get(h["id"], {})
@@ -150,7 +180,7 @@ def render(ctx):
         else:
             st.markdown(UI.panel("Habit Outcomes", UI.empty_state(
                 "Checks start Aug 1.")), unsafe_allow_html=True)
-    with c6:
+    with c8:
         st.markdown(UI.panel("How the Score Works", UI.kv([
             ("Life score formula", "40/20/20/20"),
             ("Consistency weight", "40%"),
