@@ -1,5 +1,6 @@
-"""HTML / SVG components. Line-icons stroke with currentColor so chips
-tint them. The EKG is the signature heartbeat of the whole OS.
+"""HTML / SVG components. The EKG is the signature heartbeat; the client
+stepper and chips read the pipeline live, so renaming stages in settings
+re-skins every card with no code change.
 """
 from __future__ import annotations
 
@@ -8,8 +9,9 @@ import datetime as _dt
 import html
 import math
 
+from . import data as D
 from . import util as U
-from .data import (JOURNEY, STAGE_COLOR, STAGE_LABEL, TAG_COLORS)
+from .data import TAG_COLORS
 
 _SVG_OPEN = (
     '<svg viewBox="0 0 24 24" fill="none" '
@@ -97,7 +99,6 @@ def _tag_color(tag):
 
 
 def ekg_html():
-    """The heartbeat - a traveling EKG pulse under the header."""
     pts = ("0,30 60,30 80,30 90,14 100,44 110,8 120,30 180,30 "
            "260,30 280,30 290,18 300,38 310,30 400,30 480,30 "
            "500,30 510,12 520,46 530,6 540,30 620,30 700,30")
@@ -194,8 +195,7 @@ def badge(text, color):
 
 
 def stage_chip(stage):
-    return badge(STAGE_LABEL.get(stage, stage),
-                 STAGE_COLOR.get(stage, "#7C8AA5"))
+    return badge(D.stage_label(stage, stage), D.stage_color(stage))
 
 
 def progress(pct, color):
@@ -206,7 +206,6 @@ def progress(pct, color):
 
 
 def kv(pairs):
-    """pairs = [(key, value_html), ...] - values may contain markup."""
     out = []
     for k, v in pairs:
         out.append('<div class="tw-stat"><span class="k">'
@@ -346,7 +345,6 @@ def goal_html(g, pct, color):
 
 
 def client_card(c, today):
-    """Compact card used on the dashboard + call sheet."""
     heat = c.get("heat", "Warm")
     hcolor = _HEAT.get(heat, "#7C8AA5")
     days = 0
@@ -390,11 +388,11 @@ def client_card(c, today):
 
 
 def stepper_html(c):
-    """The client's journey as a glowing dot-line."""
     cur = c.get("stage", "new")
-    idx = JOURNEY.index(cur) if cur in JOURNEY else -1
+    journey = D.journey_ids()
+    idx = journey.index(cur) if cur in journey else -1
     parts = []
-    for i, sid in enumerate(JOURNEY):
+    for i, sid in enumerate(journey):
         if idx >= 0 and i < idx:
             cls = "done"
         elif i == idx:
@@ -403,12 +401,12 @@ def stepper_html(c):
             cls = ""
         parts.append('<span class="tw-step ' + cls
                      + '"><span class="dot"></span>'
-                     + html.escape(STAGE_LABEL.get(sid, sid))
+                     + html.escape(D.stage_label(sid, sid))
                      + '</span>')
-        if i < len(JOURNEY) - 1:
+        if i < len(journey) - 1:
             parts.append('<span class="tw-step-bar"></span>')
     branch = ""
-    if cur not in JOURNEY:
+    if cur not in journey:
         branch = ('<div style="margin:0 0 10px">' + stage_chip(cur)
                   + '</div>')
     return ('<div class="tw-steps">' + "".join(parts) + '</div>'
@@ -508,7 +506,6 @@ def equity_svg(points, gid="eq", h=260, kind="num", xfmt=None):
 
 
 def bars(rows):
-    """Signed vertical bars. rows = [(label, value), ...]"""
     if not rows:
         return '<div class="tw-empty">No data.</div>'
     mx = max([abs(v) for _l, v in rows] + [1])
@@ -531,7 +528,6 @@ def bars(rows):
 
 
 def hbars(items):
-    """items = [(name, value, color), ...] signed horizontal bars."""
     if not items:
         return '<div class="tw-empty">No data yet.</div>'
     mx = max([abs(v) for _n, v, _c in items] + [1])
