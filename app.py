@@ -45,7 +45,7 @@ st.set_page_config(page_title="PULSE - Life Command Center",
 
 D.ensure()
 
-st.markdown(theme.CSS, unsafe_allow_html=True)
+st.markdown("<style>" + theme.CSS + "</style>", unsafe_allow_html=True)
 accent = st.session_state.get("accent", "#4C8DFF")
 st.markdown("<style>:root{--accent:%s;--accent-soft:%s;}</style>"
             % (accent, U.hexa(accent, 0.16)), unsafe_allow_html=True)
