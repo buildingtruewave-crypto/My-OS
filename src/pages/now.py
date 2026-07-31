@@ -1,4 +1,4 @@
-"""The dashboard - broadcasts every module of the operator's day."""
+"""The dashboard - the heart that pumps every module into one view."""
 from __future__ import annotations
 
 import datetime as dt
@@ -38,14 +38,17 @@ def render(ctx):
     com = M.commission_stats(sales, t_iso)
     tc = M.task_counts(tasks, today)
     window = M.clients_in_window(clients, today)
+    sheet = M.call_sheet(clients, today)
     done_today, total_h = _today_done(habits, log, today), len(habits)
     d_entry = daily.get(t_iso) or {}
     sold_today = int(d_entry.get("sold", 0))
     rej_today = int(d_entry.get("system_rej", 0)) \
         + int(d_entry.get("cash_rej", 0))
-    sold_all = sum(int(e.get("sold", 0)) for e in daily.values())
     inc_week = M.income_total(
         income, (today - dt.timedelta(days=6)).isoformat(), t_iso)
+    net = M.net_worth(vault)
+    cash = M.cash_on_hand(vault)
+    bills_late = M.bills_overdue(vault, today)
 
     # ---- row 1: five KPI tiles ----
     row1 = [
@@ -95,29 +98,29 @@ def render(ctx):
                         nxt["label"] if nxt else "")),
             unsafe_allow_html=True)
 
-    # ---- row 3: eight stat tiles ----
+    # ---- row 3: eight stat tiles (life + business + money) ----
     row3 = [
         UI.tile("New Leads 7d", str(cc["new7"]), "ads + live",
                 "mute", "ink", "bolt", "accent", 0),
         UI.tile("Active Pipeline", str(cc["active"]), "in journey",
                 "mute", "ink", "users", "accent", 30),
-        UI.tile("Due Today", str(len(cc["due"])), "follow up",
-                "win" if cc["due"] else "mute",
-                "win" if cc["due"] else "ink", "clock", "win", 60),
-        UI.tile("Overdue", str(len(cc["over"])), "call them",
-                "loss" if cc["over"] else "mute",
-                "loss" if cc["over"] else "ink", "bolt", "loss", 90),
+        UI.tile("Call Sheet", str(len(sheet)), "phone them",
+                "win" if sheet else "mute",
+                "win" if sheet else "ink", "phone", "win", 60),
         UI.tile("Return Windows", str(len(window)), "7-day open",
-                "mute", "ink", "cal", "jewel", 120),
-        UI.tile("CASH OFFER Queue", str(cc["cashq"]),
-                "credit referrals", "mute", "ink", "cash", "jewel",
-                150),
+                "mute", "ink", "cal", "jewel", 90),
         UI.tile("Commissions Due", str(len(com["due_today"])),
                 "today", "win" if com["due_today"] else "mute",
-                "ink", "cash", "win", 180),
+                "ink", "cash", "win", 120),
         UI.tile("Income 7d", "KSh " + U.fmt_k(inc_week),
                 "all sources", "win" if inc_week else "mute",
-                "win" if inc_week else "ink", "trend", "win", 210),
+                "win" if inc_week else "ink", "trend", "win", 150),
+        UI.tile("Net Worth", "KSh " + U.fmt_k(net), "everything",
+                "mute", "ink", "star", "jewel", 180),
+        UI.tile("Cash On Hand", "KSh " + U.fmt_k(cash),
+                str(len(bills_late)) + " bills overdue",
+                "loss" if bills_late else "mute", "ink",
+                "cash", "accent", 210),
     ]
     st.markdown(UI.tiles_grid(row3, 8), unsafe_allow_html=True)
 
@@ -181,18 +184,17 @@ def render(ctx):
             UI.donut(split, str(total_b), "blocks", total_b)),
             unsafe_allow_html=True)
 
-    # ---- row 6: follow-ups + streaks ----
+    # ---- row 6: call sheet + streaks ----
     c6, c7 = st.columns([4, 1], gap="medium")
     with c6:
-        due_list = cc["over"] + cc["due"]
-        if due_list:
+        if sheet:
             body = "".join(UI.client_card(c, today)
-                           for c in due_list[:6])
+                           for c in sheet[:6])
         else:
             body = UI.empty_state(
-                "No follow-ups due. Log inquiries on the TrueWave "
-                "page and they surface here on their day.")
-        st.markdown(UI.panel("Clients Promised - overdue + today",
+                "Call sheet is clear. Log inquiries on TrueWave and "
+                "they surface here on their day.")
+        st.markdown(UI.panel("Today's Call Sheet - hottest first",
                              body, right="TrueWave"),
                     unsafe_allow_html=True)
     with c7:
@@ -225,18 +227,14 @@ def render(ctx):
             right="KSh " + U.fmt_k(com["pending"]) + " pending"),
             unsafe_allow_html=True)
     with c9:
-        fund = vault.get("fund", {})
-        bal = M.fund_balance(fund)
-        tgt = float(fund.get("target_lo", 150000) or 150000)
-        pct = max(0.0, min(100.0, bal / tgt * 100)) if tgt else 0.0
+        tgt = 150000.0
+        pct = max(0.0, min(100.0, net / tgt * 100)) if tgt else 0.0
         body = (
             '<div class="tw-lab" style="margin-bottom:8px">'
-            'BUSINESS FUND &middot; LOCKED</div>'
+            'MONEY &middot; LOCKED</div>'
             + UI.progress(pct, "var(--accent)")
-            + UI.kv([("Launch progress",
-                      format(pct, ".0f") + "% to target"),
-                     ("Deadline",
-                      html.escape(str(fund.get("deadline", ""))))])
+            + UI.kv([("Net worth", "KSh " + U.fmt_k(net)),
+                     ("Cash on hand", "KSh " + U.fmt_k(cash)]))
         )
         st.markdown(UI.panel("Archive", body, right="PIN"),
                     unsafe_allow_html=True)
