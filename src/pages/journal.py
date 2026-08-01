@@ -1,7 +1,5 @@
-"""The day's record. The Day Pulse is picked up automatically from
-TrueWave, Sales, Income, Money, Bots, Tasks and Body - flows only,
-never balances (those live in the vault). Flow net uses the signed effect
-so old and new rows both read correctly.
+"""The day's record. The Day Pulse is picked up automatically from every
+module - including spiritual energy - so the journal never asks twice.
 """
 from __future__ import annotations
 
@@ -50,6 +48,8 @@ def _pulse_html(p):
         net = sum(M.flow_effect(f) for f in p["flow"])
         pairs.append(("Daily flow", str(len(p["flow"]))
                       + " entries - net " + U.fmt_kes(net, True)))
+    if p.get("spiritual") is not None:
+        pairs.append(("Spirit energy", str(p["spiritual"])))
     if p["bot_logs"]:
         net = sum(float(l["pnl"]) for l in p["bot_logs"])
         pairs.append(("Bot logs", str(len(p["bot_logs"]))
