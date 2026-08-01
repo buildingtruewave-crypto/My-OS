@@ -1,6 +1,11 @@
 """HTML / SVG components. The EKG is the signature heartbeat; the client
 stepper and chips read the pipeline live, so renaming stages re-skins every
 card with no code change. Terminal clients carry an Outcome line.
+
+The *render* helpers at the bottom (log_row, *_log_rows, memory_line, the
+upgraded kv / client_card / journal_card / history_html) are what make saved
+entries look premium on every refresh - directional glow, receipt pills,
+bright signed figures - derived from the stored data, so the look is permanent.
 """
 from __future__ import annotations
 
@@ -88,6 +93,9 @@ WAVE = (
 
 WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
 _HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
+MOOD_COLOR = {"drained": "#F0556B", "flat": "#7C8AA5",
+              "steady": "#F5B544", "sharp": "#34D399",
+              "on fire": "#D946EF"}
 
 
 def _icon(name):
@@ -206,12 +214,15 @@ def progress(pct, color):
 
 
 def kv(pairs):
+    """Premium key/value list - left accent tick, bright tabular values."""
     out = []
     for k, v in pairs:
-        out.append('<div class="tw-stat"><span class="k">'
-                   + html.escape(str(k)) + '</span><span class="v">'
-                   + str(v) + '</span></div>')
-    return "".join(out)
+        out.append(
+            '<div class="tw-kv"><span class="tw-kv-k">'
+            + html.escape(str(k)) + '</span><span class="tw-kv-v">'
+            + str(v) + '</span></div>'
+        )
+    return '<div class="tw-kvlist">' + "".join(out) + '</div>'
 
 
 def now_card(now_str, block, tag, tag_color, prog,
@@ -345,6 +356,8 @@ def goal_html(g, pct, color):
 
 
 def client_card(c, today):
+    """Premium client card - stage-coloured top accent, glowing link,
+    premium kv rows. Terminal clients show where the journey ended."""
     heat = c.get("heat", "Warm")
     hcolor = _HEAT.get(heat, "#7C8AA5")
     days = 0
@@ -354,13 +367,15 @@ def client_card(c, today):
         days = 0
     term = D.terminal_ids()
     stg = c.get("stage", "new")
+    accent = D.stage_color(stg)
     rows = []
     phone = str(c.get("phone", "") or "")
     if phone:
         p = html.escape(phone)
         rows.append(("Phone", '<a href="tel:' + p
-                     + '" style="color:var(--accent);'
-                     + 'text-decoration:none">' + p + '</a>'))
+                     + '" style="color:var(--accent);text-decoration:'
+                     'none;border-bottom:1px dashed rgba(76,141,255,.45)">'
+                     + p + '</a>'))
     if stg in term:
         odate = (c.get("paid_date") or c.get("returned_date")
                  or c.get("created", ""))
@@ -385,12 +400,13 @@ def client_card(c, today):
         meta += " &middot; budget " + html.escape(budget)
     meta += " &middot; " + str(max(days, 0)) + "d in pipeline"
     return (
-        '<div class="tw-cc"><div class="tw-cc-top">'
-        '<span class="tw-cc-name">'
+        '<div class="tw-card-premium" style="--card-accent:' + accent
+        + '">'
+        '<div class="tw-cp-top"><span class="tw-cp-name">'
         + html.escape(str(c.get("name", "?"))) + '</span>'
-        '<span>' + stage_chip(stg) + " "
+        '<span class="tw-cp-chips">' + stage_chip(stg) + " "
         + badge(heat, hcolor) + '</span></div>'
-        '<div class="tw-cc-meta">' + meta + '</div>'
+        '<div class="tw-cp-meta">' + meta + '</div>'
         + kv(rows) + '</div>'
     )
 
@@ -421,21 +437,49 @@ def stepper_html(c):
             + branch)
 
 
+def memory_line(ts, note, stage=""):
+    """One premium touch in the client memory timeline."""
+    chip = (" " + stage_chip(stage)) if stage else ""
+    return (
+        '<div class="tw-mem"><span class="tw-mem-dot"></span>'
+        '<div class="tw-mem-body"><div class="tw-mem-ts">'
+        + html.escape(str(ts or "")) + chip + '</div>'
+        '<div class="tw-mem-nt">' + html.escape(str(note or ""))
+        + '</div></div></div>'
+    )
+
+
 def history_html(hist, limit=15):
     items = list(hist)[-limit:][::-1]
     if not items:
         return ('<div class="tw-empty">No touches logged yet - '
                 'every call and text lands here.</div>')
-    out = []
-    for h in items:
-        stg = h.get("stage", "")
-        chip = (" " + stage_chip(stg)) if stg else ""
-        out.append('<div class="tw-hist"><div class="ts">'
-                   + html.escape(str(h.get("ts", ""))) + chip
-                   + '</div><div class="nt">'
-                   + html.escape(str(h.get("note", "")))
-                   + '</div></div>')
-    return "".join(out)
+    return "".join(memory_line(h.get("ts", ""), h.get("note", ""),
+                               h.get("stage", "")) for h in items)
+
+
+def journal_card(date_str, entry):
+    """Premium journal card - top accent in the entry's mood colour."""
+    mood = entry.get("mood", "")
+    accent = MOOD_COLOR.get(mood, "#4C8DFF")
+    h = entry.get("happened") or entry.get("gratitude") or ""
+    rows = []
+    if h:
+        rows.append(("day", html.escape(h)))
+    if entry.get("win"):
+        rows.append(("win", html.escape(entry["win"])))
+    if entry.get("lesson"):
+        rows.append(("lesson", html.escape(entry["lesson"])))
+    body = kv(rows) if rows else '<div class="tw-sub">—</div>'
+    moodpill = ('<span class="tw-moodpill" style="color:' + accent
+                + ';border-color:' + U.hexa(accent, 0.4) + '">'
+                + html.escape(mood or "—") + '</span>')
+    return (
+        '<div class="tw-card-premium" style="--card-accent:' + accent
+        + '"><div class="tw-cp-top"><span class="tw-cp-date">'
+        + html.escape(date_str) + '</span>' + moodpill + '</div>'
+        + body + '</div>'
+    )
 
 
 def equity_svg(points, gid="eq", h=260, kind="num", xfmt=None):
@@ -675,21 +719,181 @@ def table(headers, rows):
             + "".join(body) + '</tbody></table></div>')
 
 
-def journal_card(date_str, entry):
-    rows = ""
-    h = str(entry.get("happened", "") or "")
-    w = str(entry.get("win", "") or "")
-    les = str(entry.get("lesson", "") or "")
-    if h:
-        rows += ('<div class="row"><b>day -</b> ' + html.escape(h)
-                 + '</div>')
-    if w:
-        rows += ('<div class="row"><b>win -</b> ' + html.escape(w)
-                 + '</div>')
-    if les:
-        rows += ('<div class="row"><b>lesson -</b> '
-                 + html.escape(les) + '</div>')
-    rows += ('<div class="row" style="margin-top:5px">'
-             + html.escape(str(entry.get("mood", ""))) + '</div>')
-    return ('<div class="tw-jcard"><div class="d">'
-            + html.escape(date_str) + '</div>' + rows + '</div>')
+# ---------------------------------------------------------------------------
+# PREMIUM LOG RENDERERS - the heart of the "saved data looks alive" upgrade.
+# ---------------------------------------------------------------------------
+
+def _flow_eff(rec):
+    """Signed effect of a stored money record (in +, out -, else as-is)."""
+    k = rec.get("kind")
+    a = float(rec.get("amount", 0))
+    if k == "in":
+        return abs(a)
+    if k == "out":
+        return -abs(a)
+    return a
+
+
+def kind_chip(kind):
+    k = (kind or "").lower()
+    if k == "in":
+        lab, cls = "IN", "kc-in"
+    elif k == "add":
+        lab, cls = "ADD", "kc-in"
+    elif k == "out":
+        lab, cls = "OUT", "kc-out"
+    elif k == "spend":
+        lab, cls = "SPEND", "kc-out"
+    elif k == "adjust":
+        lab, cls = "ADJ", "kc-adj"
+    else:
+        lab, cls = (kind or "—").upper(), "kc-neutral"
+    return '<span class="tw-kind ' + cls + '">' + lab + '</span>'
+
+
+def txid_pill(txid):
+    t = (txid or "").strip()
+    if not t:
+        return '<span class="tw-txid tw-txid-empty">—</span>'
+    return '<span class="tw-txid">#' + html.escape(t) + '</span>'
+
+
+def amt_span(amount, signed=True, tone="auto"):
+    try:
+        v = float(amount)
+    except (TypeError, ValueError):
+        v = 0.0
+    if tone == "flat":
+        cls = "tw-amt-flat"
+    elif tone == "pos":
+        cls = "tw-amt-pos"
+    elif tone == "neg":
+        cls = "tw-amt-neg"
+    else:
+        cls = "tw-amt-pos" if v >= 0 else "tw-amt-neg"
+    return ('<span class="tw-amt ' + cls + '">'
+            + U.fmt_kes(v, signed) + '</span>')
+
+
+def time_pill(date, time=""):
+    d = html.escape(str(date or ""))
+    t = (time or "").strip()
+    if t:
+        return ('<span class="tw-time"><span class="tw-time-d">'
+                + d + '</span><span class="tw-time-t">'
+                + html.escape(t) + '</span></span>')
+    return ('<span class="tw-time"><span class="tw-time-d">'
+            + d + '</span></span>')
+
+
+def log_row(date, time, kind, amount, main_html, meta_html="",
+            txid="", tone=None, delay=0):
+    """One premium log row: glowing rail + time + chip + txid + main text
+    + glowing signed amount. Tone drives the rail/wash colour."""
+    if tone is None:
+        k = (kind or "").lower()
+        if k in ("in", "add"):
+            tone = "win"
+        elif k in ("out", "spend"):
+            tone = "loss"
+        elif k == "adjust":
+            tone = "jewel"
+        else:
+            try:
+                tone = "win" if float(amount) >= 0 else "loss"
+            except (TypeError, ValueError):
+                tone = "neutral"
+    rcls = {"win": "r-in", "loss": "r-out", "jewel": "r-adj",
+            "done": "r-done"}.get(tone, "r-neutral")
+    chip = kind_chip(kind) if kind else ""
+    tp = txid_pill(txid)
+    amt = amt_span(amount, signed=(tone != "flat"))
+    tm = time_pill(date, time)
+    meta = ('<div class="tw-log-meta">' + meta_html + '</div>') \
+        if meta_html else ""
+    return (
+        '<div class="tw-log ' + rcls + '" style="animation-delay:'
+        + str(delay) + 'ms"><div class="tw-log-rail"></div>'
+        '<div class="tw-log-body"><div class="tw-log-top">' + tm
+        + chip + tp + '</div><div class="tw-log-main">'
+        + str(main_html) + meta + '</div></div>'
+        '<div class="tw-log-amt">' + amt + '</div></div>'
+    )
+
+
+def flow_log_rows(flow, pmap, limit=40):
+    if not flow:
+        return empty_state("No money logged yet - your first entry "
+                           "starts the climb.")
+    out = []
+    for i, f in enumerate(flow[:limit]):
+        eff = _flow_eff(f)
+        pname = pmap.get(f.get("pocket", ""),
+                         f.get("pocket", "") or "") or "—"
+        main = html.escape(str(f.get("note", "") or "—"))
+        meta = ('<span class="tw-pocket">' + html.escape(pname)
+                + '</span>')
+        out.append(log_row(f.get("date", ""), f.get("time", ""),
+                           f.get("kind", ""), eff, main,
+                           meta_html=meta, txid=f.get("txid", ""),
+                           delay=min(i * 30, 300)))
+    return '<div class="tw-loglist">' + "".join(out) + '</div>'
+
+
+def tx_log_rows(tx_list, limit=4):
+    if not tx_list:
+        return ('<div class="tw-sub" style="margin-top:6px">'
+                'No moves yet.</div>')
+    out = []
+    for i, t in enumerate(tx_list[:limit]):
+        eff = _flow_eff(t)
+        main = html.escape(str(t.get("note", "") or t.get("kind", "")))
+        out.append(log_row(t.get("date", ""), t.get("time", ""),
+                           t.get("kind", ""), eff, main,
+                           txid=t.get("txid", ""), delay=i * 25))
+    return ('<div class="tw-loglist tw-loglist-mini">'
+            + "".join(out) + '</div>')
+
+
+def income_log_rows(income, limit=12):
+    if not income:
+        return empty_state("No income logged yet.")
+    out = []
+    for i, x in enumerate(income[:limit]):
+        main = html.escape(str(x.get("type", "")))
+        meta = html.escape(str(x.get("note", "") or ""))
+        out.append(log_row(x.get("date", ""), "", "in",
+                           x.get("amount", 0), main, meta_html=meta,
+                           tone="win", delay=min(i * 25, 300)))
+    return '<div class="tw-loglist">' + "".join(out) + '</div>'
+
+
+def client_line(client, phone):
+    c = html.escape(str(client or "?"))
+    p = str(phone or "").strip()
+    if p:
+        pe = html.escape(p)
+        link = '<a href="tel:' + pe + '">' + pe + '</a>'
+    else:
+        link = '<span class="tw-mute">—</span>'
+    return '<div class="tw-cl">' + c + ' &middot; ' + link + '</div>'
+
+
+def task_done_row(t, delay=0):
+    pri = {"High": "pr-h", "Normal": "pr-n", "Low": "pr-l"}.get(
+        t.get("priority", "Normal"), "pr-n")
+    dd = ('<span class="tw-time-d">'
+          + html.escape(str(t.get("done_date", ""))) + '</span>') \
+        if t.get("done_date") else ""
+    return (
+        '<div class="tw-log r-done" style="animation-delay:'
+        + str(delay) + 'ms"><div class="tw-log-rail"></div>'
+        '<div class="tw-log-body"><div class="tw-log-top">'
+        '<span class="tw-kind kc-done">DONE</span>'
+        '<span class="tw-pri ' + pri + '">'
+        + html.escape(str(t.get("priority", ""))) + '</span>' + dd
+        + '</div><div class="tw-log-main">'
+        + html.escape(str(t.get("text", ""))) + '</div></div>'
+        '<div class="tw-log-amt"><span class="tw-check-glyph">'
+        + '✓</span></div></div>'
+    )
