@@ -4,7 +4,8 @@ card with no code change. Terminal clients carry an Outcome line.
 
 The *render* helpers at the bottom (log_row, *_log_rows, memory_line, the
 upgraded kv / client_card / journal_card / history_html) are what make saved
-entries look premium on every refresh - directional glow, receipt pills,
+entries look premium on every refresh - directional glow, receipt-style
+reference chips (M-Pesa brand-coded, no '#' artifacts), warm-orange outflows,
 bright signed figures - derived from the stored data, so the look is permanent.
 """
 from __future__ import annotations
@@ -97,6 +98,25 @@ MOOD_COLOR = {"drained": "#F0556B", "flat": "#7C8AA5",
               "steady": "#F5B544", "sharp": "#34D399",
               "on fire": "#D946EF"}
 
+# Inline reference marks. The M-Pesa mark is a clean brand-coded monogram
+# drawn in SVG (not a hot-linked trademarked asset) so it never breaks; the
+# barcode mark makes a generic reference read like a real, scannable code.
+MPESA_MARK = (
+    '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
+    '<rect width="16" height="16" rx="4" fill="#4CAF50"/>'
+    '<polyline points="4,12 4,5 8,9 12,5 12,12" fill="none" '
+    'stroke="#fff" stroke-width="1.7" stroke-linecap="round" '
+    'stroke-linejoin="round"/></svg>'
+)
+BARCODE_MARK = (
+    '<svg viewBox="0 0 12 12" aria-hidden="true" focusable="false">'
+    '<g fill="currentColor">'
+    '<rect x="1" y="2" width="1.4" height="8"/>'
+    '<rect x="3.4" y="2" width="2.2" height="8"/>'
+    '<rect x="6.6" y="2" width="1.2" height="8"/>'
+    '<rect x="8.8" y="2" width="1.6" height="8"/></g></svg>'
+)
+
 
 def _icon(name):
     return ICONS.get(name, name)
@@ -104,6 +124,13 @@ def _icon(name):
 
 def _tag_color(tag):
     return TAG_COLORS.get(tag, "#7C8AA5")
+
+
+def is_mpesa(pid, name):
+    """True when a pocket is the M-Pesa one (by id or name)."""
+    p = str(pid or "").lower()
+    n = str(name or "").lower()
+    return ("mpesa" in p) or ("mpesa" in n) or ("m-pesa" in n)
 
 
 def ekg_html():
@@ -721,6 +748,8 @@ def table(headers, rows):
 
 # ---------------------------------------------------------------------------
 # PREMIUM LOG RENDERERS - the heart of the "saved data looks alive" upgrade.
+# References render as clean receipt chips (no '#'); M-Pesa references carry
+# the brand mark + green; outflows read warm orange, inflows mint.
 # ---------------------------------------------------------------------------
 
 def _flow_eff(rec):
@@ -751,11 +780,17 @@ def kind_chip(kind):
     return '<span class="tw-kind ' + cls + '">' + lab + '</span>'
 
 
-def txid_pill(txid):
+def txid_pill(txid, mpesa=False):
+    """A reference as a clean chip. Empty -> nothing (no placeholder noise).
+    M-Pesa -> brand mark + green; otherwise a barcode mark + neutral ink."""
     t = (txid or "").strip()
     if not t:
-        return '<span class="tw-txid tw-txid-empty">—</span>'
-    return '<span class="tw-txid">#' + html.escape(t) + '</span>'
+        return ""
+    code = html.escape(t)
+    if mpesa:
+        return ('<span class="tw-txid tw-txid-mpesa">'
+                + MPESA_MARK + code + '</span>')
+    return ('<span class="tw-txid">' + BARCODE_MARK + code + '</span>')
 
 
 def amt_span(amount, signed=True, tone="auto"):
@@ -787,9 +822,9 @@ def time_pill(date, time=""):
 
 
 def log_row(date, time, kind, amount, main_html, meta_html="",
-            txid="", tone=None, delay=0):
-    """One premium log row: glowing rail + time + chip + txid + main text
-    + glowing signed amount. Tone drives the rail/wash colour."""
+            txid="", mpesa=False, tone=None, delay=0):
+    """One premium log row: glowing rail + time + chip + reference + main
+    text + glowing signed amount. Tone drives the rail/wash colour."""
     if tone is None:
         k = (kind or "").lower()
         if k in ("in", "add"):
@@ -806,7 +841,7 @@ def log_row(date, time, kind, amount, main_html, meta_html="",
     rcls = {"win": "r-in", "loss": "r-out", "jewel": "r-adj",
             "done": "r-done"}.get(tone, "r-neutral")
     chip = kind_chip(kind) if kind else ""
-    tp = txid_pill(txid)
+    tp = txid_pill(txid, mpesa)
     amt = amt_span(amount, signed=(tone != "flat"))
     tm = time_pill(date, time)
     meta = ('<div class="tw-log-meta">' + meta_html + '</div>') \
@@ -828,19 +863,20 @@ def flow_log_rows(flow, pmap, limit=40):
     out = []
     for i, f in enumerate(flow[:limit]):
         eff = _flow_eff(f)
-        pname = pmap.get(f.get("pocket", ""),
-                         f.get("pocket", "") or "") or "—"
+        pid = f.get("pocket", "")
+        pname = pmap.get(pid, pid or "") or "—"
+        mp = is_mpesa(pid, pname)
         main = html.escape(str(f.get("note", "") or "—"))
         meta = ('<span class="tw-pocket">' + html.escape(pname)
                 + '</span>')
         out.append(log_row(f.get("date", ""), f.get("time", ""),
                            f.get("kind", ""), eff, main,
                            meta_html=meta, txid=f.get("txid", ""),
-                           delay=min(i * 30, 300)))
+                           mpesa=mp, delay=min(i * 30, 300)))
     return '<div class="tw-loglist">' + "".join(out) + '</div>'
 
 
-def tx_log_rows(tx_list, limit=4):
+def tx_log_rows(tx_list, limit=4, mpesa=False):
     if not tx_list:
         return ('<div class="tw-sub" style="margin-top:6px">'
                 'No moves yet.</div>')
@@ -850,7 +886,8 @@ def tx_log_rows(tx_list, limit=4):
         main = html.escape(str(t.get("note", "") or t.get("kind", "")))
         out.append(log_row(t.get("date", ""), t.get("time", ""),
                            t.get("kind", ""), eff, main,
-                           txid=t.get("txid", ""), delay=i * 25))
+                           txid=t.get("txid", ""), mpesa=mpesa,
+                           delay=i * 25))
     return ('<div class="tw-loglist tw-loglist-mini">'
             + "".join(out) + '</div>')
 
