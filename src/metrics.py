@@ -546,3 +546,77 @@ def day_pulse(d_iso, ctx):
         "tasks_done": [t for t in ctx["tasks"]
                        if t.get("done_date") == d_iso],
     }
+
+# ---------------------------------------------------------------------------
+# PANTRY / RUNWAY / EMERGENCY  (pure read-side; never mutates, never auto-deducts)
+# ---------------------------------------------------------------------------
+
+def pantry_days_left_item(it, today):
+    """Returns (raw_days, aged_days). raw = stock/burn as last entered;
+    aged = raw minus whole days since that item was last checked, floored at 0.
+    daily<=0 -> (None, None) (not a consumed staple)."""
+    daily = float(it.get("daily", 0) or 0)
+    stock = float(it.get("stock", 0) or 0)
+    if daily <= 0:
+        return (None, None)
+    raw = stock / daily
+    chk = it.get("checked", "")
+    age = 0
+    if chk:
+        try:
+            age = max(0, (today - dt.date.fromisoformat(chk)).days)
+        except Exception:
+            age = 0
+    aged = max(0.0, raw - age)
+    return (raw, aged)
+
+
+def pantry_bottleneck(pantry, today):
+    """Shortest aged shelf across *visible* consumed staples -> (aged, raw,
+    name). Hidden/optional items are excluded by design (running out of a
+    treat is not a food-security event). None if no staples tracked."""
+    items = [it for it in pantry.get("items", [])
+             if not it.get("hidden")
+             and float(it.get("daily", 0) or 0) > 0]
+    best = None
+    for it in items:
+        raw, aged = pantry_days_left_item(it, today)
+        if aged is None:
+            continue
+        if best is None or aged < best[0]:
+            best = (aged, raw, it.get("name", "?"))
+    return best
+
+
+def pantry_checked_age(pantry, today):
+    upd = pantry.get("updated", "")
+    if not upd:
+        return None
+    try:
+        return max(0, (today - dt.date.fromisoformat(upd)).days)
+    except Exception:
+        return None
+
+
+def runway_months(vault):
+    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
+    if burn <= 0:
+        return None
+    return cash_on_hand(vault) / burn
+
+
+def emergency_target(vault):
+    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
+    months = int(vault.get("runway", {}).get("emergency_months", 3) or 3)
+    return burn * months
+
+
+def emergency_balance(vault):
+    return float(vault.get("emergency", {}).get("balance", 0) or 0)
+
+
+def emergency_progress(vault):
+    t = emergency_target(vault)
+    if t <= 0:
+        return 0.0
+    return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
