@@ -1,3 +1,5 @@
+"""Routine - today's timeline sits directly under the KPI strip (above the
+7-day grid), exactly as the operator reads their day top-to-bottom."""
 from __future__ import annotations
 
 import html
@@ -33,6 +35,13 @@ def render(ctx):
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
 
+    st.markdown(UI.panel(
+        "Today's Timeline - " + ctx["day_type"],
+        UI.timeline_html(ctx["today_blocks"], ctx["active_idx"])),
+        unsafe_allow_html=True)
+
+    st.markdown("<div style='height:8px'></div>",
+                unsafe_allow_html=True)
     cols = st.columns(7, gap="small")
     for w in range(7):
         body = []
@@ -50,13 +59,6 @@ def render(ctx):
                 NAMES[w],
                 "".join(body) or '<div class="tw-empty">rest</div>'),
                 unsafe_allow_html=True)
-
-    st.markdown("<div style='height:8px'></div>",
-                unsafe_allow_html=True)
-    st.markdown(UI.panel(
-        "Today's Timeline - " + ctx["day_type"],
-        UI.timeline_html(ctx["today_blocks"], ctx["active_idx"])),
-        unsafe_allow_html=True)
 
     st.markdown("<div style='height:8px'></div>",
                 unsafe_allow_html=True)
