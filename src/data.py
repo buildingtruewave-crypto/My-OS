@@ -1,18 +1,16 @@
 """Empty-on-purpose, editable, persisted life + business + money data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 
-Privacy rule: balances / net worth / assets / liabilities live ONLY in the
-vault, behind ARCHIVE_PIN - a fixed constant, never stored in prefs, never
-shown or editable in the app.
+Privacy rule: balances / net worth / assets / liabilities / pantry / runway /
+emergency live ONLY in the vault, behind ARCHIVE_PIN - a fixed constant, never
+stored in prefs, never shown or editable in the app.
 
-Money rule: ONE writer moves cash. move_money() changes a pocket's balance,
-writes a signed flow row (time + transaction id + note), and snapshots net
-worth - so the Daily Flow, the Cash balances and the climb line can never
-drift apart. 'out' is stored as a negative effect, so the ledger shows the
-truth. Logs (client memory, flow, snapshots) are append-only.
+Money rule: ONE writer (move_money) moves real cash. Pantry stock, the monthly
+burn and the emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by
+hand - the system never auto-deducts food or money; it only divides and ages
+the read so the numbers stay honest between manual updates.
 
-The conversion pipeline (stages + plans) is DATA, edited on the TrueWave
-page; the engine only knows five ROLES (won/lost/cash/delivered/returned).
+The conversion pipeline (stages + plans) is DATA, edited on the TrueWave page.
 """
 from __future__ import annotations
 
@@ -29,7 +27,6 @@ from . import util as U
 DATA = Path(__file__).resolve().parent.parent / "data"
 START_DATE = dt.date(2026, 8, 1)
 DEFAULT_NAME = "Mwangi.Alex"
-# The vault access code. Hard-wired on purpose: not in prefs, not in the UI.
 ARCHIVE_PIN = "0444"
 
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
@@ -78,6 +75,20 @@ CREDIT_OUTCOMES = ["pending", "APPROVED", "CASH OFFER - CREDIT",
 COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
+
+PANTRY_CATS = ["staple", "protein", "drink", "treat", "other"]
+# (id, name, unit, stock, daily_burn, category, hidden)
+PANTRY_SEED = [
+    ("ugali", "Ugali (maize flour)", "g", 2000.0, 500.0, "staple", False),
+    ("omena", "Omena", "g", 1000.0, 100.0, "protein", False),
+    ("eggs", "Eggs", "pcs", 30.0, 5.0, "protein", False),
+    ("milk", "Milk (porridge)", "ml", 1500.0, 500.0, "drink", False),
+    ("coffee", "Coffee", "g", 112.0, 8.0, "drink", False),
+    ("smoothie", "Smoothie pack", "pcs", 0.0, 1.0, "treat", True),
+    ("oil", "Cooking oil", "ml", 750.0, 15.0, "staple", True),
+]
+RUNWAY_SEED = {"monthly_burn": 0.0, "emergency_months": 3}
+EMERGENCY_SEED = {"balance": 0.0, "tx": []}
 
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
@@ -287,6 +298,18 @@ def _seed_bots():
     }
 
 
+def _seed_pantry():
+    return {
+        "items": [
+            {"id": i, "name": n, "unit": u, "stock": float(s),
+             "daily": float(d), "category": c, "hidden": bool(h),
+             "checked": ""}
+            for (i, n, u, s, d, c, h) in PANTRY_SEED
+        ],
+        "updated": "",
+    }
+
+
 def _seed_vault():
     return {
         "positions": [{"id": pid, "name": nm, "balance": 0.0, "tx": []}
@@ -302,6 +325,9 @@ def _seed_vault():
                   for (fid, nm, lo, hi, dl) in FUND_SEED],
         "flow": [],
         "snapshots": [],
+        "pantry": _seed_pantry(),
+        "runway": dict(RUNWAY_SEED),
+        "emergency": {"balance": 0.0, "tx": []},
     }
 
 
@@ -413,6 +439,42 @@ def _ensure_key(key, fname, factory):
         st.session_state[key] = _read(fname) or factory()
 
 
+def _migrate_vault(v):
+    """Back-fill new vault sections onto older saved files (no data lost)."""
+    dirty = False
+    for k, fab in (("positions", lambda: [
+        {"id": pid, "name": nm, "balance": 0.0, "tx": []}
+        for (pid, nm) in POSITION_SEED]),
+                   ("bills", lambda: [
+        {"id": bid, "name": nm, "need": 0.0, "saved": 0.0,
+         "due": "", "paid": False, "paid_date": "", "tx": []}
+        for (bid, nm) in BILL_SEED]),
+                   ("fun", lambda: {"budget": 0.0, "used": 0.0,
+                                    "tx": []}),
+                   ("items", list),
+                   ("funds", lambda: [
+        {"id": fid, "name": nm, "target_lo": lo, "target_hi": hi,
+         "deadline": dl, "balance": 0.0, "tx": []}
+        for (fid, nm, lo, hi, dl) in FUND_SEED]),
+                   ("flow", list),
+                   ("snapshots", list),
+                   ("pantry", _seed_pantry),
+                   ("runway", lambda: dict(RUNWAY_SEED)),
+                   ("emergency", lambda: {"balance": 0.0, "tx": []})):
+        if k not in v:
+            v[k] = fab()
+            dirty = True
+    for it in v.get("pantry", {}).get("items", []):
+        if "checked" not in it:
+            it["checked"] = ""
+            dirty = True
+        if "hidden" not in it:
+            it["hidden"] = False
+            dirty = True
+    if dirty:
+        _write("vault.json", v)
+
+
 def ensure():
     prefs = _read("prefs.json") or {}
     _ensure_key("pipeline", "pipeline.json", _seed_pipeline)
@@ -430,6 +492,7 @@ def ensure():
     _ensure_key("tasks", "tasks.json", list)
     _ensure_key("bots", "bots.json", _seed_bots)
     _ensure_key("vault", "vault.json", _seed_vault)
+    _migrate_vault(st.session_state["vault"])
     st.session_state.setdefault(
         "name", prefs.get("name", DEFAULT_NAME))
     st.session_state.setdefault(
@@ -525,13 +588,10 @@ def save_vault(x):
     _write("vault.json", x)
 
 
-# ---------- the single writer that moves money ----------
+# ---------- the single writer that moves real money ----------
 
 def move_money(pocket_id, effect, kind, note="", time_str="",
                txid="", date_iso=None):
-    """The one place cash moves. effect is signed (in +, out -, adjust =
-    the delta to reach a target). Updates the pocket balance, writes a
-    signed flow row with time + transaction id, and snapshots net worth."""
     v = st.session_state["vault"]
     p = None
     for x in v.get("positions", []):
@@ -543,9 +603,9 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     eff = float(effect)
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
-    t = time_str or ""
-    rec = {"id": _uid(), "date": d, "time": t, "txid": txid,
-           "kind": kind, "amount": eff, "note": note}
+    rec = {"id": _uid(), "date": d, "time": time_str or "",
+           "txid": txid or "", "kind": kind, "amount": eff,
+           "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -556,7 +616,6 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
 
 
 def pos_tx(pid, kind, amount, note=""):
-    """Legacy wrapper - routes through move_money so every move is logged."""
     eff = float(amount) if kind == "in" else -float(amount)
     move_money(pid, eff, kind, note=note,
                time_str=U.now_local().strftime("%H:%M"), txid="")
@@ -569,7 +628,253 @@ def add_position(name):
     save_vault(v)
 
 
-# ---------- clients: the full journey ----------
+# ---------- bills / fun / items / funds ----------
+
+def bill_tx(bid, kind, amount):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            amt = float(amount)
+            if kind == "save":
+                b["saved"] = float(b["saved"]) + amt
+            else:
+                b["saved"] = max(0.0, float(b["saved"]) - amt)
+            b["tx"].insert(0, {"id": _uid(),
+                               "date": U.today_local().isoformat(),
+                               "kind": kind, "amount": amt})
+    _snap(v)
+    save_vault(v)
+
+
+def add_bill(name, need, due):
+    v = st.session_state["vault"]
+    v["bills"].append({"id": U.slug(name), "name": name,
+                       "need": float(need), "saved": 0.0, "due": due,
+                       "paid": False, "paid_date": "", "tx": []})
+    save_vault(v)
+
+
+def set_bill(bid, need=None, due=None):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            if need is not None:
+                b["need"] = float(need)
+            if due is not None:
+                b["due"] = due
+    save_vault(v)
+
+
+def bill_paid(bid, date_iso):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            b["paid"] = True
+            b["paid_date"] = date_iso
+    _snap(v)
+    save_vault(v)
+
+
+def bill_reopen(bid):
+    v = st.session_state["vault"]
+    for b in v["bills"]:
+        if b["id"] == bid:
+            b["paid"] = False
+            b["paid_date"] = ""
+            b["saved"] = 0.0
+    _snap(v)
+    save_vault(v)
+
+
+def fun_tx(kind, amount, note=""):
+    v = st.session_state["vault"]
+    f = v["fun"]
+    amt = float(amount)
+    if kind == "add":
+        f["budget"] = float(f["budget"]) + amt
+    else:
+        f["used"] = float(f["used"]) + amt
+    f["tx"].insert(0, {"id": _uid(),
+                       "date": U.today_local().isoformat(),
+                       "kind": kind, "amount": amt, "note": note})
+    _snap(v)
+    save_vault(v)
+
+
+def add_item(name, price):
+    v = st.session_state["vault"]
+    v["items"].insert(0, {"id": _uid(), "name": name,
+                          "price": float(price), "tx": [],
+                          "bought": False, "bought_date": ""})
+    save_vault(v)
+
+
+def item_tx(iid, amount):
+    v = st.session_state["vault"]
+    for it in v["items"]:
+        if it["id"] == iid:
+            it["tx"].append({"id": _uid(),
+                             "date": U.today_local().isoformat(),
+                             "amount": float(amount)})
+    _snap(v)
+    save_vault(v)
+
+
+def buy_item(iid, date_iso):
+    v = st.session_state["vault"]
+    for it in v["items"]:
+        if it["id"] == iid:
+            it["bought"] = True
+            it["bought_date"] = date_iso
+    _snap(v)
+    save_vault(v)
+
+
+def fund_tx(fid, kind, amount, note=""):
+    v = st.session_state["vault"]
+    for f in v["funds"]:
+        if f["id"] == fid:
+            amt = float(amount)
+            if kind == "in":
+                f["balance"] = float(f["balance"]) + amt
+            else:
+                f["balance"] = max(0.0, float(f["balance"]) - amt)
+            f["tx"].insert(0, {"id": _uid(),
+                               "date": U.today_local().isoformat(),
+                               "kind": kind, "amount": amt,
+                               "note": note})
+    _snap(v)
+    save_vault(v)
+
+
+def add_fund(name, target_lo, target_hi, deadline):
+    v = st.session_state["vault"]
+    v["funds"].append({"id": U.slug(name), "name": name,
+                       "target_lo": float(target_lo),
+                       "target_hi": float(target_hi),
+                       "deadline": deadline, "balance": 0.0, "tx": []})
+    save_vault(v)
+
+
+# ---------- pantry (manual stock, auto days-left) ----------
+
+def _pantry(v):
+    return v.setdefault("pantry", _seed_pantry())
+
+
+def pantry_add(name, unit, daily, category, hidden, stock=0.0):
+    v = st.session_state["vault"]
+    pan = _pantry(v)
+    nid = U.slug(name)
+    base, kk = nid, 2
+    while any(x["id"] == nid for x in pan["items"]):
+        nid = base + str(kk)
+        kk += 1
+    now = U.today_local().isoformat()
+    has = float(stock) > 0
+    pan["items"].append({
+        "id": nid, "name": name.strip(), "unit": unit.strip() or "u",
+        "stock": float(stock), "daily": max(0.0, float(daily)),
+        "category": category, "hidden": bool(hidden),
+        "checked": (now if has else ""),
+    })
+    if has:
+        pan["updated"] = now
+    save_vault(v)
+
+
+def pantry_set_stock(vid, stock):
+    v = st.session_state["vault"]
+    pan = _pantry(v)
+    now = U.today_local().isoformat()
+    for it in pan["items"]:
+        if it["id"] == vid:
+            it["stock"] = float(stock)
+            it["checked"] = now
+    pan["updated"] = now
+    save_vault(v)
+
+
+def pantry_save_details(vid, name, unit, daily, category, hidden,
+                        stock=None):
+    v = st.session_state["vault"]
+    pan = _pantry(v)
+    now = U.today_local().isoformat()
+    for it in pan["items"]:
+        if it["id"] == vid:
+            it["name"] = name.strip() or it["name"]
+            it["unit"] = unit.strip() or it["unit"]
+            it["daily"] = max(0.0, float(daily))
+            it["category"] = category
+            it["hidden"] = bool(hidden)
+            if stock is not None:
+                it["stock"] = float(stock)
+                it["checked"] = now
+                pan["updated"] = now
+    save_vault(v)
+
+
+def pantry_toggle_hidden(vid):
+    v = st.session_state["vault"]
+    for it in _pantry(v)["items"]:
+        if it["id"] == vid:
+            it["hidden"] = not bool(it.get("hidden"))
+    save_vault(v)
+
+
+def pantry_remove(vid):
+    v = st.session_state["vault"]
+    pan = _pantry(v)
+    pan["items"] = [x for x in pan["items"] if x["id"] != vid]
+    save_vault(v)
+
+
+# ---------- runway + emergency ring-fence ----------
+
+def set_runway(monthly_burn=None, emergency_months=None):
+    v = st.session_state["vault"]
+    r = v.setdefault("runway", dict(RUNWAY_SEED))
+    if monthly_burn is not None:
+        r["monthly_burn"] = max(0.0, float(monthly_burn))
+    if emergency_months is not None:
+        r["emergency_months"] = max(1, int(emergency_months))
+    save_vault(v)
+
+
+def _cash(v):
+    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
+
+
+def emergency_tx(kind, amount, note=""):
+    """Ring-fence is a *designation* over real cash (not extra money), so it
+    is clamped to cash on hand and never double-counted into net worth."""
+    v = st.session_state["vault"]
+    e = v.setdefault("emergency", {"balance": 0.0, "tx": []})
+    amt = float(amount)
+    cap = _cash(v)
+    if kind == "in":
+        applied = min(amt, max(0.0, cap - float(e["balance"])))
+        e["balance"] = float(e["balance"]) + applied
+    else:
+        applied = min(amt, float(e["balance"]))
+        e["balance"] = float(e["balance"]) - applied
+    if applied > 0.0001:
+        e["tx"].insert(0, {
+            "id": _uid(), "date": U.today_local().isoformat(),
+            "time": U.now_local().strftime("%H:%M"), "kind": kind,
+            "amount": applied, "note": note,
+        })
+    save_vault(v)
+
+
+def emergency_ratchet():
+    v = st.session_state["vault"]
+    r = v.setdefault("runway", dict(RUNWAY_SEED))
+    r["emergency_months"] = int(r.get("emergency_months", 3)) + 1
+    save_vault(v)
+
+
+# ---------- clients ----------
 
 def add_client(name, phone, source, heat, want, budget, note,
                today_iso, now_str):
@@ -734,155 +1039,124 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
-# ---------- the Vault money model ----------
-
-def _net(v):
-    cash = sum(float(p.get("balance", 0))
-               for p in v.get("positions", []))
-    bills = sum(float(b.get("saved", 0)) for b in v.get("bills", []))
-    f = v.get("fun", {})
-    fun = max(0.0, float(f.get("budget", 0)) - float(f.get("used", 0)))
-    items = sum(sum(float(t.get("amount", 0)) for t in it.get("tx", []))
-                for it in v.get("items", []))
-    funds = sum(float(x.get("balance", 0)) for x in v.get("funds", []))
-    return cash + bills + fun + items + funds
-
+# ---------- net worth snapshot ----------
 
 def _snap(v):
     today = U.today_local().isoformat()
     snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
-    snaps.append({"date": today, "net": _net(v)})
+    cash = sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
+    snaps.append({"date": today, "net": cash})
     snaps.sort(key=lambda s: s["date"])
     v["snapshots"] = snaps
 
 
-def bill_tx(bid, kind, amount):
-    v = st.session_state["vault"]
-    for b in v["bills"]:
-        if b["id"] == bid:
-            amt = float(amount)
-            if kind == "save":
-                b["saved"] = float(b["saved"]) + amt
-            else:
-                b["saved"] = max(0.0, float(b["saved"]) - amt)
-            b["tx"].insert(0, {"id": _uid(),
-                               "date": U.today_local().isoformat(),
-                               "kind": kind, "amount": amt})
-    _snap(v)
-    save_vault(v)
+# ---------- backup / restore ----------
+
+def reset_all():
+    defaults = {
+        "pipeline": _seed_pipeline(),
+        "routine": _seed_routine(),
+        "habits": _seed_habits(),
+        "habit_log": {}, "goals": [], "issues": [],
+        "journal": {}, "weights": [], "clients": [],
+        "sales_daily": {}, "sales": [], "income": [], "tasks": [],
+        "bots": _seed_bots(), "vault": _seed_vault(),
+    }
+    for key, obj in defaults.items():
+        _write(key + ".json", obj)
+        st.session_state[key] = obj
 
 
-def add_bill(name, need, due):
-    v = st.session_state["vault"]
-    v["bills"].append({"id": U.slug(name), "name": name,
-                       "need": float(need), "saved": 0.0, "due": due,
-                       "paid": False, "paid_date": "", "tx": []})
-    save_vault(v)
+def _csv_text(headers, rows):
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(headers)
+    for r in rows:
+        w.writerow(r)
+    return buf.getvalue()
 
 
-def set_bill(bid, need=None, due=None):
-    v = st.session_state["vault"]
-    for b in v["bills"]:
-        if b["id"] == bid:
-            if need is not None:
-                b["need"] = float(need)
-            if due is not None:
-                b["due"] = due
-    save_vault(v)
+def export_csv_zip():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    clients = st.session_state.get("clients", [])
+    c_rows = [[c.get("created", ""), c.get("name", ""),
+               c.get("phone", ""), c.get("source", ""),
+               c.get("heat", ""), c.get("want", ""),
+               c.get("budget", ""), c.get("stage", ""),
+               c.get("plan", ""), c.get("next_action", ""),
+               c.get("next_date", ""), c.get("remark", ""),
+               c.get("why_not", ""), c.get("paid_date", ""),
+               c.get("returned_date", ""),
+               len(c.get("history", []))] for c in clients]
+    flow = st.session_state.get("vault", {}).get("flow", [])
+    f_rows = [[x.get("date", ""), x.get("time", ""),
+               x.get("txid", ""), x.get("kind", ""),
+               x.get("amount", ""), x.get("pocket", ""),
+               x.get("note", "")] for x in flow]
+    sales = st.session_state.get("sales", [])
+    s_rows = []
+    for s in sales:
+        inst = s.get("inst", [])
+        n_paid = sum(1 for i in inst if i.get("paid"))
+        s_rows.append([s.get("date", ""), s.get("client", ""),
+                       s.get("phone", ""), s.get("commission", ""),
+                       str(n_paid) + "/" + str(len(inst)),
+                       s.get("delivered_date", "")])
+    income = st.session_state.get("income", [])
+    i_rows = [[x.get("date", ""), x.get("type", ""),
+               x.get("amount", ""), x.get("note", "")] for x in income]
+    tasks = st.session_state.get("tasks", [])
+    t_rows = [[x.get("text", ""), x.get("area", ""),
+               x.get("priority", ""), x.get("due", ""),
+               x.get("done", "")] for x in tasks]
+    pantry = st.session_state.get("vault", {}).get("pantry", {})
+    p_rows = [[x.get("name", ""), x.get("unit", ""),
+               x.get("stock", ""), x.get("daily", ""),
+               x.get("category", ""), x.get("hidden", ""),
+               x.get("checked", "")]
+              for x in pantry.get("items", [])]
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("clients.csv", _csv_text(
+            ["created", "name", "phone", "source", "heat", "want",
+             "budget", "stage", "plan", "next_action", "next_date",
+             "remark", "why_not", "paid_date", "returned_date",
+             "history_count"], c_rows))
+        z.writestr("flow.csv", _csv_text(
+            ["date", "time", "txid", "kind", "amount", "pocket",
+             "note"], f_rows))
+        z.writestr("sales.csv", _csv_text(
+            ["date", "client", "phone", "commission", "paid_ratio",
+             "delivered_date"], s_rows))
+        z.writestr("income.csv", _csv_text(
+            ["date", "type", "amount", "note"], i_rows))
+        z.writestr("tasks.csv", _csv_text(
+            ["text", "area", "priority", "due", "done"], t_rows))
+        z.writestr("pantry.csv", _csv_text(
+            ["name", "unit", "stock", "daily", "category", "hidden",
+             "checked"], p_rows))
+    return buf.getvalue()
 
 
-def bill_paid(bid, date_iso):
-    v = st.session_state["vault"]
-    for b in v["bills"]:
-        if b["id"] == bid:
-            b["paid"] = True
-            b["paid_date"] = date_iso
-    _snap(v)
-    save_vault(v)
+def export_zip():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for k in RESTORE_KEYS:
+            z.writestr(k + ".json", json.dumps(
+                st.session_state[k], default=str))
+        z.writestr("prefs.json", json.dumps({
+            "name": st.session_state.get("name"),
+            "accent": st.session_state.get("accent"),
+            "tz_offset": st.session_state.get("tz_offset", 0),
+        }, default=str))
+    return buf.getvalue()
 
-
-def bill_reopen(bid):
-    v = st.session_state["vault"]
-    for b in v["bills"]:
-        if b["id"] == bid:
-            b["paid"] = False
-            b["paid_date"] = ""
-            b["saved"] = 0.0
-    _snap(v)
-    save_vault(v)
-
-
-def fun_tx(kind, amount, note=""):
-    v = st.session_state["vault"]
-    f = v["fun"]
-    amt = float(amount)
-    if kind == "add":
-        f["budget"] = float(f["budget"]) + amt
-    else:
-        f["used"] = float(f["used"]) + amt
-    f["tx"].insert(0, {"id": _uid(),
-                       "date": U.today_local().isoformat(),
-                       "kind": kind, "amount": amt, "note": note})
-    _snap(v)
-    save_vault(v)
-
-
-def add_item(name, price):
-    v = st.session_state["vault"]
-    v["items"].insert(0, {"id": _uid(), "name": name,
-                          "price": float(price), "tx": [],
-                          "bought": False, "bought_date": ""})
-    save_vault(v)
-
-
-def item_tx(iid, amount):
-    v = st.session_state["vault"]
-    for it in v["items"]:
-        if it["id"] == iid:
-            it["tx"].append({"id": _uid(),
-                             "date": U.today_local().isoformat(),
-                             "amount": float(amount)})
-    _snap(v)
-    save_vault(v)
-
-
-def buy_item(iid, date_iso):
-    v = st.session_state["vault"]
-    for it in v["items"]:
-        if it["id"] == iid:
-            it["bought"] = True
-            it["bought_date"] = date_iso
-    _snap(v)
-    save_vault(v)
-
-
-def fund_tx(fid, kind, amount, note=""):
-    v = st.session_state["vault"]
-    for f in v["funds"]:
-        if f["id"] == fid:
-            amt = float(amount)
-            if kind == "in":
-                f["balance"] = float(f["balance"]) + amt
-            else:
-                f["balance"] = max(0.0, float(f["balance"]) - amt)
-            f["tx"].insert(0, {"id": _uid(),
-                               "date": U.today_local().isoformat(),
-                               "kind": kind, "amount": amt,
-                               "note": note})
-    _snap(v)
-    save_vault(v)
-
-
-def add_fund(name, target_lo, target_hi, deadline):
-    v = st.session_state["vault"]
-    v["funds"].append({"id": U.slug(name), "name": name,
-                       "target_lo": float(target_lo),
-                       "target_hi": float(target_hi),
-                       "deadline": deadline, "balance": 0.0, "tx": []})
-    save_vault(v)
-
-
-# ---------- backup: export (json + csv) and restore ----------
 
 def restore_from_zip(blob):
     import io
@@ -908,109 +1182,8 @@ def restore_from_zip(blob):
                 if "tz_offset" in pr:
                     st.session_state["tz_offset"] = float(
                         pr["tz_offset"])
+        if "vault" in st.session_state:
+            _migrate_vault(st.session_state["vault"])
     except Exception:
         pass
     return restored
-
-
-def export_zip():
-    import io
-    import zipfile
-    buf = io.BytesIO()
-    keys = list(RESTORE_KEYS)
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for k in keys:
-            z.writestr(k + ".json", json.dumps(
-                st.session_state[k], default=str))
-        z.writestr("prefs.json", json.dumps({
-            "name": st.session_state.get("name"),
-            "accent": st.session_state.get("accent"),
-            "tz_offset": st.session_state.get("tz_offset", 0),
-        }, default=str))
-    return buf.getvalue()
-
-
-def _csv_text(headers, rows):
-    import csv
-    import io
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(headers)
-    for r in rows:
-        w.writerow(r)
-    return buf.getvalue()
-
-
-def export_csv_zip():
-    import io
-    import zipfile
-    buf = io.BytesIO()
-    clients = st.session_state.get("clients", [])
-    c_rows = []
-    for c in clients:
-        c_rows.append([
-            c.get("created", ""), c.get("name", ""),
-            c.get("phone", ""), c.get("source", ""),
-            c.get("heat", ""), c.get("want", ""),
-            c.get("budget", ""), c.get("stage", ""),
-            c.get("plan", ""), c.get("next_action", ""),
-            c.get("next_date", ""), c.get("remark", ""),
-            c.get("why_not", ""), c.get("paid_date", ""),
-            c.get("returned_date", ""),
-            len(c.get("history", [])),
-        ])
-    flow = st.session_state.get("vault", {}).get("flow", [])
-    f_rows = [[x.get("date", ""), x.get("time", ""),
-               x.get("txid", ""), x.get("kind", ""),
-               x.get("amount", ""), x.get("pocket", ""),
-               x.get("note", "")] for x in flow]
-    sales = st.session_state.get("sales", [])
-    s_rows = []
-    for s in sales:
-        inst = s.get("inst", [])
-        n_paid = sum(1 for i in inst if i.get("paid"))
-        s_rows.append([s.get("date", ""), s.get("client", ""),
-                       s.get("phone", ""), s.get("commission", ""),
-                       str(n_paid) + "/" + str(len(inst)),
-                       s.get("delivered_date", "")])
-    income = st.session_state.get("income", [])
-    i_rows = [[x.get("date", ""), x.get("type", ""),
-               x.get("amount", ""), x.get("note", "")] for x in income]
-    tasks = st.session_state.get("tasks", [])
-    t_rows = [[x.get("text", ""), x.get("area", ""),
-               x.get("priority", ""), x.get("due", ""),
-               x.get("done", "")] for x in tasks]
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("clients.csv", _csv_text(
-            ["created", "name", "phone", "source", "heat", "want",
-             "budget", "stage", "plan", "next_action", "next_date",
-             "remark", "why_not", "paid_date", "returned_date",
-             "history_count"], c_rows))
-        z.writestr("flow.csv", _csv_text(
-            ["date", "time", "txid", "kind", "amount", "pocket",
-             "note"], f_rows))
-        z.writestr("sales.csv", _csv_text(
-            ["date", "client", "phone", "commission", "paid_ratio",
-             "delivered_date"], s_rows))
-        z.writestr("income.csv", _csv_text(
-            ["date", "type", "amount", "note"], i_rows))
-        z.writestr("tasks.csv", _csv_text(
-            ["text", "area", "priority", "due", "done"], t_rows))
-    return buf.getvalue()
-
-
-# ---------- housekeeping ----------
-
-def reset_all():
-    defaults = {
-        "pipeline": _seed_pipeline(),
-        "routine": _seed_routine(),
-        "habits": _seed_habits(),
-        "habit_log": {}, "goals": [], "issues": [],
-        "journal": {}, "weights": [], "clients": [],
-        "sales_daily": {}, "sales": [], "income": [], "tasks": [],
-        "bots": _seed_bots(), "vault": _seed_vault(),
-    }
-    for key, obj in defaults.items():
-        _write(key + ".json", obj)
-        st.session_state[key] = obj
