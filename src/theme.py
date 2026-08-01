@@ -1,13 +1,14 @@
 """The whole design language in one static stylesheet.
 Rule: colour encodes outcome (done / missed); the blue line is the only
-glowing spine; chrome stays cold slate. Motion is pure CSS so it survives
-Streamlit's no-JS markdown sandbox. Font imports are split into three short
+glowing spine; chrome stays cold slate.  Motion is pure CSS so it survives
+Streamlit's no-JS markdown sandbox.  Font imports are split into three short
 lines so a wrapping copy tool can never truncate them.
 
-The PREMIUM block at the bottom is what makes *saved* data look alive on
+The PREMIUM block at the bottom is what makes *stored* data look alive on
 every refresh: directional log rows with a glowing rail, receipt-style
-transaction pills, glowing signed amounts, mood/stage card accents, and a
-brighter, hover-lit table. It is append-only, so it can never break the base.
+reference chips (M-Pesa brand-coded, no '#' artifacts), warm-orange outflows
+vs coral-for-danger, glowing signed amounts, mood/stage card accents, and a
+brighter, hover-lit table.  It is append-only, so it can never break the base.
 """
 CSS = (
 "@import url('https://fonts.googleapis.com/css2"
@@ -22,7 +23,8 @@ CSS = (
 "--mute:#69748C;--mute-2:#8893AB;--win:#34D399;--win-soft:rgba(52,211,153,.14);"
 "--loss:#F0556B;--loss-soft:rgba(240,85,107,.14);"
 "--accent:#4C8DFF;--accent-soft:rgba(76,141,255,.16);"
-"--jewel:#D946EF;"
+"--jewel:#D946EF;--out:#FB923C;--out-soft:rgba(251,146,60,.14);"
+"--mpesa:#4CAF50;--mpesa-soft:rgba(76,175,80,.14);"
 "--disp:'Space Grotesk',system-ui,sans-serif;"
 "--body:'Manrope',system-ui,sans-serif;"
 "--mono:'JetBrains Mono',ui-monospace,monospace;}\n"
@@ -449,10 +451,10 @@ CSS += (
 "var(--panel-2));}\n"
 ".tw-log.r-in .tw-log-rail{background:linear-gradient(180deg,var(--win),"
 "rgba(52,211,153,.15));box-shadow:0 0 12px rgba(52,211,153,.5);}\n"
-".tw-log.r-out{background:linear-gradient(180deg,rgba(240,85,107,.08),"
+".tw-log.r-out{background:linear-gradient(180deg,var(--out-soft),"
 "var(--panel-2));}\n"
-".tw-log.r-out .tw-log-rail{background:linear-gradient(180deg,var(--loss),"
-"rgba(240,85,107,.15));box-shadow:0 0 12px rgba(240,85,107,.45);}\n"
+".tw-log.r-out .tw-log-rail{background:linear-gradient(180deg,var(--out),"
+"rgba(251,146,60,.15));box-shadow:0 0 12px rgba(251,146,60,.42);}\n"
 ".tw-log.r-adj{background:linear-gradient(180deg,rgba(217,70,239,.08),"
 "var(--panel-2));}\n"
 ".tw-log.r-adj .tw-log-rail{background:linear-gradient(180deg,var(--jewel),"
@@ -474,19 +476,22 @@ CSS += (
 "letter-spacing:.04em;}\n"
 ".tw-time-t{font:700 11px/1 var(--mono);color:var(--accent);"
 "letter-spacing:.06em;text-shadow:0 0 10px rgba(76,141,255,.35);}\n"
-".tw-txid{font:600 9.5px/1 var(--mono);letter-spacing:.1em;"
-"text-transform:uppercase;color:var(--ink-2);"
-"background:rgba(76,141,255,.10);border:1px solid rgba(76,141,255,.30);"
-"border-radius:6px;padding:3px 7px;}\n"
-".tw-txid-empty{color:var(--mute);background:transparent;"
-"border-color:var(--hair);letter-spacing:0;text-transform:none;}\n"
+".tw-txid{display:inline-flex;align-items:center;gap:5px;"
+"font:600 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;"
+"color:var(--ink-2);background:rgba(255,255,255,.03);"
+"border:1px solid var(--hair-2);border-radius:7px;padding:4px 9px;"
+"white-space:nowrap;}\n"
+".tw-txid svg{width:12px;height:12px;display:block;flex:0 0 auto;}\n"
+".tw-txid-mpesa{color:var(--mpesa);border-color:rgba(76,175,80,.5);"
+"background:var(--mpesa-soft);box-shadow:0 0 9px rgba(76,175,80,.22);"
+"font-weight:700;letter-spacing:.12em;}\n"
 ".tw-kind{font:700 9px/1 var(--mono);letter-spacing:.12em;"
 "text-transform:uppercase;padding:4px 8px;border-radius:999px;"
 "border:1px solid transparent;}\n"
 ".kc-in{color:var(--win);background:var(--win-soft);"
 "border-color:rgba(52,211,153,.4);box-shadow:0 0 8px rgba(52,211,153,.25);}\n"
-".kc-out{color:var(--loss);background:var(--loss-soft);"
-"border-color:rgba(240,85,107,.4);box-shadow:0 0 8px rgba(240,85,107,.22);}\n"
+".kc-out{color:var(--out);background:var(--out-soft);"
+"border-color:rgba(251,146,60,.45);box-shadow:0 0 8px rgba(251,146,60,.22);}\n"
 ".kc-adj{color:var(--jewel);background:rgba(217,70,239,.12);"
 "border-color:rgba(217,70,239,.4);}\n"
 ".kc-done{color:var(--win);background:var(--win-soft);"
@@ -496,7 +501,7 @@ CSS += (
 ".tw-amt{font:700 15px/1 var(--mono);font-variant-numeric:tabular-nums;"
 "letter-spacing:-.01em;white-space:nowrap;}\n"
 ".tw-amt-pos{color:var(--win);text-shadow:0 0 12px rgba(52,211,153,.35);}\n"
-".tw-amt-neg{color:var(--loss);text-shadow:0 0 12px rgba(240,85,107,.32);}\n"
+".tw-amt-neg{color:var(--out);text-shadow:0 0 12px rgba(251,146,60,.32);}\n"
 ".tw-amt-flat{color:var(--ink);text-shadow:0 0 10px rgba(232,237,247,.16);}\n"
 ".tw-pocket{font:600 10px/1 var(--mono);letter-spacing:.08em;"
 "text-transform:uppercase;color:var(--mute);}\n"
