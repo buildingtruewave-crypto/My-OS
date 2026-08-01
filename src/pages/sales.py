@@ -2,6 +2,8 @@
 PAID drops the cash into a chosen pocket (live), and an income entry can
 optionally land in a pocket too - so collected money actually shows up in
 the wallet and net worth. Commissions auto-due +20/+50 days, locked after.
+Stored income + the per-commission details render through the premium log
+renderer so the history keeps its colour on every refresh.
 """
 from __future__ import annotations
 
@@ -158,12 +160,13 @@ def render(ctx):
                         + UI.badge(chip[0], chip[1]) + '</div>',
                         unsafe_allow_html=True)
         with c2:
-            st.caption(str(s.get("client", "?")) + " - "
-                       + str(s.get("phone", "")))
+            st.markdown(UI.client_line(s.get("client", ""),
+                                       s.get("phone", "")),
+                        unsafe_allow_html=True)
         with c3:
-            st.markdown('<div class="tw-val" style="font-size:16px;'
-                        'padding-top:8px">'
-                        + U.fmt_kes(float(i.get("amount", 0)))
+            st.markdown('<div style="padding-top:6px">'
+                        + UI.amt_span(float(i.get("amount", 0)),
+                                      signed=False, tone="flat")
                         + '</div>', unsafe_allow_html=True)
         with c4:
             if editable:
@@ -238,16 +241,8 @@ def render(ctx):
                                 else ""),
                              time_str=now_time, txid="")
             st.rerun()
-        rows = []
-        for x in income[:12]:
-            rows.append([
-                (x.get("date", ""), "num"),
-                (UI.badge(x.get("type", ""), "#2DD4BF"), ""),
-                (U.fmt_kes(float(x.get("amount", 0))), "num"),
-                (str(x.get("note", "")), ""),
-            ])
-        st.markdown(UI.table(["Date", "Type", "Amount", "Note"],
-                             rows), unsafe_allow_html=True)
+        st.markdown(UI.income_log_rows(income, 12),
+                    unsafe_allow_html=True)
     with g2:
         ibt = M.income_by_type(income)
         items = [(k, v, "#34D399") for k, v in
