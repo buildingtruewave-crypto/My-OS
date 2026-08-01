@@ -1,8 +1,6 @@
-"""Settings - profile, look, data engine, and the backup loop. The vault
-access code is NOT here: it is the fixed constant ARCHIVE_PIN in src/data.py,
-never shown or editable, so the screen can't leak it. Logs (client memory,
-money flow, net-worth snapshots) are append-only and never auto-deleted; the
-JSON backup is the true round-trip restore, the CSVs are for spreadsheets.
+"""Settings - profile, look, data engine, backup & restore. The vault access
+code is NOT here: it is the fixed constant ARCHIVE_PIN in src/data.py, never
+shown or editable in the app, so the screen can never leak it.
 """
 from __future__ import annotations
 
@@ -54,23 +52,18 @@ def render(ctx):
             ("Persistence", "data/*.json - every write is instant"),
             ("Pipeline", "editable on the TrueWave page"),
             ("Balances", "vault only - never on public pages"),
-            ("Logs", "append-only - never auto-deleted"),
             ("Fake data", "none - everything is hand-entered"),
         ]), unsafe_allow_html=True)
-        st.markdown('<div class="tw-lab" style="margin:8px 0 8px">'
-                    'BACKUP &amp; RESTORE</div>',
-                    unsafe_allow_html=True)
-        st.caption("Download a backup weekly. On a fresh deploy, Restore "
-                   "it and everything since day one returns. CSVs are for "
-                   "spreadsheets; the JSON zip is the true restore.")
-        st.download_button("Download JSON backup (full restore)",
-                           D.export_zip(),
-                           file_name="pulse_backup.zip",
-                           mime="application/zip", key="s_zip")
-        st.download_button("Download CSVs (spreadsheets)",
-                           D.export_csv_zip(),
-                           file_name="pulse_csv.zip",
-                           mime="application/zip", key="s_csv")
+        ea, eb = st.columns(2)
+        with ea:
+            st.download_button("Export all (.zip)", D.export_zip(),
+                               file_name="pulse_backup.zip",
+                               mime="application/zip", key="s_zip")
+        with eb:
+            st.download_button("Export CSVs (.zip)",
+                               D.export_csv_zip(),
+                               file_name="pulse_csv.zip",
+                               mime="application/zip", key="s_csv")
         up = st.file_uploader("Restore JSON backup (.zip)",
                               type=["zip"], key="s_up")
         confirm = st.checkbox("I understand this overwrites current "
