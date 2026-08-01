@@ -934,3 +934,90 @@ def task_done_row(t, delay=0):
         '<div class="tw-log-amt"><span class="tw-check-glyph">'
         + '✓</span></div></div>'
     )
+
+# ---------------------------------------------------------------------------
+# PANTRY premium rows  (display only - the edit widgets live in vault.py)
+# ---------------------------------------------------------------------------
+
+CAT_COLOR = {"staple": "#4C8DFF", "protein": "#34D399",
+             "drink": "#2DD4BF", "treat": "#D946EF",
+             "other": "#7C8AA5"}
+
+
+def _days_tone(aged):
+    if aged is None:
+        return ("mute", "—", False)
+    if aged >= 14:
+        return ("win", format(aged, ".0f"), False)
+    if aged >= 7:
+        return ("accent", format(aged, ".0f"), False)
+    if aged >= 3:
+        return ("out", format(aged, ".0f"), False)
+    return ("loss", format(aged, ".0f"), True)
+
+
+def pantry_row(it, raw, aged):
+    """One premium shelf card. raw/aged come from metrics so ui stays free of
+    date math. Low stock (<3 days) pulses so the eye is pulled to it."""
+    name = html.escape(str(it.get("name", "?")))
+    unit = html.escape(str(it.get("unit", "u")))
+    cat = it.get("category", "other")
+    ccol = CAT_COLOR.get(cat, "#7C8AA5")
+    tone, num, low = _days_tone(aged)
+    stock = it.get("stock", 0)
+    daily = it.get("daily", 0)
+    chk = it.get("checked", "")
+    if tone == "out":
+        numcolor = "var(--out)"
+        glow = "0 0 12px rgba(251,146,60,.35)"
+    elif tone == "win":
+        numcolor = "var(--win)"
+        glow = "0 0 12px rgba(52,211,153,.35)"
+    elif tone == "accent":
+        numcolor = "var(--accent)"
+        glow = "0 0 12px rgba(76,141,255,.35)"
+    elif tone == "loss":
+        numcolor = "var(--loss)"
+        glow = "0 0 12px rgba(240,85,107,.4)"
+    else:
+        numcolor = "var(--mute)"
+        glow = "none"
+    lowcls = " tw-low" if low else ""
+    barw = "0"
+    if aged is not None:
+        barw = format(min(aged / 30.0 * 100.0, 100.0), ".1f")
+    if aged is None:
+        shelf_note = "not consumed / set a daily burn"
+    else:
+        shelf_note = (format(aged, ".1f") + "d now")
+        if raw is not None and abs(raw - aged) > 0.05:
+            shelf_note += (" (was " + format(raw, ".1f")
+                           + "d at check)")
+    opt = ('<span class="tw-opt">optional</span>') \
+        if it.get("hidden") else ""
+    catc = ('<span class="tw-cat" style="background:'
+            + hexa(ccol, 0.16) + ";color:" + ccol + '">'
+            + html.escape(cat) + '</span>')
+    checked = ('<span class="tw-aged">checked ' + html.escape(chk)
+               + '</span>') if chk else \
+        '<span class="tw-aged">not checked yet</span>'
+    return (
+        '<div class="tw-pantry">'
+        '<div class="tw-pantry-top">'
+        '<span class="tw-pantry-name">' + name + '</span>'
+        '<span class="tw-pantry-chips">' + catc + opt + '</span>'
+        '</div>'
+        '<div class="tw-pantry-mid">'
+        '<div class="tw-pantry-days' + lowcls + '" style="color:'
+        + numcolor + ';text-shadow:' + glow + '">' + num
+        + '<span class="tw-pantry-days-u">days</span></div>'
+        '<div class="tw-shelf"><div class="tw-shelf-fill" style="width:'
+        + barw + '%;background:' + numcolor + '"></div></div>'
+        '</div>'
+        '<div class="tw-pantry-meta">'
+        '<span>' + U.fmt_num(stock, 0) + ' ' + unit + ' on shelf</span>'
+        '<span>' + U.fmt_num(daily, 0) + ' ' + unit + '/day</span>'
+        + checked + '</div>'
+        '<div class="tw-pantry-note">' + shelf_note + '</div>'
+        '</div>'
+    )
