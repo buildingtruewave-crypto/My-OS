@@ -1,14 +1,11 @@
-"""The hidden money operating system - the ONLY place balances live, behind
-ARCHIVE_PIN. ONE writer (move_money) moves cash, so the Daily Flow, the Cash
-balances and the climb line can never drift apart. The Daily Flow is the live
-ledger: pick a pocket, in/out, amount, an EXACT time via the hour + minute
-clock pickers (every minute 00-59, type-to-search), a transaction id and a
-note - the pocket balance changes on save and 'out' shows as a negative. The
-Cash tab is read-only balances + real moves (no reconcile: every balance
-change is a real, timed entry). M-Pesa pockets brand their references green.
-Net worth is computed, never typed, and shown nowhere else. Every stored move
-renders through the premium log renderer, so the history looks alive on every
-refresh.
+"""The hidden money + security operating system - the ONLY place balances,
+pantry, runway and the emergency ring-fence live, behind ARCHIVE_PIN. ONE
+writer (move_money) moves real cash. Pantry stock, monthly burn and the
+emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by hand - the
+system never auto-deducts food or money; it only divides and ages the read so
+the numbers stay honest between manual updates. M-Pesa pockets brand their
+references green. Net worth = real cash in pockets; 'Set aside' is how that
+cash is mentally partitioned (shown for info, not added on top).
 """
 from __future__ import annotations
 
@@ -48,6 +45,43 @@ def _pid2name(vault):
     return out
 
 
+def _sec_row2(vault, today):
+    """Food security + runway + emergency - the personal safety row."""
+    pan = vault.get("pantry", {})
+    bn = M.pantry_bottleneck(pan, today)
+    if bn is None:
+        food_v, food_d, food_t = "—", "no staples set", "mute"
+    else:
+        aged = bn[0]
+        food_v = format(aged, ".0f") + "d"
+        food_d = ("bottleneck: " + str(bn[2]))
+        food_t = ("win" if aged >= 14 else
+                  ("accent" if aged >= 7 else
+                   ("loss" if aged < 3 else "mute")))
+    rm = M.runway_months(vault)
+    if rm is None:
+        run_v, run_d, run_t = "—", "set monthly burn", "mute"
+    else:
+        run_v = format(rm, ".1f") + "mo"
+        run_d = "cash runway"
+        run_t = ("win" if rm >= 3 else
+                 ("accent" if rm >= 1 else "loss"))
+    ep = M.emergency_progress(vault)
+    em_v = format(ep, ".0f") + "%"
+    em_d = ("of " + str(int(vault.get("runway", {}).get(
+        "emergency_months", 3))) + "-mo target")
+    em_t = ("win" if ep >= 100 else
+            ("accent" if ep >= 50 else "mute"))
+    return [
+        UI.tile("Food Security", food_v, food_d, food_t, food_t,
+                "grid", "win", 0),
+        UI.tile("Cash Runway", run_v, run_d, run_t, run_t,
+                "clock", "accent", 40),
+        UI.tile("Emergency Fund", em_v, em_d, em_t, em_t,
+                "lock", "jewel", 80),
+    ]
+
+
 def _overview(ctx):
     vault, today = ctx["vault"], ctx["today"]
     net = M.net_worth(vault)
@@ -58,12 +92,12 @@ def _overview(ctx):
     bills_late = M.bills_overdue(vault, today)
 
     row = [
-        UI.tile("Net Worth", U.fmt_kes(net), "everything, everywhere",
+        UI.tile("Net Worth", U.fmt_kes(net), "cash in your pockets",
                 "mute", "ink", "star", "jewel", 0),
         UI.tile("Cash On Hand", U.fmt_kes(cash), "wallet + M-Pesa + bank",
                 "mute", "ink", "cash", "accent", 40),
         UI.tile("Set Aside", U.fmt_kes(alloc),
-                "bills + fun + wishlist + ventures",
+                "partitioned (bills/fun/lists/ventures/emergency)",
                 "mute", "ink", "target", "win", 80),
         UI.tile("Money In - 7d", U.fmt_kes(wk_in, True), "flow",
                 "win" if wk_in else "mute", "win", "trend", "win", 120),
@@ -77,12 +111,15 @@ def _overview(ctx):
     if len(series) >= 2:
         body = UI.equity_svg(series, "nw_eq", kind="num",
                              xfmt=lambda d: d.strftime("%d %b"))
-        right = "grows every day you look"
+        right = "real cash, every day"
     else:
         body = UI.empty_state(
-            "The growth line draws itself from your first money move.")
+            "The climb draws itself from your first money move.")
         right = "net worth"
     st.markdown(UI.panel("Net Worth - The Climb", body, right=right),
+                unsafe_allow_html=True)
+
+    st.markdown(UI.tiles_grid(_sec_row2(vault, today), 3),
                 unsafe_allow_html=True)
 
     if bills_late or bills_due:
@@ -416,6 +453,256 @@ def _tab_funds(vault, today):
         st.rerun()
 
 
+def _pantry_controls(it, key):
+    """Inline stock update + hidden toggle + remove, under each row."""
+    c1, c2, c3, c4 = st.columns([1.6, 1, 1.1, 1.1])
+    with c1:
+        ns = st.number_input("stock on hand (" + str(it.get("unit", "u"))
+                             + ")", 0.0, 100000000.0,
+                             float(it.get("stock", 0)), step=1.0,
+                             key="ps" + key)
+    with c2:
+        st.markdown("<div style='height:26px'></div>",
+                    unsafe_allow_html=True)
+        if st.button("Update stock", type="primary",
+                     key="pb" + key):
+            D.pantry_set_stock(it["id"], ns)
+            st.rerun()
+    with c3:
+        lab = "Un-hide" if it.get("hidden") else "Hide (optional)"
+        if st.button(lab, key="ph" + key):
+            D.pantry_toggle_hidden(it["id"])
+            st.rerun()
+    with c4:
+        sure = st.checkbox("confirm delete", key="pc" + key)
+        if st.button("Remove", key="pr" + key, disabled=not sure):
+            D.pantry_remove(it["id"])
+            st.rerun()
+
+
+def _tab_pantry(vault, today):
+    pan = vault.get("pantry", {})
+    items = pan.get("items", [])
+    staples = [x for x in items if not x.get("hidden")]
+    hidden = [x for x in items if x.get("hidden")]
+    bn = M.pantry_bottleneck(pan, today)
+    cage = M.pantry_checked_age(pan, today)
+
+    if bn is None:
+        bv, bd, bt = "—", "add a staple to begin", "mute"
+    else:
+        bv = format(bn[0], ".0f") + " days"
+        bd = "shortest shelf: " + str(bn[2])
+        bt = ("win" if bn[0] >= 14 else
+              ("accent" if bn[0] >= 7 else
+               ("loss" if bn[0] < 3 else "mute")))
+    chk_txt = ("checked " + str(cage) + "d ago") if cage else \
+        "set a stock to start the clock"
+    row = [
+        UI.tile("Food Security", bv, bd, bt, bt, "grid", "win", 0),
+        UI.tile("Staples Tracked", str(len(staples)),
+                "define your sufficiency", "mute", "ink",
+                "list", "accent", 40),
+        UI.tile("Optional / Hidden", str(len(hidden)),
+                "tracked, not in the alarm", "mute", "ink",
+                "hash", "jewel", 80),
+        UI.tile("Pantry Check", chk_txt,
+                "stock is manual - never auto-deducted",
+                "mute", "ink", "clock", "accent", 120),
+    ]
+    st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
+
+    st.markdown(UI.panel(
+        "Your Shelves - days of supply (aged to today)",
+        UI.empty_state("No staples yet - add ugali, omena, eggs... "
+                       "below.") if not staples else
+        "".join(UI.pantry_row(it, *M.pantry_days_left_item(it, today))
+                for it in staples)),
+        unsafe_allow_html=True)
+    for it in staples:
+        _pantry_controls(it, it["id"])
+
+    if hidden:
+        with st.expander("Pantry extras (optional - hidden from the "
+                         "sufficiency alarm)"):
+            st.markdown("".join(
+                UI.pantry_row(it, *M.pantry_days_left_item(it, today))
+                for it in hidden), unsafe_allow_html=True)
+            for it in hidden:
+                _pantry_controls(it, "h" + it["id"])
+
+    st.markdown("<div style='height:10px'></div>",
+                unsafe_allow_html=True)
+    with st.expander("+  Add a pantry item"):
+        a, b, c = st.columns(3)
+        with a:
+            pn = st.text_input("name", key="pa_n",
+                               placeholder="e.g. Beans")
+            pu = st.text_input("unit", key="pa_u",
+                               placeholder="g / pcs / ml")
+        with b:
+            pd = st.number_input("daily burn (per day)", 0.0,
+                                 1000000.0, 0.0, step=1.0, key="pa_d")
+            pcat = st.selectbox("category", D.PANTRY_CATS, key="pa_c")
+        with c:
+            pstock = st.number_input("stock on hand now", 0.0,
+                                     100000000.0, 0.0, step=1.0,
+                                     key="pa_s")
+            phid = st.checkbox("optional / hidden", key="pa_h")
+        if st.button("Add item", type="primary",
+                     key="pa_add") and pn.strip():
+            D.pantry_add(pn.strip(), pu.strip() or "u", pd, pcat,
+                         phid, pstock)
+            st.rerun()
+
+    with st.expander("Edit an item's details (burn / category / unit)"):
+        ids = [x["id"] for x in items]
+        if ids:
+            sel = st.selectbox("item", ids,
+                               format_func=lambda i: next(
+                                   (x["name"] for x in items
+                                    if x["id"] == i), i),
+                               key="pe_sel")
+            cur = next((x for x in items if x["id"] == sel), {})
+            st.caption("Current: " + str(cur.get("unit", ""))
+                       + " · burn " + str(cur.get("daily", 0))
+                       + "/day · " + str(cur.get("category", ""))
+                       + (" · hidden" if cur.get("hidden") else ""))
+            e1, e2, e3 = st.columns(3)
+            with e1:
+                en = st.text_input("name", value=cur.get("name", ""),
+                                   key="pe_n")
+                eu = st.text_input("unit", value=cur.get("unit", ""),
+                                   key="pe_u")
+            with e2:
+                ed = st.number_input("daily burn", 0.0, 1000000.0,
+                                     float(cur.get("daily", 0)),
+                                     step=1.0, key="pe_d")
+                ecat = st.selectbox("category", D.PANTRY_CATS,
+                                    index=D.PANTRY_CATS.index(
+                                        cur.get("category", "other"))
+                                    if cur.get("category", "other")
+                                    in D.PANTRY_CATS else 0,
+                                    key="pe_c")
+            with e3:
+                ehid = st.checkbox("optional / hidden",
+                                   value=bool(cur.get("hidden")),
+                                   key="pe_h")
+            if st.button("Save details", type="primary", key="pe_save"):
+                D.pantry_save_details(sel, en, eu, ed, ecat, ehid)
+                st.rerun()
+        else:
+            st.caption("Add an item first.")
+
+
+def _tab_runway(vault, today):
+    r = vault.get("runway", {})
+    burn = float(r.get("monthly_burn", 0) or 0)
+    months = int(r.get("emergency_months", 3) or 3)
+    cash = M.cash_on_hand(vault)
+    e = vault.get("emergency", {})
+    ebal = float(e.get("balance", 0) or 0)
+    target = burn * months
+    rm = M.runway_months(vault)
+    ep = M.emergency_progress(vault)
+
+    row = [
+        UI.tile("Monthly Burn", U.fmt_kes(burn),
+                "what a normal month costs", "mute", "ink",
+                "bolt", "accent", 0),
+        UI.tile("Cash Runway",
+                (format(rm, ".1f") + " mo") if rm else "—",
+                "cash / monthly burn", "mute",
+                "win" if (rm or 0) >= 3 else "ink",
+                "clock", "win", 40),
+        UI.tile("Emergency Target", U.fmt_kes(target),
+                str(months) + " months of burn", "mute", "ink",
+                "target", "jewel", 80),
+        UI.tile("Ring-Fenced", U.fmt_kes(ebal),
+                "set aside from your cash", "mute", "ink",
+                "lock", "jewel", 120),
+        UI.tile("Emergency Progress", format(ep, ".0f") + "%",
+                "to the " + str(months) + "-mo target",
+                "win" if ep >= 100 else "mute",
+                "win" if ep >= 100 else "ink",
+                "flag", "win", 160),
+    ]
+    st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
+
+    c1, c2 = st.columns(2, gap="medium")
+    with c1:
+        st.markdown(UI.panel("Your Monthly Burn",
+                             '<div style="height:2px"></div>'),
+                    unsafe_allow_html=True)
+        nb = st.number_input("KSh / month", 0.0, 100000000.0, burn,
+                             step=500.0, key="rw_b")
+        if st.button("Save monthly burn", type="primary", key="rw_bs"):
+            D.set_runway(monthly_burn=nb)
+            st.rerun()
+        st.caption("Set what you spend in a normal month. Nothing is "
+                   "deducted automatically - this only feeds the runway "
+                   "& emergency math below.")
+        nm = st.number_input("Emergency target (months)", 1, 24,
+                             months, step=1, key="rw_m")
+        if st.button("Save target months", key="rw_ms"):
+            D.set_runway(emergency_months=nm)
+            st.rerun()
+        st.caption("3 months keeps you safe without sitting idle. Hit "
+                   "the target and the Ratchet button lets you raise it.")
+    with c2:
+        st.markdown(UI.panel("Emergency Fund - ring-fenced from cash",
+                             UI.progress(ep, "var(--jewel)")
+                             + UI.kv([
+                                 ("Ring-fenced", U.fmt_kes(ebal)),
+                                 ("Target", U.fmt_kes(target)),
+                                 ("Progress", format(ep, ".1f") + "%"),
+                                 ("Covered",
+                                  (format(ebal / burn, ".1f") + " mo")
+                                  if burn > 0 else "—"),
+                             ])),
+                    unsafe_allow_html=True)
+        a, b, c = st.columns([1.4, 1, 1.4])
+        with a:
+            ea = st.number_input("KSh", 0.0, 100000000.0, 0.0,
+                                 step=500.0, key="em_a")
+            ek = st.selectbox("move", ["in", "out"], key="em_k")
+        with b:
+            en = st.text_input("note", key="em_n")
+            if st.button("Move", type="primary",
+                         key="em_go") and ea > 0:
+                D.emergency_tx(ek, ea, en.strip())
+                st.rerun()
+        with c:
+            funded = ebal >= target and target > 0
+            if st.button("Ratchet +1 month", key="em_r",
+                         disabled=not funded):
+                D.emergency_ratchet()
+                st.rerun()
+            if not funded:
+                st.caption("Funds at target to ratchet.")
+        st.caption("A ring-fence is money you *choose* not to touch - "
+                   "it is part of your cash, set aside in your head, "
+                   "so it is never counted twice.")
+
+    st.markdown("<div style='height:10px'></div>",
+                unsafe_allow_html=True)
+    st.markdown(UI.panel("Ring-Fence History",
+                         UI.flow_log_rows(
+                             [{"date": t.get("date", ""),
+                               "time": t.get("time", ""),
+                               "kind": t.get("kind", ""),
+                               "amount": (float(t.get("amount", 0))
+                                          if t.get("kind") == "in"
+                                          else -float(t.get("amount", 0))),
+                               "note": t.get("note", ""),
+                               "pocket": "emergency", "txid": ""}
+                              for t in e.get("tx", [])],
+                             _pid2name(vault), 20)
+                         if e.get("tx") else
+                         UI.empty_state("No ring-fence moves yet.")),
+                unsafe_allow_html=True)
+
+
 def render(ctx):
     if not st.session_state.get("vault_ok", False):
         _gate()
@@ -431,8 +718,8 @@ def render(ctx):
 
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
-    tabs = st.tabs(["Cash", "Daily Flow", "Bills", "Fun",
-                    "Wishlist", "Ventures"])
+    tabs = st.tabs(["Cash", "Daily Flow", "Bills", "Fun", "Wishlist",
+                    "Ventures", "Pantry", "Runway"])
     with tabs[0]:
         _tab_cash(vault)
     with tabs[1]:
@@ -445,3 +732,7 @@ def render(ctx):
         _tab_items(vault, today)
     with tabs[5]:
         _tab_funds(vault, today)
+    with tabs[6]:
+        _tab_pantry(vault, today)
+    with tabs[7]:
+        _tab_runway(vault, today)
