@@ -1,8 +1,4 @@
-"""The dashboard - the heart that pumps every module into one view.
-Privacy rule: no balances here. Only activity and expected money
-(commissions due / pending, income flow, counts). Net worth and cash
-live only inside the vault.
-"""
+"""The dashboard - the heart that pumps every module into one view."""
 from __future__ import annotations
 
 import datetime as dt
@@ -34,6 +30,7 @@ def render(ctx):
         ctx["sales"]
     bots, vault = ctx["bots"], ctx["vault"]
     tasks, income = ctx["tasks"], ctx["income"]
+    spiritual = ctx["spiritual"]
     score, started = ctx["score"], ctx["started"]
 
     cons = M.overall_consistency(habits, log, 30)
@@ -51,6 +48,8 @@ def render(ctx):
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     inc_week = M.income_total(
         income, (today - dt.timedelta(days=6)).isoformat(), t_iso)
+    se = M.spiritual_today(spiritual, today)
+    ss = M.spiritual_streak(spiritual)
 
     row1 = [
         UI.tile("Life Score",
@@ -155,6 +154,8 @@ def render(ctx):
         wl = M.weight_latest(weights)
         day_n = max(1, (today - D.START_DATE).days + 1) \
             if started else 0
+        spirit_txt = (str(se) + " energy / streak " + str(ss)) \
+            if se is not None else "—"
         pairs = [
             ("Recording day",
              str(day_n) if started else "starts Aug 1"),
@@ -164,6 +165,7 @@ def render(ctx):
              + str(done_today) + " / " + str(total_h) + "</span>"),
             ("Tasks", str(tc["done_today"]) + " done - "
              + str(tc["open"]) + " open"),
+            ("Spirit", spirit_txt),
             ("Journaled", "Yes" if je else "No"),
             ("Follow-ups", str(len(cc["due"])) + " due - "
              + str(len(cc["over"])) + " late"),
@@ -203,6 +205,7 @@ def render(ctx):
                 (jstreak, "journal", "accent"),
                 (M.sales_streak(daily, today), "sales logs", "win"),
                 (w_streak, "workout", "jewel"),
+                (ss, "spirit", "jewel"),
             ])), unsafe_allow_html=True)
 
     c8, c9 = st.columns([3, 2], gap="medium")
@@ -229,7 +232,8 @@ def render(ctx):
             '<span class="tw-val" style="font-size:20px">Vault</span>'
             '</div>'
             '<div class="tw-sub" style="margin-top:0">Bills &middot; '
-            'Fun &middot; Wishlist &middot; Ventures</div>'
+            'Fun &middot; Wishlist &middot; Ventures &middot; Pantry'
+            '</div>'
             '<div class="tw-sub">Your money lives here - behind '
             'the code.</div>'
         )
