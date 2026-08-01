@@ -1,6 +1,7 @@
-"""The weekly / monthly review - how the whole operation is managing.
-Privacy rule: no balances here. Net worth and the climb chart live only
-in the vault. This page shows activity, expected money and process.
+"""The weekly / monthly review - how the whole operation is managing,
+across the pipeline, the money, the spirit, the bots and the body.
+Privacy rule: no balances here. Net worth and the climb live only in the
+vault. This page shows activity, expected money and process.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ def render(ctx):
     t_iso, score = ctx["today_iso"], ctx["score"]
     tasks, income = ctx["tasks"], ctx["income"]
     vault = ctx["vault"]
+    spiritual = ctx["spiritual"]
 
     cons = M.overall_consistency(habits, log, 30)
     jcomp = M.journal_completion(journal, 30)
@@ -40,6 +42,8 @@ def render(ctx):
     locked = [(s, i) for s, i in com["overdue"]
               if not M.comm_editable(s, i, today)]
     wk_in, wk_out = M.flow_week_inout(vault.get("flow", []), today)
+    sp_health = M.spiritual_health(spiritual, 30)
+    sp_streak = M.spiritual_streak(spiritual)
 
     row = [
         UI.tile("Life Score",
@@ -69,11 +73,21 @@ def render(ctx):
         (jstreak, "journal days", "accent"),
         (M.sales_streak(daily, today), "sales tallies", "win"),
         (w_streak, "workout", "jewel"),
+        (sp_streak, "spirit", "jewel"),
         (M.best_habit_streak(log, habits), "best habit", "win"),
     ]), unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
+    sp_series = M.spiritual_series(spiritual, 30)
+    if len(sp_series) >= 2:
+        st.markdown(UI.panel(
+            "Spiritual Pulse",
+            UI.equity_svg(sp_series, "st_sp", kind="pct",
+                          xfmt=lambda d: d.strftime("%d")),
+            right="30d energy · health " + U.fmt_pct(sp_health, False)),
+            unsafe_allow_html=True)
+
     if any(log.values()):
         cseries = M.consistency_series(log, habits, 30)
         st.markdown(UI.panel(
@@ -157,11 +171,12 @@ def render(ctx):
              str(len(locked)) + " - "
              + U.fmt_kes(sum(float(i.get("amount", 0))
                              for _s, i in locked))),
+            ("Spirit health 30d", U.fmt_pct(sp_health, False)),
             ("Money in - 7d", U.fmt_kes(wk_in)),
             ("Money out - 7d", U.fmt_kes(wk_out)),
             ("Tasks cleared all-time", str(tc["done_all"])),
         ])
-        st.markdown(UI.panel("TrueWave + Activity - since Aug 1", body),
+        st.markdown(UI.panel("TrueWave + Spirit + Activity", body),
                     unsafe_allow_html=True)
 
     c7, c8 = st.columns(2, gap="medium")
