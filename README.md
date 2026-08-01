@@ -1,52 +1,51 @@
 # PULSE - Life Command Center
 
 A self-hosted life operating system for one operator in Nairobi - a strong
-heart that pumps every part of the day. The routine is the spine, the habit
-wall the heartbeat, TrueWave the engine, the Vault the blood. Recording
-begins **Friday 1 August 2026**; the app ships with zero fake figures and
-every write persists to `data/*.json` instantly.
+heart that pumps every part of the day. The schedule is the spine, the habit
+wall the heartbeat, TrueWave the engine, the Vault the blood, and Spirit the
+soul. The whole thing wears one design language: cold canvas, monospaced
+tabular figures, monochrome line-icons in tinted chips, mint = done / coral =
+missed / orange = money out / blue = the live spine / green = M-Pesa, and a
+signed-day grid that turns consistency into something you can see.
 
-## Privacy: where the money lives
-Your balances, net worth, assets, liabilities and ventures live **only**
-inside the **Archive (vault)**, behind a fixed access code (`ARCHIVE_PIN` in
-`src/data.py`, default `0444`). It is **not** stored in prefs, **not** shown
-in Settings, and **not** changeable from the UI - so the screen can't leak it.
-The dashboard, journal and stats show *activity and expected money* (commissions
-due / pending, income flow, counts) - **never** a balance.
+Design rule: colour encodes outcome, never decoration. The routine is the
+data model - change it and every page re-orients. Nothing is auto-deducted;
+every figure is a real, timed, manual entry, and derived numbers (food days,
+runway, emergency %, spiritual energy) are computed from what you log.
 
-## Money is live and connected (one writer)
-Every shilling moves through `move_money()`. The **Daily Flow** tab is the live
-ledger: pick a pocket (Wallet / M-Pesa / Bank / any you add), in or out, the
-amount, **the time**, **a transaction id** for online transfers, and a note -
-and the pocket balance changes on save, net worth recomputes, and a snapshot is
-taken. 'Out' is stored as a negative, so the ledger shows `-KSh 500` in red,
-not a positive number in red. The **Cash** tab is a balance dashboard +
-**Reconcile** (writes an `ADJ` line so the ledger can explain the jump).
-Marking a commission **paid** drops that cash into a chosen pocket (live), and
-an income entry can optionally land in a pocket too - so collected money
-actually shows up in your wallet. Commissions auto-due at **+20 / +50 days**
-and lock after the window.
+## What it controls
+- Now: dashboard - KPIs, glowing consistency trend, live right-now card,
+  pipeline + income mix, consistency calendar, today summary (with Spirit),
+  call sheet, streaks (incl. spirit), commissions, vault teaser, habit tick.
+- Routine: KPI strip, today timeline, 7-day grid, paste-your-routine editor.
+- TrueWave: live call sheet, full client journey, editable pipeline + plans,
+  bulk CSV import, master table with Outcome column.
+- Sales: end-of-day tally, commissions (auto +20/+50, locked after, paid
+  drops cash into a pocket live), income ledger (optional pocket drop).
+- Tasks: open/done/overdue, premium "recently cleared" feed, add.
+- Journal: auto Day Pulse from every module (incl. spiritual energy), write
+  the day, premium mood-accented cards.
+- Spirit: minutes with God, the word, what you feel, acts of devotion,
+  gratitude, depth 1-5 -> derived Spiritual Energy (deterministic), 30-day
+  pulse, streak, recent cards.
+- Habits: 35-day wall, today checklist, 30-day bars, weigh-ins + trend.
+- Bots: Deriv/Alpaca + any venture, risk/reward, demo->LIVE, weekly bars.
+- Goals: on-track/at-risk/done, progress cards, Issues & Fixes.
+- Stats: life score, streaks, spiritual pulse, consistency trend + weekday,
+  week sales, pipeline, income by source, ventures, truewave+spirit kv.
+- Archive (locked, code in source): net worth climb, food security / cash
+  runway / emergency tiles, Cash pockets, Daily Flow (exact minute + txid,
+  M-Pesa green), Bills, Fun, Wishlist, Ventures, Pantry (manual stock,
+  aged days-left, bottleneck), Runway + emergency ring-fence + ratchet.
+- Settings: name, accent, clock offset, JSON + CSV export, restore, wipe.
 
-## Backups that actually restore
-Settings has **Download JSON backup** (full round-trip), **Download CSVs**
-(clients / flow / sales / income / tasks, for spreadsheets), and a **Restore
-from backup** uploader - so your weekly download is what you re-ingest on a
-brand-new deploy and everything since 1 Aug 2026 returns. TrueWave also has
-**bulk-import clients from CSV** (drop your ad-leads export straight in).
-Logs (client memory, money flow, net-worth snapshots) are **append-only and
-never auto-deleted**.
-
-## The conversion pipeline is a setting, not code
-On the **TrueWave** page, the *Configure my conversion pipeline & plans* panel
-lets you rename / recolor / reorder / add stages, mark the linear path, and tag
-the five roles the engine needs (won / lost / cash / delivered / returned - one
-each). Terminal clients carry an **Outcome** line + column showing where their
-journey ended.
-
-## Everything else
-Now (dashboard) - Routine (today's timeline now sits under the KPI strip) -
-Tasks - Journal (auto Day Pulse) - Habits + weigh-ins - Bots (Deriv/Alpaca
-risk-reward, demo->LIVE) - Goals + Issues - Stats (weekly/monthly review).
+## The routine format
+Every block is one line. The Routine page parses this directly:
+06:00  Wake up                 #Life   @weekdays
+09:30  Arrive - post drafts    #Content @weekdays
+12:00  TikTok Live + calls     #Content @weekdays
+Tags (#Content #Sales #Body #Mind #Life #Rest #Focus) drive chip colours;
+scopes (@weekdays @sat @sun @weekend @all or @mon,wed,fri) pick the days.
 
 ## Quick start
     pip install -r requirements.txt
@@ -54,3 +53,4 @@ risk-reward, demo->LIVE) - Goals + Issues - Stats (weekly/monthly review).
 
 VPS: `docker compose up -d` (the `./data` volume is the memory).
 Phone: same URL - everything stacks under 760px. Time: Africa/Nairobi.
+The vault access code is the constant ARCHIVE_PIN in src/data.py.
