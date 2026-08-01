@@ -5,9 +5,10 @@ ledger: pick a pocket, in/out, amount, an EXACT time via the hour + minute
 clock pickers (every minute 00-59, type-to-search), a transaction id and a
 note - the pocket balance changes on save and 'out' shows as a negative. The
 Cash tab is read-only balances + real moves (no reconcile: every balance
-change is a real, timed entry). Net worth is computed, never typed, and shown
-nowhere else. Every stored move renders through the premium log renderer, so
-the history looks alive on every refresh.
+change is a real, timed entry). M-Pesa pockets brand their references green.
+Net worth is computed, never typed, and shown nowhere else. Every stored move
+renders through the premium log renderer, so the history looks alive on every
+refresh.
 """
 from __future__ import annotations
 
@@ -114,8 +115,10 @@ def _tab_cash(vault):
             ])
             st.markdown(UI.panel(p["name"], body),
                         unsafe_allow_html=True)
-            st.markdown(UI.tx_log_rows(p.get("tx", []), 4),
-                        unsafe_allow_html=True)
+            st.markdown(
+                UI.tx_log_rows(p.get("tx", []), 4,
+                               mpesa=UI.is_mpesa(p["id"], p["name"])),
+                unsafe_allow_html=True)
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     a, b = st.columns([3, 1])
