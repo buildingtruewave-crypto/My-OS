@@ -1,5 +1,3 @@
-"""Routine - today's timeline sits directly under the KPI strip (above the
-7-day grid), exactly as the operator reads their day top-to-bottom."""
 from __future__ import annotations
 
 import html
