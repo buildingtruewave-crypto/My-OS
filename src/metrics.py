@@ -1,6 +1,7 @@
 """Derived stats for the life OS, the TrueWave pipeline, the money OS, the
 pantry / runway / emergency model and the spiritual energy model. Pure
-read-side: never mutates, never auto-deducts.
+read-side: never mutates, never auto-deducts. Active vs sealed ventures keep
+the outer money and the protected heart from double-counting.
 """
 from __future__ import annotations
 
@@ -405,13 +406,44 @@ def funds_balance(v):
     return sum(float(x.get("balance", 0)) for x in v.get("funds", []))
 
 
+def active_funds(v):
+    return [f for f in v.get("funds", []) if not f.get("sealed")]
+
+
+def sealed_funds(v):
+    return [f for f in v.get("funds", []) if f.get("sealed")]
+
+
+def active_funds_balance(v):
+    return sum(float(f.get("balance", 0)) for f in active_funds(v))
+
+
+def sealed_funds_balance(v):
+    return sum(float(f.get("balance", 0)) for f in sealed_funds(v))
+
+
+def emergency_balance(v):
+    return float(v.get("emergency", {}).get("balance", 0) or 0)
+
+
+def protected_total(v):
+    return emergency_balance(v) + sealed_funds_balance(v)
+
+
+def safety_runway_months(v):
+    b = float(v.get("runway", {}).get("monthly_burn", 0) or 0)
+    if b <= 0:
+        return None
+    return protected_total(v) / b
+
+
 def allocated(v):
     return (bills_saved(v) + fun_remaining(v) + items_saved(v)
-            + funds_balance(v))
+            + active_funds_balance(v))
 
 
 def net_worth(v):
-    return cash_on_hand(v)
+    return cash_on_hand(v) + active_funds_balance(v)
 
 
 def snapshots_series(v):
@@ -494,10 +526,6 @@ def emergency_target(vault):
     return burn * months
 
 
-def emergency_balance(vault):
-    return float(vault.get("emergency", {}).get("balance", 0) or 0)
-
-
 def emergency_progress(vault):
     t = emergency_target(vault)
     if t <= 0:
@@ -517,9 +545,6 @@ def _spirit_present(e):
 
 
 def spiritual_energy(e):
-    """0-100 from what was logged: presence 25 + time 25 + depth 25 +
-    devotion 15 + reflection 10. Deterministic - rewards the acts that
-    actually give spiritual energy."""
     if not e:
         return 0
     mins = float(e.get("minutes", 0) or 0)
