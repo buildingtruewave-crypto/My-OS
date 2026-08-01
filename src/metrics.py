@@ -1,14 +1,13 @@
-"""Derived stats for the life OS, the TrueWave pipeline and the money OS.
-Pipeline-aware: 'active', 'won', 'lost', 'returned', 'cash' are resolved
-from the editable roles, never from hard-coded ids.
+"""Derived stats for the life OS, the TrueWave pipeline, the money OS, the
+pantry / runway / emergency model and the spiritual energy model. Pure
+read-side: never mutates, never auto-deducts.
 """
 from __future__ import annotations
 
 import calendar as _cal
 import datetime as dt
 
-from .data import (START_DATE, TAG_COLORS, role_id, stage_color,
-                   stage_label, terminal_ids)
+from .data import (role_id, stage_color, stage_label, terminal_ids)
 
 
 def _mins(t):
@@ -44,6 +43,7 @@ def active_block_info(blocks, now_dt):
 
 
 def today_area_split(routine, weekday):
+    from .data import TAG_COLORS
     counts = {}
     for b in routine:
         if weekday in b.get("days", list(range(7))):
@@ -79,9 +79,7 @@ def day_consistency_map(log, habits, year, month, today):
     for d in range(1, nd + 1):
         date = dt.date(year, month, d)
         if date <= today:
-            ds = date.isoformat()
-            if any(ds in log.get(h["id"], {}) for h in habits):
-                m[date] = day_frac(log, habits, ds)
+            m[date] = day_frac(log, habits, date.isoformat())
     return m
 
 
@@ -180,6 +178,7 @@ def journal_completion(journal, n=30):
 # ---------- sales ----------
 
 def sales_rate(daily, today, n=30):
+    from .data import START_DATE
     start = max(START_DATE, today - dt.timedelta(days=n - 1))
     days = (today - start).days + 1
     if days <= 0:
@@ -356,8 +355,6 @@ def income_by_type(income):
 
 
 def flow_effect(f):
-    """Signed effect of a flow row, robust to old (unsigned) and new
-    (signed) rows and to 'adjust' rows."""
     k = f.get("kind")
     a = float(f.get("amount", 0))
     if k == "in":
@@ -373,16 +370,14 @@ def flow_week_inout(flow, today):
     for f in flow:
         if f.get("date", "") < lo:
             continue
-        k = f.get("kind")
-        a = float(f.get("amount", 0))
-        if k == "in":
-            i += abs(a)
-        elif k == "out":
-            o += abs(a)
+        if f.get("kind") == "in":
+            i += abs(float(f.get("amount", 0)))
+        elif f.get("kind") == "out":
+            o += abs(float(f.get("amount", 0)))
     return i, o
 
 
-# ---------- the money OS (vault-only) ----------
+# ---------- money OS ----------
 
 def item_saved(it):
     return sum(float(t.get("amount", 0)) for t in it.get("tx", []))
@@ -416,7 +411,7 @@ def allocated(v):
 
 
 def net_worth(v):
-    return cash_on_hand(v) + allocated(v)
+    return cash_on_hand(v)
 
 
 def snapshots_series(v):
@@ -441,6 +436,138 @@ def bills_overdue(v, today):
     t = today.isoformat()
     return [b for b in v.get("bills", []) if not b.get("paid")
             and b.get("due") and b["due"] < t]
+
+
+# ---------- pantry / runway / emergency ----------
+
+def pantry_days_left_item(it, today):
+    daily = float(it.get("daily", 0) or 0)
+    stock = float(it.get("stock", 0) or 0)
+    if daily <= 0:
+        return (None, None)
+    raw = stock / daily
+    chk = it.get("checked", "")
+    age = 0
+    if chk:
+        try:
+            age = max(0, (today - dt.date.fromisoformat(chk)).days)
+        except Exception:
+            age = 0
+    aged = max(0.0, raw - age)
+    return (raw, aged)
+
+
+def pantry_bottleneck(pantry, today):
+    items = [it for it in pantry.get("items", [])
+             if not it.get("hidden")
+             and float(it.get("daily", 0) or 0) > 0]
+    best = None
+    for it in items:
+        raw, aged = pantry_days_left_item(it, today)
+        if aged is None:
+            continue
+        if best is None or aged < best[0]:
+            best = (aged, raw, it.get("name", "?"))
+    return best
+
+
+def pantry_checked_age(pantry, today):
+    upd = pantry.get("updated", "")
+    if not upd:
+        return None
+    try:
+        return max(0, (today - dt.date.fromisoformat(upd)).days)
+    except Exception:
+        return None
+
+
+def runway_months(vault):
+    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
+    if burn <= 0:
+        return None
+    return cash_on_hand(vault) / burn
+
+
+def emergency_target(vault):
+    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
+    months = int(vault.get("runway", {}).get("emergency_months", 3) or 3)
+    return burn * months
+
+
+def emergency_balance(vault):
+    return float(vault.get("emergency", {}).get("balance", 0) or 0)
+
+
+def emergency_progress(vault):
+    t = emergency_target(vault)
+    if t <= 0:
+        return 0.0
+    return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
+
+
+# ---------- spiritual energy (derived, never random) ----------
+
+def _spirit_present(e):
+    if not e:
+        return False
+    return (float(e.get("minutes", 0) or 0) > 0
+            or bool((e.get("felt") or "").strip())
+            or bool((e.get("word") or "").strip())
+            or bool(e.get("acts")))
+
+
+def spiritual_energy(e):
+    """0-100 from what was logged: presence 25 + time 25 + depth 25 +
+    devotion 15 + reflection 10. Deterministic - rewards the acts that
+    actually give spiritual energy."""
+    if not e:
+        return 0
+    mins = float(e.get("minutes", 0) or 0)
+    depth = int(e.get("depth", 0) or 0)
+    acts = e.get("acts") or []
+    felt = (e.get("felt") or "").strip()
+    presence = 25.0 if (mins > 0 or felt or e.get("word") or acts) else 0.0
+    m_comp = min(mins / 60.0, 1.0) * 25.0
+    d_comp = (max(0, min(depth, 5)) / 5.0) * 25.0
+    a_comp = min(len(acts) / 3.0, 1.0) * 15.0
+    r_comp = min(len(felt) / 20.0, 1.0) * 10.0
+    return int(max(0, min(100, round(presence + m_comp + d_comp
+                                       + a_comp + r_comp))))
+
+
+def spiritual_streak(spiritual):
+    today = dt.date.today()
+    s = 0
+    for o in range(400):
+        d = (today - dt.timedelta(days=o)).isoformat()
+        if _spirit_present(spiritual.get(d)):
+            s += 1
+        else:
+            break
+    return s
+
+
+def spiritual_series(spiritual, n=30):
+    today = dt.date.today()
+    out = []
+    for o in range(n - 1, -1, -1):
+        d = today - dt.timedelta(days=o)
+        e = spiritual.get(d.isoformat())
+        if e is not None:
+            out.append((d, spiritual_energy(e)))
+    return out
+
+
+def spiritual_health(spiritual, n=30):
+    pts = spiritual_series(spiritual, n)
+    if not pts:
+        return 0.0
+    return sum(v for _, v in pts) / len(pts)
+
+
+def spiritual_today(spiritual, today):
+    e = spiritual.get(today.isoformat())
+    return spiritual_energy(e) if e is not None else None
 
 
 # ---------- bots ----------
@@ -514,7 +641,6 @@ def life_score(cons, jcomp, srate, goal_avg):
 
 
 def day_pulse(d_iso, ctx):
-    """Everything recorded on one date - flows only, never balances."""
     clients = ctx["clients"]
     term = terminal_ids()
     non_t = [c for c in clients if c.get("stage") not in term]
@@ -523,6 +649,7 @@ def day_pulse(d_iso, ctx):
                 or c.get("returned_date") == d_iso]
     v = ctx["vault"]
     flow = [f for f in v.get("flow", []) if f.get("date") == d_iso]
+    se = ctx.get("spiritual", {}).get(d_iso)
     return {
         "new_clients": [c for c in clients
                         if c.get("created") == d_iso],
@@ -545,78 +672,5 @@ def day_pulse(d_iso, ctx):
                         if w.get("date") == d_iso), None),
         "tasks_done": [t for t in ctx["tasks"]
                        if t.get("done_date") == d_iso],
+        "spiritual": spiritual_energy(se) if se is not None else None,
     }
-
-# ---------------------------------------------------------------------------
-# PANTRY / RUNWAY / EMERGENCY  (pure read-side; never mutates, never auto-deducts)
-# ---------------------------------------------------------------------------
-
-def pantry_days_left_item(it, today):
-    """Returns (raw_days, aged_days). raw = stock/burn as last entered;
-    aged = raw minus whole days since that item was last checked, floored at 0.
-    daily<=0 -> (None, None) (not a consumed staple)."""
-    daily = float(it.get("daily", 0) or 0)
-    stock = float(it.get("stock", 0) or 0)
-    if daily <= 0:
-        return (None, None)
-    raw = stock / daily
-    chk = it.get("checked", "")
-    age = 0
-    if chk:
-        try:
-            age = max(0, (today - dt.date.fromisoformat(chk)).days)
-        except Exception:
-            age = 0
-    aged = max(0.0, raw - age)
-    return (raw, aged)
-
-
-def pantry_bottleneck(pantry, today):
-    """Shortest aged shelf across *visible* consumed staples -> (aged, raw,
-    name). Hidden/optional items are excluded by design (running out of a
-    treat is not a food-security event). None if no staples tracked."""
-    items = [it for it in pantry.get("items", [])
-             if not it.get("hidden")
-             and float(it.get("daily", 0) or 0) > 0]
-    best = None
-    for it in items:
-        raw, aged = pantry_days_left_item(it, today)
-        if aged is None:
-            continue
-        if best is None or aged < best[0]:
-            best = (aged, raw, it.get("name", "?"))
-    return best
-
-
-def pantry_checked_age(pantry, today):
-    upd = pantry.get("updated", "")
-    if not upd:
-        return None
-    try:
-        return max(0, (today - dt.date.fromisoformat(upd)).days)
-    except Exception:
-        return None
-
-
-def runway_months(vault):
-    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
-    if burn <= 0:
-        return None
-    return cash_on_hand(vault) / burn
-
-
-def emergency_target(vault):
-    burn = float(vault.get("runway", {}).get("monthly_burn", 0) or 0)
-    months = int(vault.get("runway", {}).get("emergency_months", 3) or 3)
-    return burn * months
-
-
-def emergency_balance(vault):
-    return float(vault.get("emergency", {}).get("balance", 0) or 0)
-
-
-def emergency_progress(vault):
-    t = emergency_target(vault)
-    if t <= 0:
-        return 0.0
-    return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
