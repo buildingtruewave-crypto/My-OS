@@ -1,12 +1,12 @@
-"""TrueWave - the full client journey, from the first ad-text to the
-closed deal. Opens with a live Call Sheet. The conversion pipeline and
-payment plans are fully editable from the panel at the bottom: rename,
-recolor, reorder, add stages, mark the linear path and tag the roles the
-engine needs. Change business, keep the machine.
+"""TrueWave - the full client journey. Opens with a live Call Sheet. The
+pipeline + plans are editable from the panel at the bottom. Terminal clients
+show where their journey ended. Bulk-import leads from a CSV (ad exports).
 """
 from __future__ import annotations
 
+import csv
 import html
+import io
 
 import streamlit as st
 
@@ -41,6 +41,35 @@ def _add_lead(ctx):
                          want.strip(), budget.strip(), note.strip(),
                          ctx["today_iso"], ctx["now_str"])
             st.rerun()
+
+
+def _bulk_import(ctx):
+    with st.expander("⤓  Bulk import clients from CSV"):
+        st.caption(
+            "Drop a CSV with headers: name, phone, source, want, "
+            "budget, heat, note (missing columns are fine). Every row "
+            "enters at the first stage with a 'bulk CSV import' note.")
+        up = st.file_uploader("CSV file", type=["csv"], key="ci_csv")
+        if up is not None:
+            if st.button("Import rows", type="primary", key="ci_go"):
+                txt = up.getvalue().decode("utf-8-sig")
+                reader = csv.DictReader(io.StringIO(txt))
+                n = 0
+                for r in reader:
+                    nm = (r.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    D.add_client(
+                        nm, (r.get("phone") or "").strip(),
+                        (r.get("source") or "Walk-in").strip(),
+                        (r.get("heat") or "Warm").strip(),
+                        (r.get("want") or "").strip(),
+                        (r.get("budget") or "").strip(),
+                        (r.get("note") or "bulk CSV import").strip(),
+                        ctx["today_iso"], ctx["now_str"])
+                    n += 1
+                st.success("Imported " + str(n) + " clients.")
+                st.rerun()
 
 
 def _journey(c, ctx, k):
@@ -438,6 +467,16 @@ def _pipeline_editor():
             st.rerun()
 
 
+def _outcome_text(c):
+    term = D.terminal_ids()
+    stg = c.get("stage", "new")
+    if stg not in term:
+        return "—"
+    odate = (c.get("paid_date") or c.get("returned_date")
+             or c.get("created", ""))
+    return D.stage_label(stg, stg) + ((" " + str(odate)) if odate else "")
+
+
 def render(ctx):
     clients, today = ctx["clients"], ctx["today"]
     cc = M.client_counts(clients, today)
@@ -468,7 +507,7 @@ def render(ctx):
             right="tap a number to dial"), unsafe_allow_html=True)
 
     _add_lead(ctx)
-
+    _bulk_import(ctx)
     _pipeline_editor()
 
     sc = M.stage_counts(clients)
@@ -522,3 +561,30 @@ def render(ctx):
                    + " - narrow with search or the stage filter.")
     for c in shown[:60]:
         _client_block(c, ctx)
+
+    st.markdown("<div style='height:10px'></div>",
+                unsafe_allow_html=True)
+    rows = []
+    for c in clients:
+        st_chip = {"open": ("OPEN", "#4C8DFF"),
+                   "won": ("WON", "#34D399"),
+                   "lost": ("LOST", "#7C8AA5"),
+                   "returned": ("RETURNED", "#F0556B"),
+                   "cash": ("CASH", "#F5B544")}.get(
+                       D.stage_role(c.get("stage", "")),
+                       ("LIVE", D.stage_color(c.get("stage", ""))))
+        rows.append([
+            (c.get("created", ""), "num"),
+            (str(c.get("name", "")), ""),
+            (str(c.get("phone", "")), "num"),
+            (str(c.get("want", "")), ""),
+            (str(c.get("source", "")), ""),
+            (c.get("next_date", "") or "--", "num"),
+            (UI.badge(st_chip[0], st_chip[1]), ""),
+            (_outcome_text(c), "num"),
+        ])
+    st.markdown(UI.panel("All inquiries",
+                         UI.table(["Logged", "Name", "Phone", "Wants",
+                                   "Source", "Next", "Status",
+                                   "Outcome"], rows)),
+                unsafe_allow_html=True)
