@@ -1,11 +1,12 @@
 """The hidden money operating system - the ONLY place balances live, behind
 ARCHIVE_PIN. ONE writer (move_money) moves cash, so the Daily Flow, the Cash
 balances and the climb line can never drift apart. The Daily Flow is the live
-ledger: pick a pocket, in/out, amount, an exact TIME (full clock, HH:MM:SS),
-a transaction id and a note - the pocket balance changes on save and 'out'
-shows as a negative. The Cash tab is read-only balances + real moves (no
-reconcile: every balance change is a real, timed entry). Net worth is
-computed, never typed, and shown nowhere else.
+ledger: pick a pocket, in/out, amount, an EXACT time via the hour + minute
+clock pickers (every minute 00-59, type-to-search), a transaction id and a
+note - the pocket balance changes on save and 'out' shows as a negative. The
+Cash tab is read-only balances + real moves (no reconcile: every balance
+change is a real, timed entry). Net worth is computed, never typed, and shown
+nowhere else.
 """
 from __future__ import annotations
 
@@ -15,6 +16,10 @@ from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
+
+# Clock wheels - every hour and every minute, zero-padded, type-to-search.
+HOURS = [str(i).zfill(2) for i in range(24)]
+MINS = [str(i).zfill(2) for i in range(60)]
 
 
 def _gate():
@@ -147,38 +152,42 @@ def _tab_flow(vault, today):
     pids = [p["id"] for p in positions]
     pmap = _pid2name(vault)
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
-                'EVERY SHILLING, EVERY DAY - LIVE, EXACT TIME '
+                'EVERY SHILLING, EVERY DAY - LIVE, EXACT MINUTE '
                 '(MOVES THE POCKET)</div>',
                 unsafe_allow_html=True)
     if not positions:
         st.markdown(UI.empty_state("Add a pocket on the Cash tab first."))
     else:
+        now_local = U.now_local()
         a, b, c = st.columns(3)
         with a:
             fd = st.date_input("date", value=today, key="fl_d")
         with b:
-            ft = st.time_input("time", value=U.now_local().time(),
-                               key="fl_t")
-        with c:
             fp = st.selectbox("pocket", pnames, key="fl_p")
-        d, e = st.columns(2)
-        with d:
+        with c:
             fk = st.selectbox("flow", ["in", "out"], key="fl_k")
-        with e:
+        r2a, r2b, r2c = st.columns(3)
+        with r2a:
+            fh = st.selectbox("hour", HOURS, index=now_local.hour,
+                              key="fl_h")
+        with r2b:
+            fm = st.selectbox("minute", MINS, index=now_local.minute,
+                              key="fl_m")
+        with r2c:
             fa = st.number_input("amount (KSh)", 0.0, 100000000.0,
                                  0.0, step=50.0, key="fl_a")
-        f, g = st.columns(2)
-        with f:
+        r3a, r3b = st.columns(2)
+        with r3a:
             ftx = st.text_input("transaction id (online)", key="fl_x")
-        with g:
+        with r3b:
             fn = st.text_input("from where / what for", key="fl_n")
         if st.button("Log it", type="primary",
                      key="fl_add") and fa > 0:
             pid = pids[pnames.index(fp)]
             eff = float(fa) if fk == "in" else -float(fa)
+            time_str = str(fh) + ":" + str(fm)
             D.move_money(pid, eff, fk, note=fn.strip(),
-                         time_str=ft.strftime("%H:%M:%S"),
-                         txid=ftx.strip())
+                         time_str=time_str, txid=ftx.strip())
             st.rerun()
 
     flow = vault.get("flow", [])
@@ -195,7 +204,7 @@ def _tab_flow(vault, today):
                          f.get("pocket", "") or "—") or "—"
         rows.append([
             (f.get("date", ""), "num"),
-            (f.get("time", "") or "--:--:--", "num"),
+            (f.get("time", "") or "--:--", "num"),
             (f.get("txid", "") or "--", ""),
             (pname, ""),
             (_kind_badge(f.get("kind", "")), ""),
