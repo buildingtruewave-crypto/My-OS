@@ -35,9 +35,8 @@ def render(ctx):
         '<span class="tw-val '
         + ("tw-win" if pct >= 70 else "tw-ink")
         + '" style="font-size:24px">' + str(tc["done_today"]) + "/"
-        + str(tc["total"]) + '</span>'
-        '<span class="tw-lab">' + format(pct, ".0f")
-        + '% of the list cleared today</span></div>'
+        + str(tc["total"]) + '</span><span class="tw-lab">'
+        + format(pct, ".0f") + '% cleared today</span></div>'
     )
     st.markdown(UI.panel("Today's List", head),
                 unsafe_allow_html=True)
