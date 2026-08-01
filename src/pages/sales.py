@@ -1,5 +1,8 @@
-"""Daily tally, per-phone commissions with hard 20/50-day windows, and
-the income ledger (bonuses, DRV + Stock Streamlit, gifts, everything)."""
+"""Daily tally + commissions + income. Connectivity: marking a commission
+PAID drops the cash into a chosen pocket (live), and an income entry can
+optionally land in a pocket too - so collected money actually shows up in
+the wallet and net worth. Commissions auto-due +20/+50 days, locked after.
+"""
 from __future__ import annotations
 
 import streamlit as st
@@ -10,10 +13,20 @@ from .. import ui as UI
 from .. import util as U
 
 
+def _pocket_options(vault):
+    positions = vault.get("positions", [])
+    names = ["— none —"] + [p["name"] for p in positions]
+    ids = [""] + [p["id"] for p in positions]
+    return names, ids
+
+
 def render(ctx):
     daily, sales = ctx["sales_daily"], ctx["sales"]
     income = ctx["income"]
+    vault = ctx["vault"]
     today, t_iso = ctx["today"], ctx["today_iso"]
+    now_time = ctx["now_dt"].strftime("%H:%M")
+    pnames, pids = _pocket_options(vault)
 
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     sys30, cash30 = M.rejects_30d(daily, today)
@@ -113,8 +126,8 @@ def render(ctx):
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'COMMISSION TRACKER - EDITABLE INSIDE THE WINDOW, '
-                'LOCKED AFTER</div>', unsafe_allow_html=True)
+                'COMMISSION TRACKER - MARK PAID TO DROP CASH INTO A '
+                'POCKET (LIVE)</div>', unsafe_allow_html=True)
     inst_rows = []
     for s in sales:
         for i in s.get("inst", []):
@@ -127,7 +140,8 @@ def render(ctx):
             unsafe_allow_html=True)
     for s, i in inst_rows:
         editable = M.comm_editable(s, i, today)
-        if i.get("paid"):
+        was_paid = bool(i.get("paid"))
+        if was_paid:
             chip = ("PAID", "#34D399")
         elif not editable:
             chip = ("LOCKED - UNPAID", "#F0556B")
@@ -135,7 +149,8 @@ def render(ctx):
             chip = ("OVERDUE", "#F0556B")
         else:
             chip = ("DUE " + str(i.get("window", 20)) + "d", "#F5B544")
-        c1, c2, c3, c4, c5 = st.columns([1.3, 2, 1.2, 2.3, 1])
+        c1, c2, c3, c4, c5, c6 = st.columns(
+            [1.2, 1.8, 1.0, 1.8, 1.4, 0.9])
         with c1:
             st.markdown('<div style="padding-top:6px">'
                         '<div class="tw-sub">'
@@ -160,13 +175,33 @@ def render(ctx):
                 st.caption("locked - "
                            + (i.get("reason") or "no reason recorded"))
         with c5:
+            if editable and not was_paid:
+                psel = st.selectbox("drop into pocket on pay",
+                                    pnames, key="cpk" + i["id"])
+            elif was_paid:
+                st.caption("paid " + str(i.get("paid_date", ""))
+                           + (" → " + str(i.get("paid_pocket", ""))
+                              if i.get("paid_pocket") else ""))
+            else:
+                st.caption("locked")
+        with c6:
             if editable:
-                paid = st.checkbox("paid",
-                                   value=bool(i.get("paid")),
+                paid = st.checkbox("paid", value=was_paid,
                                    key="cp" + i["id"])
                 if st.button("Save", key="cb" + i["id"]):
+                    if paid and not was_paid:
+                        i["paid_date"] = t_iso
+                        if pnames and psel != "— none —":
+                            pid = pids[pnames.index(psel)]
+                            D.move_money(
+                                pid, float(i.get("amount", 0)), "in",
+                                note="commission: "
+                                + str(s.get("client", "")),
+                                time_str=now_time, txid="")
+                            i["paid_pocket"] = psel
                     i["paid"] = bool(paid)
-                    i["reason"] = reason.strip()
+                    i["reason"] = reason.strip() if editable else \
+                        i.get("reason", "")
                     D.save_sales(sales)
                     st.rerun()
             else:
@@ -190,10 +225,18 @@ def render(ctx):
                                    0.0, step=100.0, key="in_a")
         with c:
             inote = st.text_input("note", key="in_n")
+        ipk = st.selectbox("also drop into pocket (optional)", pnames,
+                           key="in_pk")
         if st.button("Add income", type="primary",
                      key="in_add") and iamt > 0:
-            D.add_income(idate.isoformat(), itype, iamt,
-                         inote.strip())
+            D.add_income(idate.isoformat(), itype, iamt, inote.strip())
+            if ipk != "— none —":
+                pid = pids[pnames.index(ipk)]
+                D.move_money(pid, float(iamt), "in",
+                             note="income: " + itype
+                             + (" - " + inote.strip() if inote.strip()
+                                else ""),
+                             time_str=now_time, txid="")
             st.rerun()
         rows = []
         for x in income[:12]:
