@@ -2,10 +2,8 @@
 pantry, runway and the emergency ring-fence live, behind ARCHIVE_PIN. ONE
 writer (move_money) moves real cash. Pantry stock, monthly burn and the
 emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by hand - the
-system never auto-deducts food or money; it only divides and ages the read so
-the numbers stay honest between manual updates. M-Pesa pockets brand their
-references green. Net worth = real cash in pockets; 'Set aside' is how that
-cash is mentally partitioned (shown for info, not added on top).
+system never auto-deducts food or money; it only divides and ages the read.
+M-Pesa pockets brand their references green.
 """
 from __future__ import annotations
 
@@ -46,7 +44,6 @@ def _pid2name(vault):
 
 
 def _sec_row2(vault, today):
-    """Food security + runway + emergency - the personal safety row."""
     pan = vault.get("pantry", {})
     bn = M.pantry_bottleneck(pan, today)
     if bn is None:
@@ -54,7 +51,7 @@ def _sec_row2(vault, today):
     else:
         aged = bn[0]
         food_v = format(aged, ".0f") + "d"
-        food_d = ("bottleneck: " + str(bn[2]))
+        food_d = "bottleneck: " + str(bn[2])
         food_t = ("win" if aged >= 14 else
                   ("accent" if aged >= 7 else
                    ("loss" if aged < 3 else "mute")))
@@ -64,14 +61,12 @@ def _sec_row2(vault, today):
     else:
         run_v = format(rm, ".1f") + "mo"
         run_d = "cash runway"
-        run_t = ("win" if rm >= 3 else
-                 ("accent" if rm >= 1 else "loss"))
+        run_t = "win" if rm >= 3 else ("accent" if rm >= 1 else "loss")
     ep = M.emergency_progress(vault)
     em_v = format(ep, ".0f") + "%"
     em_d = ("of " + str(int(vault.get("runway", {}).get(
         "emergency_months", 3))) + "-mo target")
-    em_t = ("win" if ep >= 100 else
-            ("accent" if ep >= 50 else "mute"))
+    em_t = "win" if ep >= 100 else ("accent" if ep >= 50 else "mute")
     return [
         UI.tile("Food Security", food_v, food_d, food_t, food_t,
                 "grid", "win", 0),
@@ -454,7 +449,6 @@ def _tab_funds(vault, today):
 
 
 def _pantry_controls(it, key):
-    """Inline stock update + hidden toggle + remove, under each row."""
     c1, c2, c3, c4 = st.columns([1.6, 1, 1.1, 1.1])
     with c1:
         ns = st.number_input("stock on hand (" + str(it.get("unit", "u"))
@@ -512,15 +506,18 @@ def _tab_pantry(vault, today):
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
 
-    st.markdown(UI.panel(
-        "Your Shelves - days of supply (aged to today)",
-        UI.empty_state("No staples yet - add ugali, omena, eggs... "
-                       "below.") if not staples else
-        "".join(UI.pantry_row(it, *M.pantry_days_left_item(it, today))
-                for it in staples)),
-        unsafe_allow_html=True)
-    for it in staples:
-        _pantry_controls(it, it["id"])
+    if staples:
+        st.markdown(UI.panel(
+            "Your Shelves - days of supply (aged to today)",
+            "".join(UI.pantry_row(it, *M.pantry_days_left_item(it, today))
+                    for it in staples)),
+            unsafe_allow_html=True)
+        for it in staples:
+            _pantry_controls(it, it["id"])
+    else:
+        st.markdown(UI.panel("Your Shelves", UI.empty_state(
+            "No staples yet - add ugali, omena, eggs below.")),
+            unsafe_allow_html=True)
 
     if hidden:
         with st.expander("Pantry extras (optional - hidden from the "
