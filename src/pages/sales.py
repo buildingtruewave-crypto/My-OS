@@ -1,9 +1,6 @@
-"""Daily tally + commissions + income. Connectivity: marking a commission
-PAID drops the cash into a chosen pocket (live), and an income entry can
-optionally land in a pocket too - so collected money actually shows up in
-the wallet and net worth. Commissions auto-due +20/+50 days, locked after.
-Stored income + the per-commission details render through the premium log
-renderer so the history keeps its colour on every refresh.
+"""Daily tally + commissions + income. Marking a commission PAID drops the
+cash into a chosen pocket (live). Commissions auto-due +20/+50 days, locked
+after. Income can optionally land in a pocket too.
 """
 from __future__ import annotations
 
