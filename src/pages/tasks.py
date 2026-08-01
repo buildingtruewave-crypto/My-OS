@@ -53,6 +53,17 @@ def render(ctx):
                               t.get("due") or "9999"))
     W.task_checklist("tk", shown, ctx["today_iso"])
 
+    done_recent = [t for t in tasks if t.get("done")][:6]
+    if done_recent:
+        st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
+                    'RECENTLY CLEARED</div>',
+                    unsafe_allow_html=True)
+        out = []
+        for i, t in enumerate(done_recent):
+            out.append(UI.task_done_row(t, i * 25))
+        st.markdown('<div class="tw-loglist">' + "".join(out)
+                    + '</div>', unsafe_allow_html=True)
+
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     with st.expander("+  Add a task"):
