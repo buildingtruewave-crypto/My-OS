@@ -13,7 +13,8 @@ from src import theme
 from src import ui as UI
 from src import util as U
 from src.pages import (bots, clients, goals, habits, journal, now,
-                       routine, sales, settings, stats, tasks, vault)
+                       routine, sales, settings, spiritual, stats,
+                       tasks, vault)
 
 NAV = [
     ("\u25c9", "Now"),
@@ -22,6 +23,7 @@ NAV = [
     ("\u25a4", "Sales"),
     ("\u2610", "Tasks"),
     ("\u270e\ufe0e", "Journal"),
+    ("\u271d", "Spirit"),
     ("\u2713\ufe0e", "Habits"),
     ("\u25d4", "Bots"),
     ("\u25c6", "Goals"),
@@ -34,8 +36,9 @@ OPTIONS = [g + "   " + n for g, n in NAV]
 PAGES = {
     "Now": now, "Routine": routine, "TrueWave": clients,
     "Sales": sales, "Tasks": tasks, "Journal": journal,
-    "Habits": habits, "Bots": bots, "Goals": goals,
-    "Stats": stats, "Archive": vault, "Settings": settings,
+    "Spirit": spiritual, "Habits": habits, "Bots": bots,
+    "Goals": goals, "Stats": stats, "Archive": vault,
+    "Settings": settings,
 }
 
 st.set_page_config(page_title="PULSE - Life Command Center",
@@ -81,6 +84,7 @@ bots_d = D.get("bots")
 vault_d = D.get("vault")
 tasks_l = D.get("tasks")
 income_l = D.get("income")
+spiritual_l = D.get("spiritual")
 
 today_blocks = M.today_blocks(routine, wd)
 active_idx, progress, current, next_block = M.active_block_info(
@@ -102,7 +106,8 @@ ctx = dict(today=today, today_iso=today_iso, now_dt=now_dt,
            weights=weights, clients=clients_l,
            sales_daily=sales_daily, sales=sales_l, bots=bots_d,
            vault=vault_d, tasks=tasks_l, income=income_l,
-           started=started, score=score, accent=accent,
+           spiritual=spiritual_l, started=started, score=score,
+           accent=accent,
            name=st.session_state.get("name", D.DEFAULT_NAME))
 
 g, d, s = st.columns([5, 3, 2], gap="medium")
@@ -114,7 +119,7 @@ with d:
         '<div style="padding:.3rem 0"><div class="tw-lab">today</div>'
         '<div style="font:700 18px/1.1 var(--disp);color:var(--ink)">'
         + today.strftime("%A") + "</div>"
-        + '<div class="tw-sub">' + today.strftime("%b %d, %Y")
+        '<div class="tw-sub">' + today.strftime("%b %d, %Y")
         + " &middot; " + day_type + " &middot; Nairobi</div></div>",
         unsafe_allow_html=True)
 with s:
