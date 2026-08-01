@@ -1,16 +1,16 @@
-"""Empty-on-purpose, editable, persisted life + business + money data.
+"""Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 
-Privacy rule: balances / net worth / assets / liabilities / pantry / runway /
-emergency live ONLY in the vault, behind ARCHIVE_PIN - a fixed constant, never
-stored in prefs, never shown or editable in the app.
+Privacy rule: balances / net worth / pantry / runway / emergency live ONLY in
+the vault, behind ARCHIVE_PIN - a fixed constant, never stored in prefs, never
+shown or editable in the app.
 
-Money rule: ONE writer (move_money) moves real cash. Pantry stock, the monthly
-burn and the emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by
-hand - the system never auto-deducts food or money; it only divides and ages
-the read so the numbers stay honest between manual updates.
+Money rule: ONE writer (move_money) moves real cash. Pantry stock, monthly burn
+and the emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by hand -
+the system never auto-deducts food or money; it only divides and ages the read.
 
-The conversion pipeline (stages + plans) is DATA, edited on the TrueWave page.
+Spirit rule: spiritual energy is DERIVED from what the operator logs (presence,
+time, depth, devotion, reflection) - never random, never auto-filled.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ ARCHIVE_PIN = "0444"
 
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "issues", "journal", "weights", "clients", "sales_daily",
-                "sales", "income", "tasks", "bots", "vault"]
+                "sales", "income", "tasks", "bots", "vault", "spiritual"]
 
 TAG_COLORS = {
     "Content": "#4C8DFF",
@@ -77,7 +77,6 @@ INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
 
 PANTRY_CATS = ["staple", "protein", "drink", "treat", "other"]
-# (id, name, unit, stock, daily_burn, category, hidden)
 PANTRY_SEED = [
     ("ugali", "Ugali (maize flour)", "g", 2000.0, 500.0, "staple", False),
     ("omena", "Omena", "g", 1000.0, 100.0, "protein", False),
@@ -88,7 +87,10 @@ PANTRY_SEED = [
     ("oil", "Cooking oil", "ml", 750.0, 15.0, "staple", True),
 ]
 RUNWAY_SEED = {"monthly_burn": 0.0, "emergency_months": 3}
-EMERGENCY_SEED = {"balance": 0.0, "tx": []}
+
+SPIRIT_ACTS = ["Prayer", "Reading", "Worship", "Fasting", "Silence",
+               "Serving", "Giving", "Prayer walk"]
+SPIRIT_DEPTHS = [1, 2, 3, 4, 5]
 
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
@@ -440,7 +442,6 @@ def _ensure_key(key, fname, factory):
 
 
 def _migrate_vault(v):
-    """Back-fill new vault sections onto older saved files (no data lost)."""
     dirty = False
     for k, fab in (("positions", lambda: [
         {"id": pid, "name": nm, "balance": 0.0, "tx": []}
@@ -492,6 +493,7 @@ def ensure():
     _ensure_key("tasks", "tasks.json", list)
     _ensure_key("bots", "bots.json", _seed_bots)
     _ensure_key("vault", "vault.json", _seed_vault)
+    _ensure_key("spiritual", "spiritual.json", dict)
     _migrate_vault(st.session_state["vault"])
     st.session_state.setdefault(
         "name", prefs.get("name", DEFAULT_NAME))
@@ -586,6 +588,11 @@ def save_bots(x):
 def save_vault(x):
     st.session_state["vault"] = x
     _write("vault.json", x)
+
+
+def save_spiritual(x):
+    st.session_state["spiritual"] = x
+    _write("spiritual.json", x)
 
 
 # ---------- the single writer that moves real money ----------
@@ -756,7 +763,7 @@ def add_fund(name, target_lo, target_hi, deadline):
     save_vault(v)
 
 
-# ---------- pantry (manual stock, auto days-left) ----------
+# ---------- pantry ----------
 
 def _pantry(v):
     return v.setdefault("pantry", _seed_pantry())
@@ -829,7 +836,7 @@ def pantry_remove(vid):
     save_vault(v)
 
 
-# ---------- runway + emergency ring-fence ----------
+# ---------- runway + emergency ----------
 
 def set_runway(monthly_burn=None, emergency_months=None):
     v = st.session_state["vault"]
@@ -842,12 +849,11 @@ def set_runway(monthly_burn=None, emergency_months=None):
 
 
 def _cash(v):
-    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
+    return sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
 
 
 def emergency_tx(kind, amount, note=""):
-    """Ring-fence is a *designation* over real cash (not extra money), so it
-    is clamped to cash on hand and never double-counted into net worth."""
     v = st.session_state["vault"]
     e = v.setdefault("emergency", {"balance": 0.0, "tx": []})
     amt = float(amount)
@@ -1062,6 +1068,7 @@ def reset_all():
         "journal": {}, "weights": [], "clients": [],
         "sales_daily": {}, "sales": [], "income": [], "tasks": [],
         "bots": _seed_bots(), "vault": _seed_vault(),
+        "spiritual": {},
     }
     for key, obj in defaults.items():
         _write(key + ".json", obj)
@@ -1120,6 +1127,11 @@ def export_csv_zip():
                x.get("category", ""), x.get("hidden", ""),
                x.get("checked", "")]
               for x in pantry.get("items", [])]
+    spiritual = st.session_state.get("spiritual", {})
+    sp_rows = [[d, e.get("minutes", ""), e.get("depth", ""),
+                "|".join(e.get("acts", [])), e.get("word", ""),
+                e.get("felt", ""), e.get("gratitude", "")]
+               for d, e in sorted(spiritual.items(), reverse=True)]
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("clients.csv", _csv_text(
             ["created", "name", "phone", "source", "heat", "want",
@@ -1139,6 +1151,9 @@ def export_csv_zip():
         z.writestr("pantry.csv", _csv_text(
             ["name", "unit", "stock", "daily", "category", "hidden",
              "checked"], p_rows))
+        z.writestr("spiritual.csv", _csv_text(
+            ["date", "minutes", "depth", "acts", "word", "felt",
+             "gratitude"], sp_rows))
     return buf.getvalue()
 
 
