@@ -1,6 +1,6 @@
 """TrueWave - the full client journey. Opens with a live Call Sheet. The
 pipeline + plans are editable from the panel at the bottom. Terminal clients
-show where their journey ended. Bulk-import leads from a CSV (ad exports).
+show where their journey ended. Bulk-import leads from CSV.
 """
 from __future__ import annotations
 
