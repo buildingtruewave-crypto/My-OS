@@ -7,8 +7,7 @@ from __future__ import annotations
 import calendar as _cal
 import datetime as dt
 
-from .data import (START_DATE, TAG_COLORS, all_stage_ids,
-                   non_terminal_ids, role_id, stage_color,
+from .data import (START_DATE, TAG_COLORS, role_id, stage_color,
                    stage_label, terminal_ids)
 
 
@@ -356,7 +355,34 @@ def income_by_type(income):
     return d
 
 
-# ---------- the money OS (used only inside the vault) ----------
+def flow_effect(f):
+    """Signed effect of a flow row, robust to old (unsigned) and new
+    (signed) rows and to 'adjust' rows."""
+    k = f.get("kind")
+    a = float(f.get("amount", 0))
+    if k == "in":
+        return abs(a)
+    if k == "out":
+        return -abs(a)
+    return a
+
+
+def flow_week_inout(flow, today):
+    lo = (today - dt.timedelta(days=6)).isoformat()
+    i = o = 0.0
+    for f in flow:
+        if f.get("date", "") < lo:
+            continue
+        k = f.get("kind")
+        a = float(f.get("amount", 0))
+        if k == "in":
+            i += abs(a)
+        elif k == "out":
+            o += abs(a)
+    return i, o
+
+
+# ---------- the money OS (vault-only) ----------
 
 def item_saved(it):
     return sum(float(t.get("amount", 0)) for t in it.get("tx", []))
@@ -391,15 +417,6 @@ def allocated(v):
 
 def net_worth(v):
     return cash_on_hand(v) + allocated(v)
-
-
-def flow_week_inout(flow, today):
-    lo = (today - dt.timedelta(days=6)).isoformat()
-    i = sum(float(f["amount"]) for f in flow
-            if f.get("date", "") >= lo and f["kind"] == "in")
-    o = sum(float(f["amount"]) for f in flow
-            if f.get("date", "") >= lo and f["kind"] == "out")
-    return i, o
 
 
 def snapshots_series(v):
@@ -492,9 +509,6 @@ def task_counts(tasks, today):
 
 
 def life_score(cons, jcomp, srate, goal_avg):
-    """The composite 0-100 'is the operation running cleanly' number.
-    Weights live here, in one place, on purpose: 40% habit consistency,
-    20% journal completion, 20% sales-logging rate, 20% goal progress."""
     v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
     return int(max(0, min(100, round(v))))
 
