@@ -1,6 +1,6 @@
 """HTML / SVG components. The EKG is the signature heartbeat; the client
-stepper and chips read the pipeline live, so renaming stages in settings
-re-skins every card with no code change.
+stepper and chips read the pipeline live, so renaming stages re-skins every
+card with no code change. Terminal clients carry an Outcome line.
 """
 from __future__ import annotations
 
@@ -352,6 +352,8 @@ def client_card(c, today):
         days = (today - _dt.date.fromisoformat(c["created"])).days
     except Exception:
         days = 0
+    term = D.terminal_ids()
+    stg = c.get("stage", "new")
     rows = []
     phone = str(c.get("phone", "") or "")
     if phone:
@@ -359,6 +361,12 @@ def client_card(c, today):
         rows.append(("Phone", '<a href="tel:' + p
                      + '" style="color:var(--accent);'
                      + 'text-decoration:none">' + p + '</a>'))
+    if stg in term:
+        odate = (c.get("paid_date") or c.get("returned_date")
+                 or c.get("created", ""))
+        rows.append(("Outcome", D.stage_label(stg, stg)
+                     + (" &middot; " + html.escape(str(odate))
+                        if odate else "")))
     if c.get("next_action"):
         na = html.escape(c["next_action"])
         if c.get("next_date"):
@@ -380,7 +388,7 @@ def client_card(c, today):
         '<div class="tw-cc"><div class="tw-cc-top">'
         '<span class="tw-cc-name">'
         + html.escape(str(c.get("name", "?"))) + '</span>'
-        '<span>' + stage_chip(c.get("stage", "new")) + " "
+        '<span>' + stage_chip(stg) + " "
         + badge(heat, hcolor) + '</span></div>'
         '<div class="tw-cc-meta">' + meta + '</div>'
         + kv(rows) + '</div>'
