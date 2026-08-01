@@ -1,6 +1,7 @@
 """The day's record. The Day Pulse is picked up automatically from
 TrueWave, Sales, Income, Money, Bots, Tasks and Body - flows only,
-never balances (those live in the vault).
+never balances (those live in the vault). Flow net uses the signed effect
+so old and new rows both read correctly.
 """
 from __future__ import annotations
 
@@ -46,8 +47,7 @@ def _pulse_html(p):
                       + ", ".join(x.get("type", "")
                                   for x in p["income"])))
     if p["flow"]:
-        net = sum(float(f["amount"]) if f["kind"] == "in"
-                  else -float(f["amount"]) for f in p["flow"])
+        net = sum(M.flow_effect(f) for f in p["flow"])
         pairs.append(("Daily flow", str(len(p["flow"]))
                       + " entries - net " + U.fmt_kes(net, True)))
     if p["bot_logs"]:
