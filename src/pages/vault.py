@@ -6,9 +6,12 @@ clock pickers (every minute 00-59, type-to-search), a transaction id and a
 note - the pocket balance changes on save and 'out' shows as a negative. The
 Cash tab is read-only balances + real moves (no reconcile: every balance
 change is a real, timed entry). Net worth is computed, never typed, and shown
-nowhere else.
+nowhere else. Every stored move renders through the premium log renderer, so
+the history looks alive on every refresh.
 """
 from __future__ import annotations
+
+import html
 
 import streamlit as st
 
@@ -17,7 +20,6 @@ from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
 
-# Clock wheels - every hour and every minute, zero-padded, type-to-search.
 HOURS = [str(i).zfill(2) for i in range(24)]
 MINS = [str(i).zfill(2) for i in range(60)]
 
@@ -43,24 +45,6 @@ def _pid2name(vault):
     for p in vault.get("positions", []):
         out[p["id"]] = p["name"]
     return out
-
-
-def _kind_badge(kind):
-    if kind == "in":
-        return UI.badge("IN", "#34D399")
-    if kind == "out":
-        return UI.badge("OUT", "#F0556B")
-    return UI.badge("ADJ", "#F5B544")
-
-
-def _move_caption(t):
-    eff = M.flow_effect(t)
-    tx = ("  #" + t["txid"]) if t.get("txid") else ""
-    tm = ("  " + t["time"]) if t.get("time") else ""
-    note = ("  - " + t["note"]) if t.get("note") else ""
-    return (str(t.get("date", "")) + tm + tx + "  "
-            + str(t.get("kind", "")) + "  "
-            + U.fmt_kes(eff, True) + note)
 
 
 def _overview(ctx):
@@ -130,8 +114,8 @@ def _tab_cash(vault):
             ])
             st.markdown(UI.panel(p["name"], body),
                         unsafe_allow_html=True)
-            for t in p.get("tx", [])[:4]:
-                st.caption(_move_caption(t))
+            st.markdown(UI.tx_log_rows(p.get("tx", []), 4),
+                        unsafe_allow_html=True)
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     a, b = st.columns([3, 1])
@@ -196,24 +180,7 @@ def _tab_flow(vault, today):
         ("Net since Aug 1", U.fmt_kes(net)),
         ("Entries", str(len(flow))),
     ])), unsafe_allow_html=True)
-    rows = []
-    for f in flow[:40]:
-        amt = M.flow_effect(f)
-        tone = "tw-win" if amt >= 0 else "tw-loss"
-        pname = pmap.get(f.get("pocket", ""),
-                         f.get("pocket", "") or "—") or "—"
-        rows.append([
-            (f.get("date", ""), "num"),
-            (f.get("time", "") or "--:--", "num"),
-            (f.get("txid", "") or "--", ""),
-            (pname, ""),
-            (_kind_badge(f.get("kind", "")), ""),
-            (str(f.get("note", "")), ""),
-            ('<span class="' + tone + '">'
-             + U.fmt_kes(amt, True) + "</span>", "num"),
-        ])
-    st.markdown(UI.table(["Date", "Time", "TxID", "Pocket", "Kind",
-                          "Note", "Amount"], rows),
+    st.markdown(UI.flow_log_rows(flow, pmap, 40),
                 unsafe_allow_html=True)
 
 
@@ -320,15 +287,23 @@ def _tab_fun(vault):
     with c:
         recent = f.get("tx", [])[:6]
         if recent:
-            inner = "".join(
-                '<div class="tw-stat"><span class="k">'
-                + t["date"] + (" - " + t["note"] if t.get("note")
-                               else "") + '</span>'
-                + '<span class="v tw-jewel">'
-                + U.fmt_kes(t["amount"]) + '</span></div>'
-                for t in recent)
+            out = []
+            for i, t in enumerate(recent):
+                is_add = t.get("kind") == "add"
+                tone = "win" if is_add else "loss"
+                shown = float(t.get("amount", 0))
+                if not is_add:
+                    shown = -shown
+                main = html.escape(str(t.get("note", "")
+                                       or t.get("kind", "")))
+                out.append(UI.log_row(t.get("date", ""), "",
+                                      t.get("kind", ""), shown, main,
+                                      tone=tone, delay=i * 25))
+            inner = ('<div class="tw-loglist tw-loglist-mini">'
+                     + "".join(out) + '</div>')
         else:
-            inner = UI.empty_state("Nothing spent yet - go live a little.")
+            inner = UI.empty_state("Nothing spent yet - go live a "
+                                   "little.")
         st.markdown(UI.panel("Recent fun", inner),
                     unsafe_allow_html=True)
 
@@ -358,15 +333,16 @@ def _tab_items(vault, today):
         with c1:
             tag = UI.badge("BOUGHT " + str(it.get("bought_date", "")),
                            "#34D399") if it.get("bought") else ""
-            st.markdown('<div style="padding-top:6px">'
-                        '<div style="font:700 14px var(--disp);'
-                        'color:var(--ink)">' + str(it["name"])
-                        + " " + tag + '</div>'
-                        + UI.progress(pct, "var(--jewel)")
-                        + '<div class="tw-sub">' + U.fmt_kes(saved)
-                        + " of " + U.fmt_kes(price) + " - "
-                        + format(pct, ".0f") + "%</div></div>",
-                        unsafe_allow_html=True)
+            st.markdown(
+                '<div class="tw-card-premium" style="--card-accent:'
+                'var(--jewel);padding:12px 14px;margin:0">'
+                '<div style="font:700 14px var(--disp);color:var(--ink)">'
+                + html.escape(str(it["name"])) + " " + tag + '</div>'
+                + UI.progress(pct, "var(--jewel)")
+                + '<div class="tw-sub" style="margin-top:0">'
+                + U.fmt_kes(saved) + " of " + U.fmt_kes(price) + " - "
+                + format(pct, ".0f") + "%</div></div>",
+                unsafe_allow_html=True)
         with c2:
             amt = st.number_input("KSh (+save / -pull out)",
                                   -100000000.0, 100000000.0, 0.0,
@@ -417,8 +393,8 @@ def _tab_funds(vault, today):
                          key="fb" + f["id"]) and amt > 0:
                 D.fund_tx(f["id"], kind, amt, note.strip())
                 st.rerun()
-            for t in f.get("tx", [])[:4]:
-                st.caption(_move_caption(t))
+            st.markdown(UI.tx_log_rows(f.get("tx", []), 4),
+                        unsafe_allow_html=True)
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     a, b, c, d = st.columns([2.2, 1.1, 1.1, 1.2])
