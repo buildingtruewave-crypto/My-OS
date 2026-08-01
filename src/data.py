@@ -1,16 +1,11 @@
 """Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 
-Privacy rule: balances / net worth / pantry / runway / emergency live ONLY in
-the vault, behind ARCHIVE_PIN - a fixed constant, never stored in prefs, never
-shown or editable in the app.
-
-Money rule: ONE writer (move_money) moves real cash. Pantry stock, monthly burn
-and the emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by hand -
-the system never auto-deducts food or money; it only divides and ages the read.
-
-Spirit rule: spiritual energy is DERIVED from what the operator logs (presence,
-time, depth, devotion, reflection) - never random, never auto-filled.
+Two locks. The outer vault (ARCHIVE_PIN) holds everyday money. Inside it, two
+sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
+heart: food security on one side, the emergency ring-fence plus any venture
+you choose to seal on the other. Sealing a venture moves it out of active
+money; the system never auto-deducts food or cash.
 """
 from __future__ import annotations
 
@@ -28,6 +23,7 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 START_DATE = dt.date(2026, 8, 1)
 DEFAULT_NAME = "Mwangi.Alex"
 ARCHIVE_PIN = "0444"
+DEEP_PIN = "4440"
 
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "issues", "journal", "weights", "clients", "sales_daily",
@@ -323,7 +319,7 @@ def _seed_vault():
         "items": [],
         "funds": [{"id": fid, "name": nm, "target_lo": lo,
                    "target_hi": hi, "deadline": dl,
-                   "balance": 0.0, "tx": []}
+                   "balance": 0.0, "sealed": False, "tx": []}
                   for (fid, nm, lo, hi, dl) in FUND_SEED],
         "flow": [],
         "snapshots": [],
@@ -455,7 +451,7 @@ def _migrate_vault(v):
                    ("items", list),
                    ("funds", lambda: [
         {"id": fid, "name": nm, "target_lo": lo, "target_hi": hi,
-         "deadline": dl, "balance": 0.0, "tx": []}
+         "deadline": dl, "balance": 0.0, "sealed": False, "tx": []}
         for (fid, nm, lo, hi, dl) in FUND_SEED]),
                    ("flow", list),
                    ("snapshots", list),
@@ -471,6 +467,10 @@ def _migrate_vault(v):
             dirty = True
         if "hidden" not in it:
             it["hidden"] = False
+            dirty = True
+    for f in v.get("funds", []):
+        if "sealed" not in f:
+            f["sealed"] = False
             dirty = True
     if dirty:
         _write("vault.json", v)
@@ -759,7 +759,26 @@ def add_fund(name, target_lo, target_hi, deadline):
     v["funds"].append({"id": U.slug(name), "name": name,
                        "target_lo": float(target_lo),
                        "target_hi": float(target_hi),
-                       "deadline": deadline, "balance": 0.0, "tx": []})
+                       "deadline": deadline, "balance": 0.0,
+                       "sealed": False, "tx": []})
+    save_vault(v)
+
+
+def seal_fund(fid):
+    v = st.session_state["vault"]
+    for f in v.get("funds", []):
+        if f["id"] == fid:
+            f["sealed"] = True
+    _snap(v)
+    save_vault(v)
+
+
+def unseal_fund(fid):
+    v = st.session_state["vault"]
+    for f in v.get("funds", []):
+        if f["id"] == fid:
+            f["sealed"] = False
+    _snap(v)
     save_vault(v)
 
 
@@ -1045,14 +1064,17 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
-# ---------- net worth snapshot ----------
+# ---------- net worth snapshot (cash + active ventures) ----------
 
 def _snap(v):
     today = U.today_local().isoformat()
     snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
     cash = sum(float(p.get("balance", 0))
                for p in v.get("positions", []))
-    snaps.append({"date": today, "net": cash})
+    active = sum(float(f.get("balance", 0))
+                 for f in v.get("funds", [])
+                 if not f.get("sealed"))
+    snaps.append({"date": today, "net": cash + active})
     snaps.sort(key=lambda s: s["date"])
     v["snapshots"] = snaps
 
