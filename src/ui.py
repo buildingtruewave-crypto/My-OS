@@ -1,12 +1,7 @@
-"""HTML / SVG components. The EKG is the signature heartbeat; the client
-stepper and chips read the pipeline live, so renaming stages re-skins every
-card with no code change. Terminal clients carry an Outcome line.
-
-The *render* helpers at the bottom (log_row, *_log_rows, memory_line, the
-upgraded kv / client_card / journal_card / history_html) are what make saved
-entries look premium on every refresh - directional glow, receipt-style
-reference chips (M-Pesa brand-coded, no '#' artifacts), warm-orange outflows,
-bright signed figures - derived from the stored data, so the look is permanent.
+"""HTML / SVG components + the premium render layer (log rows, M-Pesa refs,
+pantry shelves, spirit cards). Colour is derived from stored data so saved
+entries look alive on every refresh. util is imported as U - every helper
+call is namespaced (the earlier NameError was a bare hexa() call).
 """
 from __future__ import annotations
 
@@ -97,10 +92,10 @@ _HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
 MOOD_COLOR = {"drained": "#F0556B", "flat": "#7C8AA5",
               "steady": "#F5B544", "sharp": "#34D399",
               "on fire": "#D946EF"}
+CAT_COLOR = {"staple": "#4C8DFF", "protein": "#34D399",
+             "drink": "#2DD4BF", "treat": "#D946EF",
+             "other": "#7C8AA5"}
 
-# Inline reference marks. The M-Pesa mark is a clean brand-coded monogram
-# drawn in SVG (not a hot-linked trademarked asset) so it never breaks; the
-# barcode mark makes a generic reference read like a real, scannable code.
 MPESA_MARK = (
     '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
     '<rect width="16" height="16" rx="4" fill="#4CAF50"/>'
@@ -127,7 +122,6 @@ def _tag_color(tag):
 
 
 def is_mpesa(pid, name):
-    """True when a pocket is the M-Pesa one (by id or name)."""
     p = str(pid or "").lower()
     n = str(name or "").lower()
     return ("mpesa" in p) or ("mpesa" in n) or ("m-pesa" in n)
@@ -241,7 +235,6 @@ def progress(pct, color):
 
 
 def kv(pairs):
-    """Premium key/value list - left accent tick, bright tabular values."""
     out = []
     for k, v in pairs:
         out.append(
@@ -383,8 +376,6 @@ def goal_html(g, pct, color):
 
 
 def client_card(c, today):
-    """Premium client card - stage-coloured top accent, glowing link,
-    premium kv rows. Terminal clients show where the journey ended."""
     heat = c.get("heat", "Warm")
     hcolor = _HEAT.get(heat, "#7C8AA5")
     days = 0
@@ -428,8 +419,7 @@ def client_card(c, today):
     meta += " &middot; " + str(max(days, 0)) + "d in pipeline"
     return (
         '<div class="tw-card-premium" style="--card-accent:' + accent
-        + '">'
-        '<div class="tw-cp-top"><span class="tw-cp-name">'
+        + '"><div class="tw-cp-top"><span class="tw-cp-name">'
         + html.escape(str(c.get("name", "?"))) + '</span>'
         '<span class="tw-cp-chips">' + stage_chip(stg) + " "
         + badge(heat, hcolor) + '</span></div>'
@@ -465,7 +455,6 @@ def stepper_html(c):
 
 
 def memory_line(ts, note, stage=""):
-    """One premium touch in the client memory timeline."""
     chip = (" " + stage_chip(stage)) if stage else ""
     return (
         '<div class="tw-mem"><span class="tw-mem-dot"></span>'
@@ -486,7 +475,6 @@ def history_html(hist, limit=15):
 
 
 def journal_card(date_str, entry):
-    """Premium journal card - top accent in the entry's mood colour."""
     mood = entry.get("mood", "")
     accent = MOOD_COLOR.get(mood, "#4C8DFF")
     h = entry.get("happened") or entry.get("gratitude") or ""
@@ -747,13 +735,10 @@ def table(headers, rows):
 
 
 # ---------------------------------------------------------------------------
-# PREMIUM LOG RENDERERS - the heart of the "saved data looks alive" upgrade.
-# References render as clean receipt chips (no '#'); M-Pesa references carry
-# the brand mark + green; outflows read warm orange, inflows mint.
+# PREMIUM LOG RENDERERS
 # ---------------------------------------------------------------------------
 
 def _flow_eff(rec):
-    """Signed effect of a stored money record (in +, out -, else as-is)."""
     k = rec.get("kind")
     a = float(rec.get("amount", 0))
     if k == "in":
@@ -781,8 +766,6 @@ def kind_chip(kind):
 
 
 def txid_pill(txid, mpesa=False):
-    """A reference as a clean chip. Empty -> nothing (no placeholder noise).
-    M-Pesa -> brand mark + green; otherwise a barcode mark + neutral ink."""
     t = (txid or "").strip()
     if not t:
         return ""
@@ -823,8 +806,6 @@ def time_pill(date, time=""):
 
 def log_row(date, time, kind, amount, main_html, meta_html="",
             txid="", mpesa=False, tone=None, delay=0):
-    """One premium log row: glowing rail + time + chip + reference + main
-    text + glowing signed amount. Tone drives the rail/wash colour."""
     if tone is None:
         k = (kind or "").lower()
         if k in ("in", "add"):
@@ -935,14 +916,10 @@ def task_done_row(t, delay=0):
         + '✓</span></div></div>'
     )
 
-# ---------------------------------------------------------------------------
-# PANTRY premium rows  (display only - the edit widgets live in vault.py)
-# ---------------------------------------------------------------------------
 
-CAT_COLOR = {"staple": "#4C8DFF", "protein": "#34D399",
-             "drink": "#2DD4BF", "treat": "#D946EF",
-             "other": "#7C8AA5"}
-
+# ---------------------------------------------------------------------------
+# PANTRY
+# ---------------------------------------------------------------------------
 
 def _days_tone(aged):
     if aged is None:
@@ -957,8 +934,6 @@ def _days_tone(aged):
 
 
 def pantry_row(it, raw, aged):
-    """One premium shelf card. raw/aged come from metrics so ui stays free of
-    date math. Low stock (<3 days) pulses so the eye is pulled to it."""
     name = html.escape(str(it.get("name", "?")))
     unit = html.escape(str(it.get("unit", "u")))
     cat = it.get("category", "other")
@@ -989,14 +964,14 @@ def pantry_row(it, raw, aged):
     if aged is None:
         shelf_note = "not consumed / set a daily burn"
     else:
-        shelf_note = (format(aged, ".1f") + "d now")
+        shelf_note = format(aged, ".1f") + "d now"
         if raw is not None and abs(raw - aged) > 0.05:
             shelf_note += (" (was " + format(raw, ".1f")
                            + "d at check)")
     opt = ('<span class="tw-opt">optional</span>') \
         if it.get("hidden") else ""
     catc = ('<span class="tw-cat" style="background:'
-            + hexa(ccol, 0.16) + ";color:" + ccol + '">'
+            + U.hexa(ccol, 0.16) + ";color:" + ccol + '">'
             + html.escape(cat) + '</span>')
     checked = ('<span class="tw-aged">checked ' + html.escape(chk)
                + '</span>') if chk else \
@@ -1005,19 +980,65 @@ def pantry_row(it, raw, aged):
         '<div class="tw-pantry">'
         '<div class="tw-pantry-top">'
         '<span class="tw-pantry-name">' + name + '</span>'
-        '<span class="tw-pantry-chips">' + catc + opt + '</span>'
-        '</div>'
+        '<span class="tw-pantry-chips">' + catc + opt + '</span></div>'
         '<div class="tw-pantry-mid">'
         '<div class="tw-pantry-days' + lowcls + '" style="color:'
         + numcolor + ';text-shadow:' + glow + '">' + num
         + '<span class="tw-pantry-days-u">days</span></div>'
         '<div class="tw-shelf"><div class="tw-shelf-fill" style="width:'
-        + barw + '%;background:' + numcolor + '"></div></div>'
-        '</div>'
+        + barw + '%;background:' + numcolor + '"></div></div></div>'
         '<div class="tw-pantry-meta">'
         '<span>' + U.fmt_num(stock, 0) + ' ' + unit + ' on shelf</span>'
         '<span>' + U.fmt_num(daily, 0) + ' ' + unit + '/day</span>'
         + checked + '</div>'
-        '<div class="tw-pantry-note">' + shelf_note + '</div>'
-        '</div>'
+        '<div class="tw-pantry-note">' + shelf_note + '</div></div>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# SPIRIT
+# ---------------------------------------------------------------------------
+
+def _depth_stars(depth):
+    d = max(0, min(5, int(depth or 0)))
+    full = "★" * d
+    empty = "☆" * (5 - d)
+    return ('<span class="tw-depth">' + full
+            + '<span class="tw-depth-off">' + empty
+            + '</span></span>')
+
+
+def spiritual_card(date_str, entry, energy):
+    if energy >= 70:
+        accent = "#34D399"
+    elif energy >= 40:
+        accent = "#4C8DFF"
+    else:
+        accent = "#D946EF"
+    mins = entry.get("minutes", 0) or 0
+    word = (entry.get("word") or "").strip()
+    felt = (entry.get("felt") or "").strip()
+    gratitude = (entry.get("gratitude") or "").strip()
+    acts = entry.get("acts") or []
+    acts_html = "".join('<span class="tw-act">' + html.escape(a)
+                        + '</span>' for a in acts)
+    word_html = ('<div class="tw-word">“' + html.escape(word)
+                 + '”</div>') if word else ""
+    felt_html = ('<div class="tw-felt">' + html.escape(felt)
+                 + '</div>') if felt else ""
+    grat_html = ('<div class="tw-grat">' + html.escape(gratitude)
+                 + '</div>') if gratitude else ""
+    return (
+        '<div class="tw-card-premium" style="--card-accent:' + accent
+        + '"><div class="tw-cp-top"><span class="tw-cp-date">'
+        + html.escape(date_str) + '</span>'
+        '<span class="tw-cp-chips">' + _depth_stars(entry.get("depth", 0))
+        + '<span class="tw-energy" style="color:' + accent + '">'
+        + str(energy) + ' energy</span></span></div>'
+        '<div class="tw-spirit-mins">'
+        + html.escape(str(int(float(mins)))) + ' min with God</div>'
+        + word_html + felt_html
+        + ('<div class="tw-acts">' + acts_html + '</div>'
+           if acts_html else "")
+        + grat_html + '</div>'
     )
