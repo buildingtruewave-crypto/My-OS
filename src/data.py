@@ -2,13 +2,17 @@
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 
 Privacy rule: balances / net worth / assets / liabilities live ONLY in the
-vault. The vault is gated by ARCHIVE_PIN - a fixed constant, never stored in
-prefs, never shown or editable in the app. Change it by editing this one line.
+vault, behind ARCHIVE_PIN - a fixed constant, never stored in prefs, never
+shown or editable in the app.
 
-The conversion pipeline (lead stages + payment plans) is DATA, not code: it
-lives in pipeline.json and is edited from the TrueWave page. The engine only
-knows five semantic ROLES (won / lost / cash / delivered / returned); every
-label, colour, order and intermediate step is yours.
+Money rule: ONE writer moves cash. move_money() changes a pocket's balance,
+writes a signed flow row (time + transaction id + note), and snapshots net
+worth - so the Daily Flow, the Cash balances and the climb line can never
+drift apart. 'out' is stored as a negative effect, so the ledger shows the
+truth. Logs (client memory, flow, snapshots) are append-only.
+
+The conversion pipeline (stages + plans) is DATA, edited on the TrueWave
+page; the engine only knows five ROLES (won/lost/cash/delivered/returned).
 """
 from __future__ import annotations
 
@@ -27,6 +31,10 @@ START_DATE = dt.date(2026, 8, 1)
 DEFAULT_NAME = "Mwangi.Alex"
 # The vault access code. Hard-wired on purpose: not in prefs, not in the UI.
 ARCHIVE_PIN = "0444"
+
+RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
+                "issues", "journal", "weights", "clients", "sales_daily",
+                "sales", "income", "tasks", "bots", "vault"]
 
 TAG_COLORS = {
     "Content": "#4C8DFF",
@@ -47,7 +55,6 @@ MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
 DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
             "fri": 4, "sat": 5, "sun": 6}
 
-# ---------- pipeline roles (the only thing the engine hard-codes) ----------
 ROLES = ["", "won", "lost", "cash", "delivered", "returned"]
 ROLE_LABEL = {
     "": "— (none)",
@@ -298,8 +305,6 @@ def _seed_vault():
     }
 
 
-# ---------- the editable conversion pipeline ----------
-
 def _seed_pipeline():
     stages = [
         ("new", "New Lead", "#4C8DFF", True, ""),
@@ -390,11 +395,6 @@ def role_id(role):
 def terminal_ids():
     return [s["id"] for s in get_stages()
             if s.get("role") in TERMINAL_ROLES]
-
-
-def non_terminal_ids():
-    return [s["id"] for s in get_stages()
-            if s.get("role") not in TERMINAL_ROLES]
 
 
 def journey_ids():
@@ -525,6 +525,50 @@ def save_vault(x):
     _write("vault.json", x)
 
 
+# ---------- the single writer that moves money ----------
+
+def move_money(pocket_id, effect, kind, note="", time_str="",
+               txid="", date_iso=None):
+    """The one place cash moves. effect is signed (in +, out -, adjust =
+    the delta to reach a target). Updates the pocket balance, writes a
+    signed flow row with time + transaction id, and snapshots net worth."""
+    v = st.session_state["vault"]
+    p = None
+    for x in v.get("positions", []):
+        if x["id"] == pocket_id:
+            p = x
+            break
+    if p is None:
+        return
+    eff = float(effect)
+    p["balance"] = float(p.get("balance", 0)) + eff
+    d = date_iso or U.today_local().isoformat()
+    t = time_str or ""
+    rec = {"id": _uid(), "date": d, "time": t, "txid": txid,
+           "kind": kind, "amount": eff, "note": note}
+    p.setdefault("tx", []).insert(0, dict(rec))
+    flow_rec = dict(rec)
+    flow_rec["id"] = _uid()
+    flow_rec["pocket"] = pocket_id
+    v.setdefault("flow", []).insert(0, flow_rec)
+    _snap(v)
+    save_vault(v)
+
+
+def pos_tx(pid, kind, amount, note=""):
+    """Legacy wrapper - routes through move_money so every move is logged."""
+    eff = float(amount) if kind == "in" else -float(amount)
+    move_money(pid, eff, kind, note=note,
+               time_str=U.now_local().strftime("%H:%M"), txid="")
+
+
+def add_position(name):
+    v = st.session_state["vault"]
+    v["positions"].append({"id": U.slug(name), "name": name,
+                           "balance": 0.0, "tx": []})
+    save_vault(v)
+
+
 # ---------- clients: the full journey ----------
 
 def add_client(name, phone, source, heat, want, budget, note,
@@ -641,6 +685,7 @@ def add_sale(s):
         i["id"] = _uid()
         i.setdefault("paid", False)
         i.setdefault("reason", "")
+        i.setdefault("paid_date", "")
         w = int(i.get("window", 20))
         i["due"] = (a + dt.timedelta(days=w)).isoformat()
         inst.append(i)
@@ -689,7 +734,7 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
-# ---------- the Vault: a full money operating system ----------
+# ---------- the Vault money model ----------
 
 def _net(v):
     cash = sum(float(p.get("balance", 0))
@@ -709,30 +754,6 @@ def _snap(v):
     snaps.append({"date": today, "net": _net(v)})
     snaps.sort(key=lambda s: s["date"])
     v["snapshots"] = snaps
-
-
-def pos_tx(pid, kind, amount, note=""):
-    v = st.session_state["vault"]
-    for p in v["positions"]:
-        if p["id"] == pid:
-            amt = float(amount)
-            if kind == "in":
-                p["balance"] = float(p["balance"]) + amt
-            else:
-                p["balance"] = float(p["balance"]) - amt
-            p["tx"].insert(0, {"id": _uid(),
-                               "date": U.today_local().isoformat(),
-                               "kind": kind, "amount": amt,
-                               "note": note})
-    _snap(v)
-    save_vault(v)
-
-
-def add_position(name):
-    v = st.session_state["vault"]
-    v["positions"].append({"id": U.slug(name), "name": name,
-                           "balance": 0.0, "tx": []})
-    save_vault(v)
 
 
 def bill_tx(bid, kind, amount):
@@ -861,13 +882,121 @@ def add_fund(name, target_lo, target_hi, deadline):
     save_vault(v)
 
 
-def add_flow(date_iso, kind, amount, src, got):
-    v = st.session_state["vault"]
-    v.setdefault("flow", []).insert(
-        0, {"id": _uid(), "date": date_iso, "kind": kind,
-            "amount": float(amount), "src": src, "got": got})
-    _snap(v)
-    save_vault(v)
+# ---------- backup: export (json + csv) and restore ----------
+
+def restore_from_zip(blob):
+    import io
+    import zipfile
+    restored = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(blob)) as z:
+            names = set(z.namelist())
+            for k in RESTORE_KEYS:
+                fn = k + ".json"
+                if fn in names:
+                    obj = json.loads(z.read(fn))
+                    _write(fn, obj)
+                    st.session_state[k] = obj
+                    restored.append(k)
+            if "prefs.json" in names:
+                pr = json.loads(z.read("prefs.json"))
+                _write("prefs.json", pr)
+                if pr.get("name"):
+                    st.session_state["name"] = pr["name"]
+                if pr.get("accent"):
+                    st.session_state["accent"] = pr["accent"]
+                if "tz_offset" in pr:
+                    st.session_state["tz_offset"] = float(
+                        pr["tz_offset"])
+    except Exception:
+        pass
+    return restored
+
+
+def export_zip():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    keys = list(RESTORE_KEYS)
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for k in keys:
+            z.writestr(k + ".json", json.dumps(
+                st.session_state[k], default=str))
+        z.writestr("prefs.json", json.dumps({
+            "name": st.session_state.get("name"),
+            "accent": st.session_state.get("accent"),
+            "tz_offset": st.session_state.get("tz_offset", 0),
+        }, default=str))
+    return buf.getvalue()
+
+
+def _csv_text(headers, rows):
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(headers)
+    for r in rows:
+        w.writerow(r)
+    return buf.getvalue()
+
+
+def export_csv_zip():
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    clients = st.session_state.get("clients", [])
+    c_rows = []
+    for c in clients:
+        c_rows.append([
+            c.get("created", ""), c.get("name", ""),
+            c.get("phone", ""), c.get("source", ""),
+            c.get("heat", ""), c.get("want", ""),
+            c.get("budget", ""), c.get("stage", ""),
+            c.get("plan", ""), c.get("next_action", ""),
+            c.get("next_date", ""), c.get("remark", ""),
+            c.get("why_not", ""), c.get("paid_date", ""),
+            c.get("returned_date", ""),
+            len(c.get("history", [])),
+        ])
+    flow = st.session_state.get("vault", {}).get("flow", [])
+    f_rows = [[x.get("date", ""), x.get("time", ""),
+               x.get("txid", ""), x.get("kind", ""),
+               x.get("amount", ""), x.get("pocket", ""),
+               x.get("note", "")] for x in flow]
+    sales = st.session_state.get("sales", [])
+    s_rows = []
+    for s in sales:
+        inst = s.get("inst", [])
+        n_paid = sum(1 for i in inst if i.get("paid"))
+        s_rows.append([s.get("date", ""), s.get("client", ""),
+                       s.get("phone", ""), s.get("commission", ""),
+                       str(n_paid) + "/" + str(len(inst)),
+                       s.get("delivered_date", "")])
+    income = st.session_state.get("income", [])
+    i_rows = [[x.get("date", ""), x.get("type", ""),
+               x.get("amount", ""), x.get("note", "")] for x in income]
+    tasks = st.session_state.get("tasks", [])
+    t_rows = [[x.get("text", ""), x.get("area", ""),
+               x.get("priority", ""), x.get("due", ""),
+               x.get("done", "")] for x in tasks]
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("clients.csv", _csv_text(
+            ["created", "name", "phone", "source", "heat", "want",
+             "budget", "stage", "plan", "next_action", "next_date",
+             "remark", "why_not", "paid_date", "returned_date",
+             "history_count"], c_rows))
+        z.writestr("flow.csv", _csv_text(
+            ["date", "time", "txid", "kind", "amount", "pocket",
+             "note"], f_rows))
+        z.writestr("sales.csv", _csv_text(
+            ["date", "client", "phone", "commission", "paid_ratio",
+             "delivered_date"], s_rows))
+        z.writestr("income.csv", _csv_text(
+            ["date", "type", "amount", "note"], i_rows))
+        z.writestr("tasks.csv", _csv_text(
+            ["text", "area", "priority", "due", "done"], t_rows))
+    return buf.getvalue()
 
 
 # ---------- housekeeping ----------
@@ -885,17 +1014,3 @@ def reset_all():
     for key, obj in defaults.items():
         _write(key + ".json", obj)
         st.session_state[key] = obj
-
-
-def export_zip():
-    import io
-    import zipfile
-    buf = io.BytesIO()
-    keys = ["pipeline", "routine", "habits", "habit_log", "goals",
-            "issues", "journal", "weights", "clients", "sales_daily",
-            "sales", "income", "tasks", "bots", "vault"]
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for k in keys:
-            z.writestr(k + ".json", json.dumps(
-                st.session_state[k], default=str))
-    return buf.getvalue()
