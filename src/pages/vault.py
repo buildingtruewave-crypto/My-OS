@@ -1,9 +1,10 @@
-"""The hidden money operating system - the ONLY place balances live.
-Behind the Archive nav item and the fixed access code (ARCHIVE_PIN in
-src/data.py). Your whole money life: cash in every pocket, every shilling
-that moves, bills covered before they bite, fun without guilt, things you
-are saving for, and ventures that grow in the background. Net worth is
-snapshotted on every move so the line climbs - and it is shown nowhere else.
+"""The hidden money operating system - the ONLY place balances live, behind
+ARCHIVE_PIN. ONE writer (move_money) moves cash, so the Daily Flow, the Cash
+balances and the climb line can never drift apart. The Daily Flow is the live
+ledger: pick a pocket, in/out, amount, TIME, TRANSACTION ID and note - the
+pocket balance changes on save and 'out' shows as a negative. The Cash tab is
+a balance dashboard + Reconcile (writes an ADJ line). Net worth is computed,
+never typed, and shown nowhere else.
 """
 from __future__ import annotations
 
@@ -29,6 +30,21 @@ def _gate():
                 st.rerun()
             else:
                 st.caption("Nothing here.")
+
+
+def _pid2name(vault):
+    out = {}
+    for p in vault.get("positions", []):
+        out[p["id"]] = p["name"]
+    return out
+
+
+def _kind_badge(kind):
+    if kind == "in":
+        return UI.badge("IN", "#34D399")
+    if kind == "out":
+        return UI.badge("OUT", "#F0556B")
+    return UI.badge("ADJ", "#F5B544")
 
 
 def _overview(ctx):
@@ -83,34 +99,40 @@ def _overview(ctx):
                     unsafe_allow_html=True)
 
 
-def _tab_cash(vault):
+def _tab_cash(vault, now_time):
+    pmap = _pid2name(vault)
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
-                'WHERE THE CASH LIVES</div>', unsafe_allow_html=True)
+                'WHERE THE CASH LIVES - LOG EVERY MOVE ON THE DAILY '
+                'FLOW TAB; USE RECONCILE TO FIX DRIFT</div>',
+                unsafe_allow_html=True)
     cols = st.columns(max(len(vault["positions"]), 1), gap="medium")
     for i, p in enumerate(vault["positions"]):
+        bal = float(p.get("balance", 0))
         with cols[i % len(cols)]:
             body = UI.kv([
-                ("Balance", U.fmt_kes(float(p["balance"]))),
+                ("Balance", U.fmt_kes(bal)),
                 ("Moves", str(len(p.get("tx", [])))),
             ])
             st.markdown(UI.panel(p["name"], body),
                         unsafe_allow_html=True)
-            a, b = st.columns(2)
-            with a:
-                kind = st.selectbox("flow", ["in", "out"],
-                                    key="pk" + p["id"])
-                amt = st.number_input("KSh", 0.0, 100000000.0, 0.0,
-                                      step=50.0, key="pa" + p["id"])
-            with b:
-                note = st.text_input("note", key="pn" + p["id"])
-            if st.button("Move money", type="primary",
-                         key="pb" + p["id"]) and amt > 0:
-                D.pos_tx(p["id"], kind, amt, note.strip())
-                st.rerun()
+            target = st.number_input("reconcile to (KSh)",
+                                     -100000000.0, 100000000.0,
+                                     bal, step=50.0,
+                                     key="rc" + p["id"])
+            if st.button("Reconcile", key="rb" + p["id"]):
+                if abs(target - bal) > 0.001:
+                    D.move_money(p["id"], target - bal, "adjust",
+                                 note="reconcile",
+                                 time_str=now_time, txid="")
+                    st.rerun()
             for t in p.get("tx", [])[:4]:
-                tone = "tw-win" if t["kind"] == "in" else "tw-loss"
-                st.caption(t["date"] + "  " + t["kind"] + " "
-                           + U.fmt_kes(t["amount"], True)
+                eff = M.flow_effect(t)
+                tone = "tw-win" if eff >= 0 else "tw-loss"
+                tx = ("  #" + t["txid"]) if t.get("txid") else ""
+                tm = ("  " + t["time"]) if t.get("time") else ""
+                st.caption(t["date"] + tm + tx + "  " + t.get("kind", "")
+                           + " " + '<span class="' + tone + '">'
+                           + U.fmt_kes(eff, True) + '</span>'
                            + ("  - " + t["note"] if t.get("note")
                               else ""))
     st.markdown("<div style='height:10px'></div>",
@@ -127,48 +149,64 @@ def _tab_cash(vault):
             st.rerun()
 
 
-def _tab_flow(vault, today):
+def _tab_flow(vault, today, now_time):
+    positions = vault.get("positions", [])
+    pnames = [p["name"] for p in positions]
+    pids = [p["id"] for p in positions]
+    pmap = _pid2name(vault)
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
-                'EVERY SHILLING, EVERY DAY</div>',
+                'EVERY SHILLING, EVERY DAY - LIVE (MOVES THE POCKET)</div>',
                 unsafe_allow_html=True)
-    a, b, c = st.columns([1.1, 1.1, 1.2])
-    with a:
-        fd = st.date_input("date", value=today, key="fl_d")
-        fk = st.selectbox("flow", ["in", "out"], key="fl_k")
-        fa = st.number_input("amount (KSh)", 0.0, 100000000.0, 0.0,
-                             step=50.0, key="fl_a")
-    with b:
-        fs = st.text_input("from where", key="fl_s",
-                           placeholder="salary, client, gift...")
-    with c:
-        fg = st.text_input("where it went / what I got", key="fl_g",
-                           placeholder="rent, stock, lunch...")
-    if st.button("Log it", type="primary",
-                 key="fl_add") and fa > 0:
-        D.add_flow(fd.isoformat(), fk, fa, fs.strip(), fg.strip())
-        st.rerun()
+    if not positions:
+        st.markdown(UI.empty_state("Add a pocket on the Cash tab first."))
+    else:
+        a, b, c = st.columns([1.1, 1.1, 1.2])
+        with a:
+            fd = st.date_input("date", value=today, key="fl_d")
+            ft = st.time_input("time",
+                               value=U.now_local().time(),
+                               key="fl_t")
+            fp = st.selectbox("pocket", pnames, key="fl_p")
+        with b:
+            fk = st.selectbox("flow", ["in", "out"], key="fl_k")
+            fa = st.number_input("amount (KSh)", 0.0, 100000000.0,
+                                 0.0, step=50.0, key="fl_a")
+        with c:
+            ftx = st.text_input("transaction id (online)", key="fl_x")
+            fn = st.text_input("from where / what for", key="fl_n")
+        if st.button("Log it", type="primary",
+                     key="fl_add") and fa > 0:
+            pid = pids[pnames.index(fp)]
+            eff = float(fa) if fk == "in" else -float(fa)
+            D.move_money(pid, eff, fk, note=fn.strip(),
+                         time_str=ft.strftime("%H:%M"), txid=ftx.strip())
+            st.rerun()
+
     flow = vault.get("flow", [])
-    net = sum(float(f["amount"]) if f["kind"] == "in"
-              else -float(f["amount"]) for f in flow)
+    net = sum(M.flow_effect(f) for f in flow)
     st.markdown(UI.panel("Ledger", UI.kv([
         ("Net since Aug 1", U.fmt_kes(net)),
         ("Entries", str(len(flow))),
     ])), unsafe_allow_html=True)
     rows = []
-    for f in flow[:20]:
-        tone = "tw-win" if f["kind"] == "in" else "tw-loss"
+    for f in flow[:40]:
+        amt = M.flow_effect(f)
+        tone = "tw-win" if amt >= 0 else "tw-loss"
+        pname = pmap.get(f.get("pocket", ""),
+                         f.get("pocket", "") or "—") or "—"
         rows.append([
-            (f["date"], "num"),
-            (UI.badge(f["kind"].upper(),
-                      "#34D399" if f["kind"] == "in" else "#F0556B"),
-             ""),
-            (str(f.get("src", "")), ""),
-            (str(f.get("got", "")), ""),
+            (f.get("date", ""), "num"),
+            (f.get("time", "") or "--", "num"),
+            (f.get("txid", "") or "--", ""),
+            (pname, ""),
+            (_kind_badge(f.get("kind", "")), ""),
+            (str(f.get("note", "")), ""),
             ('<span class="' + tone + '">'
-             + U.fmt_kes(float(f["amount"]), True) + "</span>", "num"),
+             + U.fmt_kes(amt, True) + "</span>", "num"),
         ])
-    st.markdown(UI.table(["Date", "Flow", "From", "Got / Paid",
-                          "Amount"], rows), unsafe_allow_html=True)
+    st.markdown(UI.table(["Date", "Time", "TxID", "Pocket", "Kind",
+                          "Note", "Amount"], rows),
+                unsafe_allow_html=True)
 
 
 def _tab_bills(vault, today):
@@ -401,6 +439,7 @@ def render(ctx):
         return
 
     vault, today = ctx["vault"], ctx["today"]
+    now_time = ctx["now_dt"].strftime("%H:%M")
 
     if st.button("Lock vault", key="v_lock"):
         st.session_state["vault_ok"] = False
@@ -413,9 +452,9 @@ def render(ctx):
     tabs = st.tabs(["Cash", "Daily Flow", "Bills", "Fun",
                     "Wishlist", "Ventures"])
     with tabs[0]:
-        _tab_cash(vault)
+        _tab_cash(vault, now_time)
     with tabs[1]:
-        _tab_flow(vault, today)
+        _tab_flow(vault, today, now_time)
     with tabs[2]:
         _tab_bills(vault, today)
     with tabs[3]:
