@@ -1,9 +1,9 @@
-"""The hidden money + security operating system - the ONLY place balances,
-pantry, runway and the emergency ring-fence live, behind ARCHIVE_PIN. ONE
-writer (move_money) moves real cash. Pantry stock, monthly burn and the
-emergency ring-fence are CONFIG / SNAPSHOTS the operator sets by hand - the
-system never auto-deducts food or money; it only divides and ages the read.
-M-Pesa pockets brand their references green.
+"""The hidden money + security operating system. The outer vault (0444) holds
+everyday money. Inside it, two sealed chambers - Pantry and Reserve - sit
+behind the deep code (4440): food security on one side, the emergency
+ring-fence plus any venture you seal on the other. Sealing a venture lifts it
+out of active money; nothing is ever auto-deducted. The vault carries its own
+phone layout, injected only on this page.
 """
 from __future__ import annotations
 
@@ -18,6 +18,26 @@ from .. import util as U
 
 HOURS = [str(i).zfill(2) for i in range(24)]
 MINS = [str(i).zfill(2) for i in range(60)]
+
+VAULT_MOBILE_CSS = """
+<style>
+@media (max-width:760px){
+  .stTabs [data-baseweb="tab-list"]{flex-wrap:nowrap;overflow-x:auto;
+     -webkit-overflow-scrolling:touch;gap:4px;padding-bottom:2px;}
+  .stTabs [data-baseweb="tab"]{padding:7px 11px;font-size:11px;
+     white-space:nowrap;flex:0 0 auto;}
+  .tw-card-premium{padding:12px 13px;}
+  .tw-tile{padding:12px 13px;}
+  .tw-val{font-size:22px;}
+  .stButton>button{width:100%;}
+}
+</style>
+"""
+
+
+def _lock_chip():
+    return ('<span class="tw-chip tw-jewel">'
+            + UI.ICONS.get("lock", "") + '</span>')
 
 
 def _gate():
@@ -36,6 +56,31 @@ def _gate():
                 st.caption("Nothing here.")
 
 
+def _deep_gate(which):
+    header = (
+        '<div style="display:flex;align-items:center;gap:10px;'
+        'margin-bottom:10px">' + _lock_chip()
+        + '<span class="tw-val" style="font-size:18px">Sealed chamber'
+        '</span></div>'
+        '<div class="tw-sub" style="margin-top:0">Enter the deep code '
+        'to open this part of the heart.</div>'
+    )
+    st.markdown(UI.panel("Locked", header), unsafe_allow_html=True)
+    g1, g2, _ = st.columns([3, 1, 2])
+    with g1:
+        pin = st.text_input("deep code", type="password",
+                            key="dp_pin_" + which,
+                            label_visibility="collapsed",
+                            placeholder="••••")
+    with g2:
+        if st.button("Unlock", type="primary", key="dp_go_" + which):
+            if pin == D.DEEP_PIN:
+                st.session_state["deep_ok"] = True
+                st.rerun()
+            else:
+                st.caption("—")
+
+
 def _pid2name(vault):
     out = {}
     for p in vault.get("positions", []):
@@ -43,38 +88,63 @@ def _pid2name(vault):
     return out
 
 
-def _sec_row2(vault, today):
-    pan = vault.get("pantry", {})
-    bn = M.pantry_bottleneck(pan, today)
+def _pantry_status(vault, today):
+    if not st.session_state.get("deep_ok"):
+        body = (
+            '<div style="display:flex;align-items:center;gap:10px;'
+            'margin-bottom:8px">' + _lock_chip()
+            + '<span class="tw-val" style="font-size:18px">Pantry'
+            '</span></div>'
+            '<div class="tw-sub" style="margin-top:0">Sealed chamber '
+            '&middot; food security</div>'
+            '<div class="tw-sub">Open the Pantry tab with the deep '
+            'code to view.</div>'
+        )
+        return UI.panel("Pantry", body, right="locked")
+    bn = M.pantry_bottleneck(vault.get("pantry", {}), today)
+    staples = [x for x in vault.get("pantry", {}).get("items", [])
+               if not x.get("hidden")]
     if bn is None:
-        food_v, food_d, food_t = "—", "no staples set", "mute"
+        fv, fd, ft = "—", "no staples set", "mute"
     else:
-        aged = bn[0]
-        food_v = format(aged, ".0f") + "d"
-        food_d = "bottleneck: " + str(bn[2])
-        food_t = ("win" if aged >= 14 else
-                  ("accent" if aged >= 7 else
-                   ("loss" if aged < 3 else "mute")))
-    rm = M.runway_months(vault)
-    if rm is None:
-        run_v, run_d, run_t = "—", "set monthly burn", "mute"
-    else:
-        run_v = format(rm, ".1f") + "mo"
-        run_d = "cash runway"
-        run_t = "win" if rm >= 3 else ("accent" if rm >= 1 else "loss")
-    ep = M.emergency_progress(vault)
-    em_v = format(ep, ".0f") + "%"
-    em_d = ("of " + str(int(vault.get("runway", {}).get(
-        "emergency_months", 3))) + "-mo target")
-    em_t = "win" if ep >= 100 else ("accent" if ep >= 50 else "mute")
-    return [
-        UI.tile("Food Security", food_v, food_d, food_t, food_t,
-                "grid", "win", 0),
-        UI.tile("Cash Runway", run_v, run_d, run_t, run_t,
-                "clock", "accent", 40),
-        UI.tile("Emergency Fund", em_v, em_d, em_t, em_t,
-                "lock", "jewel", 80),
-    ]
+        fv = format(bn[0], ".0f") + "d"
+        fd = "bottleneck: " + str(bn[2])
+        ft = ("win" if bn[0] >= 14 else
+              ("accent" if bn[0] >= 7 else
+               ("loss" if bn[0] < 3 else "mute")))
+    body = (UI.kv([
+        ("Food security", '<span class="' + ft + '">' + fv + '</span>'),
+        ("Staples tracked", str(len(staples))),
+        ("Bottleneck", html.escape(fd)),
+    ]) + '<div class="tw-sub">Full shelves &amp; edits live in the '
+        'Pantry tab.</div>')
+    return UI.panel("Pantry", body, right="open")
+
+
+def _reserve_status(vault):
+    if not st.session_state.get("deep_ok"):
+        body = (
+            '<div style="display:flex;align-items:center;gap:10px;'
+            'margin-bottom:8px">' + _lock_chip()
+            + '<span class="tw-val" style="font-size:18px">Reserve'
+            '</span></div>'
+            '<div class="tw-sub" style="margin-top:0">Sealed chamber '
+            '&middot; emergency + sealed ventures</div>'
+            '<div class="tw-sub">Open the Reserve tab with the deep '
+            'code to view.</div>'
+        )
+        return UI.panel("Reserve", body, right="locked")
+    prot = M.protected_total(vault)
+    srm = M.safety_runway_months(vault)
+    nseal = len(M.sealed_funds(vault))
+    body = (UI.kv([
+        ("Protected", U.fmt_kes(prot)),
+        ("Safety runway",
+         (format(srm, ".1f") + " mo") if srm is not None else "—"),
+        ("Sealed ventures", str(nseal)),
+    ]) + '<div class="tw-sub">Ring-fence &amp; sealed ventures live in '
+        'the Reserve tab.</div>')
+    return UI.panel("Reserve", body, right="open")
 
 
 def _overview(ctx):
@@ -87,12 +157,12 @@ def _overview(ctx):
     bills_late = M.bills_overdue(vault, today)
 
     row = [
-        UI.tile("Net Worth", U.fmt_kes(net), "cash in your pockets",
+        UI.tile("Net Worth", U.fmt_kes(net), "cash + active ventures",
                 "mute", "ink", "star", "jewel", 0),
         UI.tile("Cash On Hand", U.fmt_kes(cash), "wallet + M-Pesa + bank",
                 "mute", "ink", "cash", "accent", 40),
         UI.tile("Set Aside", U.fmt_kes(alloc),
-                "partitioned (bills/fun/lists/ventures/emergency)",
+                "bills + fun + wishlist + active ventures",
                 "mute", "ink", "target", "win", 80),
         UI.tile("Money In - 7d", U.fmt_kes(wk_in, True), "flow",
                 "win" if wk_in else "mute", "win", "trend", "win", 120),
@@ -106,7 +176,7 @@ def _overview(ctx):
     if len(series) >= 2:
         body = UI.equity_svg(series, "nw_eq", kind="num",
                              xfmt=lambda d: d.strftime("%d %b"))
-        right = "real cash, every day"
+        right = "cash + active ventures"
     else:
         body = UI.empty_state(
             "The climb draws itself from your first money move.")
@@ -114,8 +184,12 @@ def _overview(ctx):
     st.markdown(UI.panel("Net Worth - The Climb", body, right=right),
                 unsafe_allow_html=True)
 
-    st.markdown(UI.tiles_grid(_sec_row2(vault, today), 3),
-                unsafe_allow_html=True)
+    pc, rc = st.columns(2, gap="medium")
+    with pc:
+        st.markdown(_pantry_status(vault, today),
+                    unsafe_allow_html=True)
+    with rc:
+        st.markdown(_reserve_status(vault), unsafe_allow_html=True)
 
     if bills_late or bills_due:
         pairs = []
@@ -392,44 +466,51 @@ def _tab_items(vault, today):
                     st.rerun()
 
 
-def _tab_funds(vault, today):
+def _tab_ventures(vault, today):
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
-                'VENTURES - MONEY GROWING IN THE BACKGROUND</div>',
+                'ACTIVE VENTURES - MONEY GROWING IN THE BACKGROUND '
+                '(sealed ones live in the Reserve chamber)</div>',
                 unsafe_allow_html=True)
-    cols = st.columns(max(len(vault["funds"]), 1), gap="medium")
-    for i, f in enumerate(vault["funds"]):
-        bal = float(f.get("balance", 0) or 0)
-        lo = float(f.get("target_lo", 0) or 0)
-        hi = float(f.get("target_hi", 0) or 0)
-        pct = max(0.0, min(100.0, bal / lo * 100)) if lo else 0.0
-        with cols[i % len(cols)]:
-            body = (
-                UI.progress(pct, "var(--accent)")
-                + UI.kv([
-                    ("Balance", U.fmt_kes(bal)),
-                    ("Target", U.fmt_kes(lo) + " - "
-                     + U.fmt_kes(hi)),
-                    ("To target", format(pct, ".1f") + "%"),
-                    ("Deadline",
-                     str(f.get("deadline", "--"))),
-                ])
-            )
-            st.markdown(UI.panel(f["name"], body),
-                        unsafe_allow_html=True)
-            a, b = st.columns(2)
-            with a:
-                kind = st.selectbox("flow", ["in", "out"],
-                                    key="fk" + f["id"])
-                amt = st.number_input("KSh", 0.0, 100000000.0, 0.0,
-                                      step=500.0, key="fa" + f["id"])
-            with b:
-                note = st.text_input("note", key="fn" + f["id"])
-            if st.button("Move money", type="primary",
-                         key="fb" + f["id"]) and amt > 0:
-                D.fund_tx(f["id"], kind, amt, note.strip())
-                st.rerun()
-            st.markdown(UI.tx_log_rows(f.get("tx", []), 4),
-                        unsafe_allow_html=True)
+    active = M.active_funds(vault)
+    if active:
+        cols = st.columns(len(active), gap="medium")
+        for i, f in enumerate(active):
+            bal = float(f.get("balance", 0) or 0)
+            lo = float(f.get("target_lo", 0) or 0)
+            hi = float(f.get("target_hi", 0) or 0)
+            pct = max(0.0, min(100.0, bal / lo * 100)) if lo else 0.0
+            with cols[i % len(cols)]:
+                body = (
+                    UI.progress(pct, "var(--accent)")
+                    + UI.kv([
+                        ("Balance", U.fmt_kes(bal)),
+                        ("Target", U.fmt_kes(lo) + " - "
+                         + U.fmt_kes(hi)),
+                        ("To target", format(pct, ".1f") + "%"),
+                        ("Deadline",
+                         str(f.get("deadline", "--"))),
+                    ])
+                )
+                st.markdown(UI.panel(f["name"], body),
+                            unsafe_allow_html=True)
+                a, b = st.columns(2)
+                with a:
+                    kind = st.selectbox("flow", ["in", "out"],
+                                        key="fk_" + f["id"])
+                    amt = st.number_input("KSh", 0.0, 100000000.0, 0.0,
+                                          step=500.0, key="fa_" + f["id"])
+                with b:
+                    note = st.text_input("note", key="fn_" + f["id"])
+                if st.button("Move money", type="primary",
+                             key="fb_" + f["id"]) and amt > 0:
+                    D.fund_tx(f["id"], kind, amt, note.strip())
+                    st.rerun()
+                st.markdown(UI.tx_log_rows(f.get("tx", []), 4),
+                            unsafe_allow_html=True)
+    else:
+        st.markdown(UI.panel("Active Ventures", UI.empty_state(
+            "No active ventures - add one below, or unseal one from "
+            "the Reserve chamber.")), unsafe_allow_html=True)
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     a, b, c, d = st.columns([2.2, 1.1, 1.1, 1.2])
@@ -474,7 +555,10 @@ def _pantry_controls(it, key):
             st.rerun()
 
 
-def _tab_pantry(vault, today):
+def _pantry_chamber(vault, today):
+    if st.button("Re-seal the deep layer", key="dp_lock_pantry"):
+        st.session_state["deep_ok"] = False
+        st.rerun()
     pan = vault.get("pantry", {})
     items = pan.get("items", [])
     staples = [x for x in items if not x.get("hidden")]
@@ -592,43 +676,50 @@ def _tab_pantry(vault, today):
             st.caption("Add an item first.")
 
 
-def _tab_runway(vault, today):
+def _reserve_chamber(vault, today):
+    if st.button("Re-seal the deep layer", key="dp_lock_reserve"):
+        st.session_state["deep_ok"] = False
+        st.rerun()
     r = vault.get("runway", {})
     burn = float(r.get("monthly_burn", 0) or 0)
     months = int(r.get("emergency_months", 3) or 3)
-    cash = M.cash_on_hand(vault)
     e = vault.get("emergency", {})
     ebal = float(e.get("balance", 0) or 0)
     target = burn * months
-    rm = M.runway_months(vault)
-    ep = M.emergency_progress(vault)
+    prot = M.protected_total(vault)
+    srm = M.safety_runway_months(vault)
+    sealed = M.sealed_funds(vault)
+
+    food_note = None
+    bn = M.pantry_bottleneck(vault.get("pantry", {}), today)
+    if bn is not None:
+        food_note = format(bn[0], ".0f") + "d (" + str(bn[2]) + ")"
 
     row = [
-        UI.tile("Monthly Burn", U.fmt_kes(burn),
-                "what a normal month costs", "mute", "ink",
-                "bolt", "accent", 0),
-        UI.tile("Cash Runway",
-                (format(rm, ".1f") + " mo") if rm else "—",
-                "cash / monthly burn", "mute",
-                "win" if (rm or 0) >= 3 else "ink",
+        UI.tile("Protected", U.fmt_kes(prot),
+                "emergency + sealed ventures", "mute", "ink",
+                "lock", "jewel", 0),
+        UI.tile("Safety Runway",
+                (format(srm, ".1f") + " mo") if srm is not None else "—",
+                "protected / monthly burn", "mute",
+                "win" if (srm or 0) >= 3 else "ink",
                 "clock", "win", 40),
-        UI.tile("Emergency Target", U.fmt_kes(target),
-                str(months) + " months of burn", "mute", "ink",
-                "target", "jewel", 80),
-        UI.tile("Ring-Fenced", U.fmt_kes(ebal),
-                "set aside from your cash", "mute", "ink",
-                "lock", "jewel", 120),
-        UI.tile("Emergency Progress", format(ep, ".0f") + "%",
-                "to the " + str(months) + "-mo target",
-                "win" if ep >= 100 else "mute",
-                "win" if ep >= 100 else "ink",
-                "flag", "win", 160),
+        UI.tile("Emergency Ring-Fence", U.fmt_kes(ebal),
+                "of " + U.fmt_kes(target) + " target", "mute", "ink",
+                "flag", "jewel", 80),
+        UI.tile("Sealed Ventures", str(len(sealed)),
+                "moved into the safe", "mute", "ink",
+                "target", "accent", 120),
     ]
-    st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
+    if food_note is not None:
+        row.append(UI.tile("Food Cover", food_note, "from the pantry",
+                           "mute", "ink", "grid", "win", 160))
+    st.markdown(UI.tiles_grid(row, min(len(row), 5)),
+                unsafe_allow_html=True)
 
     c1, c2 = st.columns(2, gap="medium")
     with c1:
-        st.markdown(UI.panel("Your Monthly Burn",
+        st.markdown(UI.panel("Monthly Burn & Target",
                              '<div style="height:2px"></div>'),
                     unsafe_allow_html=True)
         nb = st.number_input("KSh / month", 0.0, 100000000.0, burn,
@@ -636,18 +727,18 @@ def _tab_runway(vault, today):
         if st.button("Save monthly burn", type="primary", key="rw_bs"):
             D.set_runway(monthly_burn=nb)
             st.rerun()
-        st.caption("Set what you spend in a normal month. Nothing is "
-                   "deducted automatically - this only feeds the runway "
-                   "& emergency math below.")
+        st.caption("What a normal month costs. Nothing is deducted "
+                   "automatically - this only feeds the runway math.")
         nm = st.number_input("Emergency target (months)", 1, 24,
                              months, step=1, key="rw_m")
         if st.button("Save target months", key="rw_ms"):
             D.set_runway(emergency_months=nm)
             st.rerun()
-        st.caption("3 months keeps you safe without sitting idle. Hit "
-                   "the target and the Ratchet button lets you raise it.")
+        st.caption("3 months keeps you safe without sitting idle. "
+                   "Hit the target and Ratchet raises the bar.")
     with c2:
-        st.markdown(UI.panel("Emergency Fund - ring-fenced from cash",
+        ep = M.emergency_progress(vault)
+        st.markdown(UI.panel("Emergency Ring-Fence",
                              UI.progress(ep, "var(--jewel)")
                              + UI.kv([
                                  ("Ring-fenced", U.fmt_kes(ebal)),
@@ -676,10 +767,63 @@ def _tab_runway(vault, today):
                 D.emergency_ratchet()
                 st.rerun()
             if not funded:
-                st.caption("Funds at target to ratchet.")
-        st.caption("A ring-fence is money you *choose* not to touch - "
-                   "it is part of your cash, set aside in your head, "
-                   "so it is never counted twice.")
+                st.caption("Fund to target to ratchet.")
+
+    st.markdown("<div style='height:10px'></div>",
+                unsafe_allow_html=True)
+    st.markdown(UI.panel("Sealed Ventures - moved into the safe",
+                         '<div style="height:2px"></div>'),
+                unsafe_allow_html=True)
+    if sealed:
+        for f in sealed:
+            bal = float(f.get("balance", 0) or 0)
+            lo = float(f.get("target_lo", 0) or 0)
+            pct = max(0.0, min(100.0, bal / lo * 100)) if lo else 0.0
+            s1, s2 = st.columns([3, 1])
+            with s1:
+                st.markdown(
+                    '<div class="tw-card-premium" '
+                    'style="--card-accent:var(--jewel);padding:12px '
+                    '14px;margin:0 0 8px">'
+                    '<div class="tw-cp-top"><span class="tw-cp-name">'
+                    + html.escape(f.get("name", "?")) + '</span>'
+                    + UI.badge("SEALED", "#D946EF") + '</div>'
+                    + UI.progress(pct, "var(--jewel)")
+                    + '<div class="tw-sub" style="margin-top:0">'
+                    + U.fmt_kes(bal) + " of " + U.fmt_kes(lo)
+                    + " · " + format(pct, ".0f") + "%</div></div>",
+                    unsafe_allow_html=True)
+            with s2:
+                st.markdown("<div style='height:8px'></div>",
+                            unsafe_allow_html=True)
+                if st.button("Unseal → active", key="us_" + f["id"]):
+                    D.unseal_fund(f["id"])
+                    st.rerun()
+    else:
+        st.caption("No ventures sealed yet. Park one below to move it "
+                   "out of your active money and into the safe.")
+
+    active = M.active_funds(vault)
+    st.markdown("<div style='height:8px'></div>",
+                unsafe_allow_html=True)
+    a, b, _ = st.columns([3, 1, 2])
+    with a:
+        if active:
+            names = [f.get("name", "?") for f in active]
+            pick = st.selectbox("Seal an active venture", names,
+                                key="seal_pick")
+        else:
+            pick = None
+            st.caption("No active ventures to seal.")
+    with b:
+        st.markdown("<div style='height:26px'></div>",
+                    unsafe_allow_html=True)
+        if st.button("Seal into reserve", key="seal_go",
+                     disabled=pick is None):
+            fid = next(f["id"] for f in active
+                       if f.get("name", "?") == pick)
+            D.seal_fund(fid)
+            st.rerun()
 
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
@@ -701,6 +845,7 @@ def _tab_runway(vault, today):
 
 
 def render(ctx):
+    st.markdown(VAULT_MOBILE_CSS, unsafe_allow_html=True)
     if not st.session_state.get("vault_ok", False):
         _gate()
         return
@@ -716,7 +861,7 @@ def render(ctx):
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
     tabs = st.tabs(["Cash", "Daily Flow", "Bills", "Fun", "Wishlist",
-                    "Ventures", "Pantry", "Runway"])
+                    "Ventures", "Pantry 🔒", "Reserve 🔒"])
     with tabs[0]:
         _tab_cash(vault)
     with tabs[1]:
@@ -728,8 +873,14 @@ def render(ctx):
     with tabs[4]:
         _tab_items(vault, today)
     with tabs[5]:
-        _tab_funds(vault, today)
+        _tab_ventures(vault, today)
     with tabs[6]:
-        _tab_pantry(vault, today)
+        if st.session_state.get("deep_ok"):
+            _pantry_chamber(vault, today)
+        else:
+            _deep_gate("pantry")
     with tabs[7]:
-        _tab_runway(vault, today)
+        if st.session_state.get("deep_ok"):
+            _reserve_chamber(vault, today)
+        else:
+            _deep_gate("reserve")
