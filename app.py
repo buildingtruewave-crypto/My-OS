@@ -1,6 +1,8 @@
-"""PULSE - Life Command Center. The heart of the whole operation.
-Run:  pip install -r requirements.txt && streamlit run app.py
-Time: Africa/Nairobi (EAT). Recording starts Friday 1 August 2026.
+"""PULSE - Life Command Center.  Entry point.
+Run locally:   pip install -r requirements.txt && streamlit run app.py
+Deploy:        see README.md (Streamlit Cloud, Docker, or systemd + nginx).
+The PULSE companion is mounted centrally after each page renders, choosing
+its voice from the page name, so no page file needs to know it exists.
 """
 from __future__ import annotations
 
@@ -39,6 +41,14 @@ PAGES = {
     "Spirit": spiritual, "Habits": habits, "Bots": bots,
     "Goals": goals, "Stats": stats, "Archive": vault,
     "Settings": settings,
+}
+
+VOICE_MAP = {
+    "Now": "morning", "Routine": "morning", "TrueWave": "sales",
+    "Sales": "sales", "Tasks": "focus", "Journal": "journal",
+    "Spirit": "spirit", "Habits": "body", "Bots": "focus",
+    "Goals": "focus", "Stats": "review", "Archive": "money",
+    "Settings": "quiet",
 }
 
 st.set_page_config(page_title="PULSE - Life Command Center",
@@ -121,7 +131,8 @@ with d:
         + today.strftime("%A") + "</div>"
         '<div class="tw-sub">' + today.strftime("%b %d, %Y")
         + " &middot; " + day_type + " &middot; Nairobi</div></div>",
-        unsafe_allow_html=True)
+        unsafe_allow_html=True,
+    )
 with s:
     sv = str(score) if score is not None else "--"
     if score is None:
@@ -141,3 +152,16 @@ with s:
 st.markdown(UI.ekg_html(), unsafe_allow_html=True)
 
 PAGES[page_name].render(ctx)
+
+# ---- the living companion, mounted on every page ----
+try:
+    from src import companion as _C
+    vault_open = bool(st.session_state.get("vault_ok"))
+    if not (page_name == "Archive" and not vault_open):
+        st.markdown("<div style='height:10px'></div>",
+                    unsafe_allow_html=True)
+        _C.panel(ctx, voice=VOICE_MAP.get(page_name, "morning"),
+                 allow_money=(page_name == "Archive" and vault_open),
+                 ask_box=_C._have_key())
+except Exception:
+    pass
