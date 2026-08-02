@@ -1,29 +1,30 @@
 """PULSE companion - the voice that has read your life.
 
-The card is built to feel spoken, not displayed: a slow breathing halo, a
-caught-light sheen on hover, a fine linen grain, a left rail in the voice's
-own colour, and the voice line set large and italic with a hanging drop-cap
-quotation glyph. A single delicate provenance line sits in the margin like a
-citation in a fine book; the machinery (grounding facts, the ask-box, the
-tuning, the free-tier provider that answered) lives in one collapsed,
-whisper-quiet drawer beneath the card, framed as tuning an instrument, never
-grading a student. There is NO like/dislike on the card - PULSE learns from
-what the operator does after it speaks (brain.reconcile_implicit), so the
-rating friction that poisons a presence is gone.
+The card is built to feel spoken, not displayed: a slow breathing halo whose
+rhythm and saturation are per-page, a caught-light sheen on hover, a fine
+linen grain, a left rail in the voice's own colour, and the voice line set
+large and italic with a hanging drop-cap quotation glyph. The companion now
+speaks in five non-overlapping layers (moment / voice / notice / pulse /
+nudge) each computed from a different angle of the live state, so no page
+ever reads the same and no layer repeats another. A single delicate
+provenance line sits in the margin like a citation in a fine book; the
+machinery (grounding facts, the ask-box, the tuning, the free-tier provider
+that answered, a one-shot flash on tune) lives in one collapsed, whisper-
+quiet drawer beneath the card, framed as tuning an instrument, never grading
+a student. There is NO like/dislike on the card - PULSE learns from what the
+operator does after it speaks (brain.reconcile_implicit), so the rating
+friction that poisons a presence is gone.
 
 Three layers over one context packet:
   * build_packet() reads recent journal / spirit / sales / mood / clients /
     tasks / habits / weight, and - ONLY when allow_money is True (inside the
     locked Archive) - pantry / runway / emergency / bills / commissions.
-  * A deterministic voice per page composes grounded sentences, augmented by
-    the brain: fused retrieval, a longitudinal pattern, a thread echo, a
-    grounded next-move nudge, learned taste suppressions, and confidence-
-    calibrated brevity. It never invents, never leaks money on a public page,
-    and notices absence.
+  * A deterministic feel-only voice per page, augmented by the brain with a
+    remembered verse or memory, plus a page-aware perception (perceive.py):
+    a moment, a factual notice, a 7-day pulse, and a concrete nudge.
   * If the free-tier router (src.llm_router) has any provider configured, a
-    strictly-grounded model writes the message and answers free questions,
-    fed retrieved memories + the operator's patterns + their taste + their
-    own past tunes + the thread + the suggested next move as constraints.
+    strictly-grounded model writes the voice line, fed all five layers as
+    constraints so its voice is page-personalised too.
 
 Every public function fails open. The whole panel is wrapped so a failure
 never breaks the host page. No f-strings are used anywhere in this file.
@@ -52,6 +53,13 @@ try:
 except Exception:
     _R = None
     _HAS_ROUTER = False
+
+try:
+    from . import perceive as _P
+    _HAS_PERC = True
+except Exception:
+    _P = None
+    _HAS_PERC = False
 
 _MEM = Path(__file__).resolve().parent.parent / "data" / "companion.json"
 LOW = set(("drained", "flat"))
@@ -84,42 +92,118 @@ _SRC_LABEL = {
     "fund": "your money log", "money": "your money log",
 }
 
-_STYLE = """
-<style>
-@keyframes plcBreathe{0%,100%{transform:scale(1);opacity:.10}50%{transform:scale(1.16);opacity:.22}}
-@keyframes plcRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes plcSheen{0%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
-.plc{position:relative;overflow:hidden;margin:16px 0 6px;padding:20px 22px 18px 24px;border:1px solid var(--hair,#1C2740);border-radius:16px;background:linear-gradient(180deg,rgba(18,26,43,.94),rgba(12,18,30,.96));box-shadow:0 12px 34px -26px rgba(0,0,0,.92);transition:transform .28s cubic-bezier(.2,.7,.2,1),border-color .28s,box-shadow .28s;animation:plcRise .6s cubic-bezier(.2,.7,.2,1) both}
-.plc:hover{transform:translateY(-3px);border-color:var(--plc,#4C8DFF);box-shadow:0 26px 56px -28px rgba(0,0,0,.95),0 0 0 1px rgba(255,255,255,.03)}
-.plc-grain{position:absolute;inset:0;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,255,255,.05) .5px,transparent .6px);background-size:3px 3px;mix-blend-mode:soft-light}
-.plc-sheen{position:absolute;top:0;left:0;width:60%;height:1px;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);opacity:0}
-.plc:hover .plc-sheen{opacity:.8;animation:plcSheen 1.1s ease}
-.plc-rail{position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--plc,#4C8DFF),transparent 82%);transition:width .28s}
-.plc:hover .plc-rail{width:4px}
-.plc-halo{position:absolute;left:-34px;top:-34px;width:132px;height:132px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,var(--plc,#4C8DFF),transparent 70%);filter:blur(10px);animation:plcBreathe 5s ease-in-out infinite}
-.plc-head{position:relative;display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
-.plc-mark{font:700 11px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2,#B6C0D4)}
-.plc-voice{font:600 10px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.16em;text-transform:uppercase;color:var(--plc,#4C8DFF);padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--hair,#1C2740)}
-.plc-ai{font:700 8px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.14em;text-transform:uppercase;color:#D946EF;border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);border-radius:999px;padding:3px 8px}
-.plc-via{font:600 8px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2,#8893AB);border:1px solid var(--hair,#1C2740);border-radius:999px;padding:3px 8px}
-.plc-body{position:relative;padding-left:30px}
-.plc-quote{position:absolute;left:0;top:-6px;font:700 50px/1 var(--disp,'Space Grotesk',sans-serif);color:var(--plc,#4C8DFF);opacity:.16;pointer-events:none;user-select:none}
-.plc-line{margin:0;font:500 17px/1.7 var(--body,'Manrope',sans-serif);color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em}
-.plc-cite{margin:11px 0 0 30px;font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);letter-spacing:.02em}
-.plc-thread{margin:8px 0 0 30px;font:500 12px/1.5 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);border-left:2px solid var(--plc,#4C8DFF);padding-left:10px}
-.plc-nudge{margin:10px 0 0 30px;display:flex;align-items:flex-start;gap:8px;font:600 12px/1.45 var(--body,'Manrope',sans-serif);color:var(--ink,#E8EDF7)}
-.plc-nudge .arr{color:var(--plc,#4C8DFF);font:700 13px/1.3 var(--mono,'JetBrains Mono',monospace)}
-.plc-tune-hint{position:absolute;right:16px;top:18px;font:600 13px/1 var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);opacity:0;transition:opacity .28s;pointer-events:none}
-.plc:hover .plc-tune-hint{opacity:.5}
-.plc-grounds-list{font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);margin:2px 0 12px;letter-spacing:.02em}
-.plc-taste{font:500 11.5px/1.5 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);font-style:italic;margin:0 0 12px;border-left:2px solid var(--plc,#4C8DFF);padding-left:10px}
-.plc-ans{margin-top:10px;padding:12px 14px;border-radius:11px;border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);font:500 13.5px/1.6 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);font-style:italic}
-.plc-health{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px;margin:6px 0 4px}
-.plc-health .k{font:600 10px/1.4 var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);letter-spacing:.06em}
-.plc-health .v{font:700 12px/1.4 var(--mono,'JetBrains Mono',monospace);color:var(--ink,#E8EDF7)}
-@media (max-width:760px){.plc{padding:16px 16px 14px 18px}.plc-body{padding-left:22px}.plc-quote{font-size:38px;top:-2px}.plc-line{font-size:15.5px;line-height:1.62}.plc-cite,.plc-thread,.plc-nudge{margin-left:22px}.plc-health{grid-template-columns:1fr}}
-</style>
-"""
+_STYLE = (
+    "<style>"
+    "@keyframes plcBreathe{0%,100%{transform:scale(1);opacity:.10}"
+    "50%{transform:scale(1.16);opacity:.22}}"
+    "@keyframes plcRise{from{opacity:0;transform:translateY(10px)}"
+    "to{opacity:1;transform:none}}"
+    "@keyframes plcSheen{0%{transform:translateX(-120%)}"
+    "100%{transform:translateX(120%)}}"
+    "@keyframes plcFlash{0%{opacity:.55}100%{opacity:0}}"
+    ".plc{position:relative;overflow:hidden;margin:16px 0 6px;"
+    "padding:20px 22px 18px 24px;border:1px solid var(--hair,#1C2740);"
+    "border-radius:16px;background:linear-gradient(180deg,"
+    "rgba(18,26,43,.94),rgba(12,18,30,.96));"
+    "box-shadow:0 12px 34px -26px rgba(0,0,0,.92);"
+    "transition:transform .28s cubic-bezier(.2,.7,.2,1),"
+    "border-color .28s,box-shadow .28s;"
+    "animation:plcRise .6s cubic-bezier(.2,.7,.2,1) both}"
+    ".plc:hover{transform:translateY(-3px);border-color:var(--plc,#4C8DFF);"
+    "box-shadow:0 26px 56px -28px rgba(0,0,0,.95),"
+    "0 0 0 1px rgba(255,255,255,.03)}"
+    ".plc-grain{position:absolute;inset:0;pointer-events:none;opacity:.5;"
+    "background-image:radial-gradient(rgba(255,255,255,.05) .5px,"
+    "transparent .6px);background-size:3px 3px;mix-blend-mode:soft-light}"
+    ".plc-sheen{position:absolute;top:0;left:0;width:60%;height:1px;"
+    "pointer-events:none;background:linear-gradient(90deg,transparent,"
+    "rgba(255,255,255,.5),transparent);opacity:0}"
+    ".plc:hover .plc-sheen{opacity:.8;animation:plcSheen 1.1s ease}"
+    ".plc-rail{position:absolute;left:0;top:0;bottom:0;width:3px;"
+    "background:linear-gradient(180deg,var(--plc,#4C8DFF),transparent 82%);"
+    "transition:width .28s}"
+    ".plc:hover .plc-rail{width:4px}"
+    ".plc-halo{position:absolute;left:-34px;top:-34px;width:132px;"
+    "height:132px;border-radius:50%;pointer-events:none;"
+    "background:radial-gradient(circle,var(--plc),transparent 70%);"
+    "filter:blur(10px) saturate(var(--plc-sat,1));"
+    "animation:plcBreathe var(--plc-breath,5s) ease-in-out infinite}"
+    ".plc-flash{position:absolute;inset:0;pointer-events:none;"
+    "border-radius:16px;background:radial-gradient(circle at 28% 26%,"
+    "var(--plc),transparent 68%);opacity:0;"
+    "animation:plcFlash 1.25s ease-out 1}"
+    ".plc-head{position:relative;display:flex;align-items:center;"
+    "gap:9px;margin-bottom:12px;flex-wrap:wrap}"
+    ".plc-mark{font:700 11px/1 var(--mono,'JetBrains Mono',monospace);"
+    "letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2,#B6C0D4)}"
+    ".plc-voice{font:600 10px/1 var(--mono,'JetBrains Mono',monospace);"
+    "letter-spacing:.16em;text-transform:uppercase;color:var(--plc,#4C8DFF);"
+    "padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.03);"
+    "border:1px solid var(--hair,#1C2740)}"
+    ".plc-ai{font:700 8px/1 var(--mono,'JetBrains Mono',monospace);"
+    "letter-spacing:.14em;text-transform:uppercase;color:#D946EF;"
+    "border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);"
+    "border-radius:999px;padding:3px 8px}"
+    ".plc-via{font:600 8px/1 var(--mono,'JetBrains Mono',monospace);"
+    "letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2,#8893AB);"
+    "border:1px solid var(--hair,#1C2740);border-radius:999px;padding:3px 8px}"
+    ".plc-body{position:relative;padding-left:30px}"
+    ".plc-quote{position:absolute;left:0;top:-6px;"
+    "font:700 50px/1 var(--disp,'Space Grotesk',sans-serif);"
+    "color:var(--plc,#4C8DFF);opacity:.16;pointer-events:none;user-select:none}"
+    ".plc-line{margin:0;font:500 17px/1.7 var(--body,'Manrope',sans-serif);"
+    "color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em}"
+    ".plc-moment{display:flex;align-items:center;gap:7px;margin:0 0 10px;"
+    "font:600 10px/1.3 var(--mono,'JetBrains Mono',monospace);"
+    "letter-spacing:.14em;text-transform:uppercase;color:var(--mute-2,#8893AB)}"
+    ".plc-moment-dot{width:6px;height:6px;border-radius:50%;"
+    "background:var(--plc);box-shadow:0 0 7px var(--plc);"
+    "animation:plcBreathe var(--plc-breath,5s) ease-in-out infinite;"
+    "flex:0 0 auto}"
+    ".plc-perceive{margin:10px 0 0 30px;padding:8px 11px;"
+    "border-left:2px solid var(--plc);background:linear-gradient(90deg,"
+    "rgba(255,255,255,.025),transparent);border-radius:0 8px 8px 0;"
+    "font:500 13.5px/1.55 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4)}"
+    ".plc-pulse{margin:8px 0 0 30px;font:600 11px/1.4 "
+    "var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);"
+    "letter-spacing:.04em}"
+    ".plc-nudge{margin:10px 0 0 30px;display:flex;align-items:flex-start;"
+    "gap:8px;font:600 12px/1.45 var(--body,'Manrope',sans-serif);"
+    "color:var(--ink,#E8EDF7)}"
+    ".plc-nudge .arr{color:var(--plc,#4C8DFF);"
+    "font:700 13px/1.3 var(--mono,'JetBrains Mono',monospace)}"
+    ".plc-cite{margin:11px 0 0 30px;font:500 11px/1.5 "
+    "var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);"
+    "letter-spacing:.02em}"
+    ".plc-tune-hint{position:absolute;right:16px;top:18px;"
+    "font:600 13px/1 var(--mono,'JetBrains Mono',monospace);"
+    "color:var(--mute,#69748C);opacity:0;transition:opacity .28s;"
+    "pointer-events:none}"
+    ".plc:hover .plc-tune-hint{opacity:.5}"
+    ".plc-grounds-list{font:500 11px/1.5 "
+    "var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);"
+    "margin:2px 0 12px;letter-spacing:.02em}"
+    ".plc-taste{font:500 11.5px/1.5 var(--body,'Manrope',sans-serif);"
+    "color:var(--ink-2,#B6C0D4);font-style:italic;margin:0 0 12px;"
+    "border-left:2px solid var(--plc,#4C8DFF);padding-left:10px}"
+    ".plc-ans{margin-top:10px;padding:12px 14px;border-radius:11px;"
+    "border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);"
+    "font:500 13.5px/1.6 var(--body,'Manrope',sans-serif);"
+    "color:var(--ink-2,#B6C0D4);font-style:italic}"
+    ".plc-health{display:grid;grid-template-columns:repeat(2,1fr);"
+    "gap:6px 14px;margin:6px 0 4px}"
+    ".plc-health .k{font:600 10px/1.4 "
+    "var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);"
+    "letter-spacing:.06em}"
+    ".plc-health .v{font:700 12px/1.4 "
+    "var(--mono,'JetBrains Mono',monospace);color:var(--ink,#E8EDF7)}"
+    "@media (max-width:760px){.plc{padding:16px 16px 14px 18px}"
+    ".plc-body{padding-left:22px}.plc-quote{font-size:38px;top:-2px}"
+    ".plc-line{font-size:15.5px;line-height:1.62}"
+    ".plc-cite,.plc-perceive,.plc-pulse,.plc-nudge{margin-left:22px}"
+    ".plc-health{grid-template-columns:1fr}}"
+    "</style>"
+)
 
 _AUTO = {
     "morning": "Speak to them for this moment of the day, grounded.",
@@ -138,19 +222,23 @@ _SYS = (
     "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
     "past words most relevant to now, a PATTERNS block of what you have "
     "learned about them over time, a THREAD block of a feeling they have "
-    "felt on multiple days, a NEXT MOVE block of the single most useful "
-    "concrete action right now, and a CONSTRAINTS block of how they have "
-    "tuned you. Rules: (1) Use ONLY facts present in CONTEXT and RETRIEVED; "
-    "never invent sales, feelings, verses, dates, clients or events. (2) "
-    "Speak in second person, warmly and specifically. (3) When you cite a "
-    "number, quote or feeling, use the exact one given. (4) Match their "
-    "current mood. (5) Obey every line in CONSTRAINTS without mentioning "
-    "that you were told. (6) If a NEXT MOVE is given and it fits, weave it "
-    "in naturally as one concrete step. (7) If the question touches money, "
-    "balances, pantry or the emergency fund but CONTEXT has no money facts, "
-    "reply that you keep finances private and they should ask inside the "
-    "Archive. (8) Do not ask a question back unless it is a single gentle "
-    "offer. (9) No lists, no headers, no emojis."
+    "felt on multiple days, a PAGE MOMENT block of where and when they are, "
+    "a PAGE NOTICE block of what you observe on this exact page, a PAGE "
+    "RHYTHM block of how they show up to this part of their life, a NEXT "
+    "MOVE block of the single most useful concrete action right now, and a "
+    "CONSTRAINTS block of how they have tuned you. Rules: (1) Use ONLY "
+    "facts present in CONTEXT and RETRIEVED; never invent sales, feelings, "
+    "verses, dates, clients or events. (2) Speak in second person, warmly "
+    "and specifically. (3) When you cite a number, quote or feeling, use "
+    "the exact one given. (4) Match their current mood. (5) Obey every "
+    "line in CONSTRAINTS without mentioning that you were told. (6) Weave "
+    "the PAGE NOTICE and PAGE RHYTHM naturally so the line could only be "
+    "spoken on this page, right now. (7) If a NEXT MOVE is given and it "
+    "fits, weave it in as one concrete step. (8) If the question touches "
+    "money, balances, pantry or the emergency fund but CONTEXT has no "
+    "money facts, reply that you keep finances private and they should ask "
+    "inside the Archive. (9) Do not ask a question back unless it is a "
+    "single gentle offer. (10) No lists, no headers, no emojis."
 )
 
 
@@ -359,7 +447,6 @@ def _search(idx, fb, query, allow_money, mood, k=3, refl=None,
 
 
 def _have_key():
-    """Kept for app.py compatibility: True only if the router has providers."""
     if not _HAS_ROUTER:
         return False
     try:
@@ -370,6 +457,155 @@ def _have_key():
 
 def _have_llm():
     return _have_key()
+
+
+# ---------------------------------------------------------------------------
+# per-page stats (built from session data, handed to perceive.py)
+# ---------------------------------------------------------------------------
+
+def _page_stats(ctx, voice, allow_money):
+    ps = {}
+    try:
+        _dt = __import__("datetime")
+        today = ctx["today"]
+        habits = ctx.get("habits") or []
+        log = ctx.get("habit_log") or {}
+        spiritual = ctx.get("spiritual") or {}
+        sd = ctx.get("sales_daily") or {}
+        clients = ctx.get("clients") or []
+        journal = ctx.get("journal") or {}
+        tasks = ctx.get("tasks") or []
+        weights = ctx.get("weights") or []
+        last7 = [(today - _dt.timedelta(days=o)).isoformat()
+                 for o in range(7)]
+        wid = None
+        for h in habits:
+            if str(h.get("name", "")).lower().startswith("workout"):
+                wid = h["id"]
+                break
+        move_days_7 = sum(1 for d in last7
+                          if wid and (log.get(wid, {}) or {}).get(d))
+        sat_days_7 = sum(1 for d in last7
+                         if _spirit_present(spiritual.get(d)))
+        j_days_7 = sum(1 for d in last7 if d in journal)
+        sold_days_7 = sum(
+            1 for d in last7
+            if int((sd.get(d) or {}).get("sold", 0) or 0) > 0)
+        cleared_days_7 = sum(
+            1 for d in last7
+            if any(t.get("done_date") == d for t in tasks))
+        first_undone = ""
+        for h in habits:
+            if not (log.get(h["id"], {}) or {}).get(today.isoformat()):
+                first_undone = h.get("name", "")
+                break
+        term = set(D.terminal_ids())
+        due_clients = [c for c in clients
+                       if c.get("stage") not in term
+                       and c.get("next_date") == today.isoformat()]
+        over_clients = [c for c in clients
+                        if c.get("stage") not in term
+                        and c.get("next_date")
+                        and c["next_date"] < today.isoformat()]
+        hottest = ""
+        for c in due_clients:
+            if c.get("heat") == "Hot":
+                hottest = c.get("name", "")
+                break
+        if not hottest and due_clients:
+            hottest = due_clients[0].get("name", "")
+        if not hottest and over_clients:
+            hottest = over_clients[0].get("name", "")
+        se = spiritual.get(today.isoformat())
+        sat_today = bool(se)
+        depth = int((se or {}).get("depth", 0) or 0)
+        last_word = ((se or {}).get("word") or "").strip()
+        if not last_word:
+            for o in range(1, 8):
+                e = spiritual.get(
+                    (today - _dt.timedelta(days=o)).isoformat())
+                if e and (e.get("word") or "").strip():
+                    last_word = (e.get("word") or "").strip()
+                    break
+        yest_iso = (today - _dt.timedelta(days=1)).isoformat()
+        lj = journal.get(yest_iso) or {}
+        last_lesson = (lj.get("lesson") or lj.get("win") or "").strip()
+        j_today = today.isoformat() in journal
+        j_streak = _streak_j(journal)
+        ws = 0
+        if wid:
+            s = log.get(wid, {}) or {}
+            for o in range(0, 400):
+                if s.get((today - _dt.timedelta(days=o)).isoformat()):
+                    ws += 1
+                else:
+                    break
+        wdelta = ""
+        if len(weights) >= 2:
+            ws2 = sorted(weights, key=lambda w: w.get("date", ""))
+            try:
+                dd = float(ws2[-1]["kg"]) - float(ws2[0]["kg"])
+                wdelta = ("+" if dd >= 0 else "") + format(dd, ".1f") + " kg"
+            except Exception:
+                wdelta = ""
+        overdue_t = sum(1 for t in tasks
+                        if not t.get("done") and t.get("due")
+                        and t["due"] < today.isoformat())
+        due_t = sum(1 for t in tasks
+                    if not t.get("done") and t.get("due") == today.isoformat())
+        cons7 = _consistency(habits, log, 7)
+        sw = sum(int((sd.get(d) or {}).get("sold", 0) or 0) for d in last7)
+        sh = _spirit_health(spiritual)
+        name = ""
+        days = ""
+        bo = 0
+        if allow_money:
+            vault = ctx.get("vault") or {}
+            pan = vault.get("pantry") or {}
+            bn = None
+            for it in pan.get("items", []):
+                if it.get("hidden"):
+                    continue
+                daily = float(it.get("daily", 0) or 0)
+                stock = float(it.get("stock", 0) or 0)
+                if daily <= 0:
+                    continue
+                raw = stock / daily
+                age = 0
+                chk = it.get("checked", "")
+                if chk:
+                    try:
+                        age = max(0, (today - _dt.date.fromisoformat(chk)).days)
+                    except Exception:
+                        age = 0
+                aged = max(0.0, raw - age)
+                if bn is None or aged < bn[0]:
+                    bn = (aged, it.get("name", "?"))
+            if bn is not None:
+                days = int(round(bn[0]))
+                name = bn[1] or ""
+            bo = sum(1 for b in vault.get("bills", [])
+                     if not b.get("paid") and b.get("due")
+                     and b["due"] < today.isoformat())
+        ps.update({
+            "first_undone": first_undone, "due_n": len(due_clients),
+            "due": len(due_clients), "over": len(over_clients),
+            "yest": int((sd.get(yest_iso) or {}).get("sold", 0) or 0),
+            "hottest": hottest, "last_word": last_word,
+            "word": ((se or {}).get("word") or "").strip() if se else "",
+            "depth": depth, "sat_streak": _streak_spirit(spiritual),
+            "sat_today": sat_today, "last_lesson": last_lesson,
+            "j_today": j_today, "j_streak": j_streak, "ws": ws,
+            "delta": wdelta, "overdue": overdue_t, "due_t": due_t,
+            "c": cons7, "sw": sw, "sh": sh,
+            "sold_days_7": sold_days_7, "sat_days_7": sat_days_7,
+            "move_days_7": move_days_7, "j_days_7": j_days_7,
+            "cleared_days_7": cleared_days_7,
+            "name": name, "days": days, "bo": bo,
+        })
+    except Exception:
+        pass
+    return ps
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +814,7 @@ def build_packet(ctx, voice, allow_money):
 
 
 # ---------------------------------------------------------------------------
-# retrieval weaving + augmentation
+# retrieval weaving + augmentation (felt memory for the voice line)
 # ---------------------------------------------------------------------------
 
 def _weave_memory(mem, voice):
@@ -683,7 +919,7 @@ def _augment(pkt, tagged, base_facts, idx, fb, refl, state, allow_money):
 
 
 # ---------------------------------------------------------------------------
-# deterministic voices (each returns tagged sentences + facts)
+# deterministic feel-only voices (numbers live in the notice layer)
 # ---------------------------------------------------------------------------
 
 def _cap_tagged(tagged, n):
@@ -692,7 +928,7 @@ def _cap_tagged(tagged, n):
 
 def _v_morning(p):
     t = []
-    f = []
+    bf = []
     h = p["hour"]
     if h < 12:
         g = "Morning"
@@ -708,244 +944,91 @@ def _v_morning(p):
         t.append([g + " at " + m + " - let that lead the day.", None])
     else:
         t.append([g + ". The page is blank; one true move makes it real.", None])
-    lv = p["last_verse"]
-    if lv and (m in LOW or p["dow"] % 2 == 0):
-        t.append(["Carry this from " + lv["date"] + ": “" + lv["word"]
+    lv = p.get("last_verse")
+    if lv and (m in LOW or p.get("dow", 0) % 2 == 0):
+        t.append(["Carry this: “" + lv["word"]
                   + "”. It held you when you wrote it.", "quoted_verse"])
-        f.append("verse " + lv["date"])
-    if p["sales_yesterday"] > 0:
-        t.append(["Yesterday you closed " + str(p["sales_yesterday"])
-                  + " - momentum you can't feel is still momentum.", "pep_talk"])
-        f.append(str(p["sales_yesterday"]) + " sales yesterday")
-    if p["clients_due_n"] > 0:
-        n = p["clients_due_n"]
-        word = "person waits" if n == 1 else "people wait"
-        t.append([str(n) + " " + word
-                  + " on a call today; open with the hottest.", None])
-        f.append(str(n) + " due today")
-    if p["habits_total"] and p["habits_done"] > 0:
-        t.append([str(p["habits_done"]) + "/" + str(p["habits_total"])
-                  + " habits already ticked - the wall is listening.", None])
-        f.append("habits " + str(p["habits_done"]) + "/" + str(p["habits_total"]))
-    tw = _trend_word(p["mood_trend"])
-    if tw == "lifting":
-        f.append("mood lifting")
-    elif tw == "heavy":
-        f.append("mood heavy - be gentle")
-    t = _cap_tagged(t, 3)
-    if not t:
-        t = [["A clean start. One honest thing today is the whole win.", None]]
-    return t, f
+        bf.append("verse " + lv["date"])
+    return t, bf
 
 
 def _v_sales(p):
     t = []
-    f = []
+    bf = []
     m = p["mood_today"]
     if m in LOW:
         t.append(["I know it feels thin right now. Feelings lie; your log doesn't.", "pep_talk"])
-        if p["sales_yesterday"] > 0:
-            t.append(["Yesterday you closed " + str(p["sales_yesterday"])
-                      + ". That version of you showed up even when you didn't feel like it.", "pep_talk"])
-        elif p["sales_best"]:
-            t.append(["Remember " + p["sales_best"]["date"] + " - "
-                      + str(p["sales_best"]["n"])
-                      + " in a day. You've carried harder days.", "pep_talk"])
-        if p["last_verse"]:
-            t.append(["And hold this: “" + p["last_verse"]["word"] + "”.", "quoted_verse"])
-        f.append("mood " + m)
+        lv = p.get("last_verse")
+        if lv:
+            t.append(["And hold this: “" + lv["word"] + "”.", "quoted_verse"])
+            bf.append("verse " + lv["date"])
     else:
         t.append(["You're in it. Keep the rhythm: post, call, log.", None])
-        if p["sales_yesterday"] > 0:
-            t.append(["Yesterday: " + str(p["sales_yesterday"])
-                      + " closed. Stack today on top of it.", None])
-            f.append(str(p["sales_yesterday"]) + " yesterday")
-        if p["clients_due_n"] > 0:
-            n = p["clients_due_n"]
-            suf = "" if n == 1 else "s"
-            t.append([str(n) + " follow-up" + suf
-                      + " due - that's revenue sitting in your phone.", None])
-    if p["clients_overdue_n"] > 0:
-        n = p["clients_overdue_n"]
-        suf = "" if n == 1 else "s"
-        t.append([str(n) + " overdue call" + suf
-                  + " - clear the oldest first.", None])
-        f.append(str(n) + " overdue")
-    if p["sales_best"]:
-        f.append("best day " + str(p["sales_best"]["n"]))
-    t = _cap_tagged(t, 3)
-    if not t:
-        t = [["Log the next call the moment it ends. The pipeline feeds on speed.", None]]
-    return t, f
+    return t, bf
 
 
 def _v_spirit(p):
     t = []
-    f = []
+    bf = []
     if not p["spirit_today_has"]:
         t.append(["You haven't sat with Him yet today.", None])
-        if p["last_verse"]:
-            t.append(["A few days ago this landed: “" + p["last_verse"]["word"]
+        lv = p.get("last_verse")
+        if lv:
+            t.append(["A few days ago this landed: “" + lv["word"]
                       + "” - maybe that's the thread to pick up.", "quoted_verse"])
-        elif p["anchor"]:
+            bf.append("verse " + lv["date"])
+        elif p.get("anchor"):
             t.append(["Come back to your anchor: “" + p["anchor"] + "”.", "quoted_verse"])
         else:
             t.append(["Even five silent minutes counts as showing up.", None])
     else:
-        word = p["spirit_today_word"] or "the quiet"
-        t.append(["You're holding “" + word + "” today at depth "
-                  + str(p["spirit_today_depth"]) + "/5.", None])
-        if p["last_verse"] and p["last_verse"]["date"] != p["today"]:
-            felt = p["last_verse"]["felt"] or "held"
-            t.append(["Last time you wrote it made you feel " + felt
-                      + ". Notice if that's true again.", "quoted_verse"])
-        if p["spirit_streak"] > 1:
-            t.append([str(p["spirit_streak"])
-                      + " days of showing up to Him. That's a life being built.", None])
-        f.append("depth " + str(p["spirit_today_depth"]))
-    if p["spirit_streak"] > 0:
-        f.append("spirit streak " + str(p["spirit_streak"]))
-    if p["last_verse"]:
-        f.append("verse " + p["last_verse"]["date"])
-    t = _cap_tagged(t, 3)
-    if not t:
-        t = [["Be still a minute. The rest can wait.", None]]
-    return t, f
+        t.append(["You're holding the quiet today. Be still a minute; the rest can wait.", None])
+    return t, bf
 
 
 def _v_journal(p):
     t = []
-    f = []
     if not p["journal_today_has"]:
-        t.append(["No entry yet today.", None])
-        if p["last_journal"]:
-            lj = p["last_journal"]
-            snip = _trim(lj.get("happened") or lj.get("win"), 60)
-            t.append(["Yesterday you wrote: “" + snip
-                      + "”. Today deserves its own line.", "quoted_memory"])
-        else:
-            t.append(["One sentence is enough: what happened, what you learned, how you feel.", None])
+        t.append(["No entry yet today. The page is where the days stop slipping.", None])
     else:
         t.append(["Today's page is open. When you write it, I'll remember it for the hard days.", None])
-        if p["prev_journal"]:
-            pj = p["prev_journal"]
-            snip = _trim(pj.get("lesson") or pj.get("win"), 55)
-            t.append(["A few days ago you noted “" + snip
-                      + "” - watch if today echoes it.", "quoted_memory"])
-    if p["mood_today"]:
-        f.append("mood " + p["mood_today"])
-    if p["journal_streak"]:
-        f.append("journal streak " + str(p["journal_streak"]))
-    t = _cap_tagged(t, 3)
-    if not t:
-        t = [["The journal is where the days stop slipping. Write one true line.", None]]
-    return t, f
+    return t, []
 
 
 def _v_body(p):
     t = []
-    f = []
     if p["workout_streak"] > 0:
-        t.append([str(p["workout_streak"])
-                  + "-day movement streak - your body trusts you right now.", None])
+        t.append(["Your body trusts you right now. Treat it like the asset it is.", None])
     else:
-        t.append(["No movement streak running; 20 minutes tonight resets it.", None])
-    if p["weight_delta_word"]:
-        t.append(["Scale says " + p["weight_delta_word"] + ". Trend, not a verdict.", None])
-    if p["workout_streak"] > 0:
-        f.append("workout streak " + str(p["workout_streak"]))
-    if p["weight_delta_word"]:
-        f.append("weight " + p["weight_delta_word"])
-    t = _cap_tagged(t, 3)
-    if not t:
-        t = [["Treat the body like the asset it is. Small, daily, unglamorous.", None]]
-    return t, f
+        t.append(["No movement streak running. Small and consistent beats heroic.", None])
+    return t, []
 
 
 def _v_focus(p):
-    t = []
-    f = []
-    if p["tasks_overdue"] > 0:
-        n = p["tasks_overdue"]
-        suf = "" if n == 1 else "s"
-        t.append([str(n) + " task" + suf
-                  + " past due - do the smallest one first to break the logjam.", None])
-    elif p["tasks_due"] > 0:
-        n = p["tasks_due"]
-        suf = "" if n == 1 else "s"
-        t.append([str(n) + " task" + suf
-                  + " due today; protect one deep block for the hardest.", None])
-    else:
-        t.append(["Nothing overdue. Use the quiet to build, not just to clear.", None])
-    t.append(["Phones down, one tab, 25 minutes. The compounding is invisible until it isn't.", None])
-    if p["tasks_overdue"]:
-        f.append(str(p["tasks_overdue"]) + " overdue")
-    if p["tasks_due"]:
-        f.append(str(p["tasks_due"]) + " due today")
-    t = _cap_tagged(t, 3)
-    return t, f
+    t = [["Phones down, one tab, twenty-five minutes. The compounding is invisible until it isn't.", None]]
+    return t, []
 
 
 def _v_review(p):
-    t = []
-    f = []
-    t.append(["Week shape: consistency " + str(p["consistency7"])
-              + "%, " + str(p["sales_week"]) + " closed, spirit health "
-              + str(p["spirit_health"]) + "%.", None])
-    if p["weight_delta_word"]:
-        t.append(["Body: " + p["weight_delta_word"] + ".", None])
-    t.append(["The score follows the showing-up. Keep feeding the floor.", None])
-    f.append("consistency " + str(p["consistency7"]) + "%")
-    f.append("sales wk " + str(p["sales_week"]))
-    if p["spirit_health"]:
-        f.append("spirit " + str(p["spirit_health"]) + "%")
-    t = _cap_tagged(t, 4)
-    return t, f
+    t = [["The score follows the showing-up. Keep feeding the floor.", None]]
+    return t, []
 
 
 def _v_money(p):
     t = []
-    f = []
-    pb = p.get("pantry_bottleneck")
-    if pb:
-        t.append(["Pantry: " + str(pb["name"]) + " is at " + str(pb["days"])
-                  + " days - that's your next shop window.", "money_advice"])
-        f.append(str(pb["name"]) + " " + str(pb["days"]) + "d")
-    if p.get("bills_overdue_n", 0) > 0:
-        n = p["bills_overdue_n"]
-        suf = "" if n == 1 else "s"
-        t.append([str(n) + " bill" + suf
-                  + " overdue; cover that before any fun top-up.", "money_advice"])
-        f.append(str(n) + " bill overdue")
-    if p.get("runway_months") is not None:
-        t.append(["Cash runway " + format(p["runway_months"], ".1f")
-                  + " months; emergency at " + str(p.get("emergency_pct", 0))
-                  + "% of target.", "money_advice"])
-        f.append("runway " + format(p["runway_months"], ".1f") + "mo")
-    if pb and pb["days"] <= 3 and p.get("bills_overdue_n", 0) > 0:
-        t.append(["Call: shop staples today, hold the fun top-up 48h, let HHO wait a day.", "money_advice"])
-    elif p.get("fun_remaining") is not None and p["fun_remaining"] < 500 and p.get("bills_overdue_n", 0) == 0:
-        t.append(["Fun is low but bills are clear - a small treat is earned, not stolen.", "money_advice"])
-    if p.get("commissions_due", 0) > 0:
-        n = p["commissions_due"]
-        suf = "" if n == 1 else "s"
-        t.append([str(n) + " commission" + suf
-                  + " due today - chase them; "
-                  + str(int(p.get("commissions_pending", 0)))
-                  + " KSh pending.", "money_advice"])
-    t = _cap_tagged(t, 4)
-    if not t:
-        t = [["Money is calm today. Use calm to plan, not to spend.", "money_advice"]]
-    return t, f
+    if p.get("bills_overdue_n", 0) > 0 or (p.get("pantry_bottleneck") or {}).get("days", 99) <= 3:
+        t.append(["Cover the basics first; the rest can wait.", "money_advice"])
+    else:
+        t.append(["Money is calm today. Use calm to plan, not to spend.", "money_advice"])
+    return t, []
 
 
 def _v_quiet(p):
-    t = [["This is where PULSE lives with you. Set an anchor line below; "
-          "I'll lean on it whenever a day is heavy.", None]]
-    f = []
+    t = [["This is where PULSE lives with you. Set an anchor line below; I'll lean on it whenever a day is heavy.", None]]
+    bf = []
     if p.get("anchor"):
-        f.append("anchor set")
-    return t, f
+        bf.append("anchor set")
+    return t, bf
 
 
 _VOICES = {
@@ -956,38 +1039,15 @@ _VOICES = {
 
 
 # ---------------------------------------------------------------------------
-# compose (deterministic + optional free-tier LLM)
+# compose (deterministic feel voice + optional free-tier LLM voice)
 # ---------------------------------------------------------------------------
 
-def _compose(pkt, voice, idx, fb, refl, state, allow_money):
+def _compose(pkt, voice, idx, fb, refl, state, allow_money, extra):
     fn = _VOICES.get(voice, _v_morning)
     tagged, base_facts = fn(pkt)
-    sents, facts, feats, refs, aug_prov = _augment(
+    sents, facts, feats, refs, prov = _augment(
         pkt, tagged, base_facts, idx, fb, refl, state, allow_money)
-    prov = list(aug_prov)
-    for text, feat in tagged:
-        p = _prov_for(feat, pkt)
-        if p:
-            prov.append(p)
     mb = pkt.get("mood_band", "none")
-    thread = None
-    if _HAS_BRAIN:
-        try:
-            thread = _B.thread_for(pkt, refl)
-        except Exception:
-            thread = None
-    if thread and _HAS_BRAIN and _B.move_allowed(state, fb, voice, mb, "quoted_memory"):
-        sents.append(thread)
-        feats.add("quoted_memory")
-        prov.append("a thread in your own words")
-    nudge = None
-    if _HAS_BRAIN:
-        try:
-            nm = _B.next_move(pkt)
-            if nm:
-                nudge = nm[0]
-        except Exception:
-            nudge = None
     brev = _B.taste_brevity(state, voice, mb) if _HAS_BRAIN else ""
     if voice == "quiet":
         cap = 1
@@ -1001,19 +1061,23 @@ def _compose(pkt, voice, idx, fb, refl, state, allow_money):
     cite = ("— " + " · ".join(prov)) if prov else ""
     used = False
     provider = None
+    perc = (extra or {}).get("perc") or {}
     if _have_llm():
-        lm, prov_name = _llm_message(pkt, voice, idx, fb, refl, state,
-                                     allow_money, style, brev, thread,
-                                     nudge)
+        lm, pn = _llm_message(pkt, voice, idx, fb, refl, state,
+                              allow_money, style, brev, extra)
         if lm:
             msg = lm
             used = True
-            provider = prov_name
-    meta = {
-        "moves": list(feats), "refs": refs, "grounds": facts,
-        "provenance": prov, "cite_line": cite, "nudge": nudge,
-        "thread": thread, "provider": provider,
-    }
+            provider = pn
+    meta = dict(
+        moves=list(feats), refs=refs, grounds=facts, provenance=prov,
+        cite_line=cite, nudge=perc.get("nudge", ""),
+        moment=perc.get("moment", ""),
+        perceive=(extra or {}).get("perceive_chosen", ""),
+        pulse=perc.get("pulse", ""),
+        breath=perc.get("breath", 5.0), sat=perc.get("sat", 1.0),
+        provider=provider,
+    )
     return msg, used, meta
 
 
@@ -1074,9 +1138,13 @@ def _constraints_block(fb, mb, page, state):
 
 
 def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
-                 style, brev, thread, nudge):
+                 style, brev, extra):
     if not _HAS_ROUTER:
         return None, None
+    extra = extra or {}
+    perc = extra.get("perc") or {}
+    pc = extra.get("perceive_chosen", "")
+    th = extra.get("thread", "")
     parts = [_SYS, "", "CONTEXT:"]
     parts.append("today " + str(pkt["today"]) + " ("
                  + str(pkt.get("day_type", "")) + ")")
@@ -1149,14 +1217,26 @@ def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
         parts.append("")
         parts.append("PATTERNS (learned about them over time):")
         parts.append(pb)
-    if thread:
+    if th:
         parts.append("")
         parts.append("THREAD (a feeling they have felt on multiple days):")
-        parts.append(thread)
-    if nudge:
+        parts.append(th)
+    if perc.get("moment"):
+        parts.append("")
+        parts.append("PAGE MOMENT (where and when they are right now):")
+        parts.append(perc["moment"])
+    if pc:
+        parts.append("")
+        parts.append("PAGE NOTICE (what you observe on this page; weave it in):")
+        parts.append(pc)
+    if perc.get("pulse"):
+        parts.append("")
+        parts.append("PAGE RHYTHM (how they show up to this part of their life):")
+        parts.append(perc["pulse"])
+    if perc.get("nudge"):
         parts.append("")
         parts.append("NEXT MOVE (the single most useful concrete step):")
-        parts.append(nudge)
+        parts.append(perc["nudge"])
     cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice, state)
     if cb:
         parts.append("")
@@ -1210,17 +1290,19 @@ def _llm_answer(pkt, voice, question, idx, fb, refl, state, allow_money):
     parts.append("Answer the question using only the facts above. "
                  "2 to 4 sentences, second person, no lists.")
     system = "\n".join(parts)
+    fused = question + " " + _auto_query(pkt.get("page", "morning"), pkt)
     try:
         return _R.chat(
             [{"role": "system", "content": system},
-             {"role": "user", "content": question}],
+             {"role": "user", "content": fused}],
             temperature=0.6, max_tokens=240)
     except Exception:
         return None, None
 
 
 def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
-    docs = _search(idx, fb, question, allow_money,
+    fused = question + " " + _auto_query(pkt.get("page", "morning"), pkt)
+    docs = _search(idx, fb, fused, allow_money,
                    pkt.get("mood_today"), k=3, refl=refl, state=state,
                    page=pkt.get("page"))
     if not docs:
@@ -1249,47 +1331,42 @@ def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
 # render
 # ---------------------------------------------------------------------------
 
-def _card_html(voice, message, cite_line, used_llm, provider,
-               thread, nudge):
+def _card_html(voice, message, cite_line, used_llm, provider, moment,
+               perceive, pulse, nudge, breath, sat, pulse_once):
     label, color = VOICE_META.get(voice, ("Companion", "#8893AB"))
     msg = _e(message).replace("\n", "<br>")
-    if used_llm:
-        ai = '<span class="plc-ai">ai</span>'
-    else:
-        ai = ""
-    if used_llm and provider:
-        via = '<span class="plc-via">via ' + _e(provider) + '</span>'
-    else:
-        via = ""
-    if cite_line:
-        cite = '<div class="plc-cite">' + _e(cite_line) + '</div>'
-    else:
-        cite = ""
-    if thread:
-        thread_html = '<div class="plc-thread">' + _e(thread) + '</div>'
-    else:
-        thread_html = ""
-    if nudge:
-        nudge_html = ('<div class="plc-nudge"><span class="arr">→</span>'
-                      '<span>' + _e(nudge) + '</span></div>')
-    else:
-        nudge_html = ""
+    ai = '<span class="plc-ai">ai</span>' if used_llm else ""
+    via = ('<span class="plc-via">via ' + _e(provider) + '</span>') \
+        if (used_llm and provider) else ""
+    flash = '<div class="plc-flash"></div>' if pulse_once else ""
+    moment_html = ('<div class="plc-moment"><span class="plc-moment-dot">'
+                   '</span>' + _e(moment) + '</div>') if moment else ""
+    perceive_html = ('<div class="plc-perceive">' + _e(perceive)
+                     + '</div>') if (perceive and not used_llm) else ""
+    pulse_html = ('<div class="plc-pulse">↻ ' + _e(pulse)
+                  + '</div>') if (pulse and not used_llm) else ""
+    nudge_html = ('<div class="plc-nudge"><span class="arr">→</span>'
+                  '<span>' + _e(nudge) + '</span></div>') if nudge else ""
+    cite_html = ('<div class="plc-cite">' + _e(cite_line)
+                 + '</div>') if cite_line else ""
+    breath_s = format(float(breath), ".1f")
+    sat_v = format(float(sat), ".2f")
     return (
         _STYLE
-        + '<div class="plc" style="--plc:' + color + '">'
-        + '<div class="plc-grain"></div>'
-        + '<div class="plc-sheen"></div>'
-        + '<div class="plc-rail"></div>'
-        + '<div class="plc-halo"></div>'
+        + '<div class="plc" style="--plc:' + color + ';--plc-breath:'
+        + breath_s + 's;--plc-sat:' + sat_v + '">'
+        + '<div class="plc-grain"></div><div class="plc-sheen"></div>'
+        + '<div class="plc-rail"></div><div class="plc-halo"></div>'
+        + flash
         + '<span class="plc-tune-hint">✎</span>'
-        + '<div class="plc-head">'
-        + '<span class="plc-mark">PULSE</span>'
-        + '<span class="plc-voice">' + _e(label) + '</span>'
-        + ai + via + '</div>'
-        + '<div class="plc-body">'
-        + '<span class="plc-quote">“</span>'
+        + '<div class="plc-head"><span class="plc-mark">PULSE</span>'
+        + '<span class="plc-voice">' + _e(label) + '</span>' + ai
+        + via + '</div>'
+        + moment_html
+        + '<div class="plc-body"><span class="plc-quote">“</span>'
         + '<p class="plc-line">' + msg + '</p></div>'
-        + cite + thread_html + nudge_html + '</div>'
+        + perceive_html + pulse_html + nudge_html + cite_html
+        + '</div>'
     )
 
 
@@ -1307,7 +1384,8 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
                 + " · ".join(_e(x) for x in g) + '</div>',
                 unsafe_allow_html=True)
         if _HAS_BRAIN:
-            summ = _B.taste_summary(state, voice, pkt.get("mood_band", "none"))
+            summ = _B.taste_summary(state, voice,
+                                    pkt.get("mood_band", "none"))
             if summ:
                 st.markdown(
                     '<div class="plc-taste">what PULSE has learned here: '
@@ -1331,6 +1409,7 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
                 if _HAS_BRAIN:
                     _B.apply_tune(state, fb, rec)
                     _B.save_state(state)
+                st.session_state["plc_pulse_once"] = True
                 st.success("Tuned. PULSE will lean that way next time.")
                 st.rerun()
         q = st.text_input(
@@ -1461,8 +1540,44 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
                 _B.save_state(state)
             except Exception:
                 pass
+        page_stats = _page_stats(ctx, voice, allow_money)
+        perc = {}
+        if _HAS_PERC:
+            try:
+                perc = _P.perceive(pkt, voice, page_stats, allow_money) or {}
+            except Exception:
+                perc = {}
+        thread = ""
+        if _HAS_BRAIN:
+            try:
+                thread = _B.thread_for(pkt, refl) or ""
+            except Exception:
+                thread = ""
+        cand = [c for c in [thread, perc.get("line", ""),
+                            perc.get("alt", "")] if c]
+        pr = state.setdefault("page_recent", {}) \
+            if isinstance(state, dict) else {}
+        recent = pr.get(voice, []) if isinstance(pr, dict) else []
+        pick = ""
+        for c in cand:
+            if c not in recent:
+                pick = c
+                break
+        if not pick and cand:
+            pick = cand[0]
+        if isinstance(pr, dict):
+            pr[voice] = [pick] if pick else []
+            if isinstance(state, dict):
+                state["page_recent"] = pr
+        if _HAS_BRAIN and isinstance(state, dict):
+            try:
+                _B.save_state(state)
+            except Exception:
+                pass
+        pulse_once = bool(st.session_state.pop("plc_pulse_once", False))
+        extra = dict(perc=perc, perceive_chosen=pick, thread=thread)
         msg, used, meta = _compose(pkt, voice, idx, fb, refl, state,
-                                   allow_money)
+                                   allow_money, extra)
         if _HAS_BRAIN:
             try:
                 _B.note_surfaced(state, voice,
@@ -1472,10 +1587,13 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
                 _B.save_state(state)
             except Exception:
                 pass
-        st.markdown(_card_html(voice, msg, meta.get("cite_line", ""),
-                               used, meta.get("provider"),
-                               meta.get("thread"), meta.get("nudge")),
-                    unsafe_allow_html=True)
+        st.markdown(_card_html(
+            voice, msg, meta.get("cite_line", ""), used,
+            meta.get("provider"), meta.get("moment", ""),
+            meta.get("perceive", ""), meta.get("pulse", ""),
+            meta.get("nudge", ""), meta.get("breath", 5.0),
+            meta.get("sat", 1.0), pulse_once),
+            unsafe_allow_html=True)
         try:
             _extras(pkt, voice, idx, fb, refl, state, allow_money, meta)
         except Exception:
@@ -1487,10 +1605,10 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
                 pass
     except Exception:
         try:
-            st.markdown(_card_html(voice or "morning",
-                                   "I'm here. (the companion hit a snag - "
-                                   "your data is safe.)", "", False,
-                                   None, None, None),
-                        unsafe_allow_html=True)
+            st.markdown(_card_html(
+                voice or "morning",
+                "I'm here. (the companion hit a snag - your data is safe.)",
+                "", False, None, "", "", "", "", 5.0, 1.0, False),
+                unsafe_allow_html=True)
         except Exception:
             pass
