@@ -1,30 +1,40 @@
 """PULSE companion - the voice that has read your life.
 
-The card is built to feel spoken, not displayed: a slow breathing halo whose
-rhythm and saturation are per-page, a caught-light sheen on hover, a fine
-linen grain, a left rail in the voice's own colour, and the voice line set
-large and italic with a hanging drop-cap quotation glyph. The companion now
-speaks in five non-overlapping layers (moment / voice / notice / pulse /
-nudge) each computed from a different angle of the live state, so no page
-ever reads the same and no layer repeats another. A single delicate
-provenance line sits in the margin like a citation in a fine book; the
+The card feels spoken, not displayed: a slow breathing halo whose rhythm and
+saturation are per-page, a caught-light sheen on hover, a fine linen grain, a
+left rail in the voice's own colour, and the voice line set large and italic
+with a hanging drop-cap quotation glyph. The companion speaks in five non-
+overlapping layers (moment / voice / notice / pulse / nudge), each computed
+from a different angle of the LIVE state, so no page reads the same and no
+layer repeats another.
+
+LIVE, in the moment: the companion builds a live view of today's routine
+timeline (_compute_live) and threads it into the perception layer. The
+"next step" is therefore the chronologically next undone thing (current
+block -> next block -> next block that maps to an unticked habit), never a
+list-order habit from the wrong time of day. The moment eyebrow is keyed to
+the real clock + current block ("LIVE · 20:14 · in Workout 45 min now"), so
+liveness is auditable at a glance, and the perception adapts to how the day
+went (a passed-but-unticked habit surfaces gently; the pulse counts blocks
+behind vs ahead).
+
+A single delicate provenance line sits in the margin like a citation; the
 machinery (grounding facts, the ask-box, the tuning, the free-tier provider
 that answered, a one-shot flash on tune) lives in one collapsed, whisper-
 quiet drawer beneath the card, framed as tuning an instrument, never grading
 a student. There is NO like/dislike on the card - PULSE learns from what the
-operator does after it speaks (brain.reconcile_implicit), so the rating
-friction that poisons a presence is gone.
+operator does after it speaks (brain.reconcile_implicit).
 
 Three layers over one context packet:
   * build_packet() reads recent journal / spirit / sales / mood / clients /
     tasks / habits / weight, and - ONLY when allow_money is True (inside the
     locked Archive) - pantry / runway / emergency / bills / commissions.
   * A deterministic feel-only voice per page, augmented by the brain with a
-    remembered verse or memory, plus a page-aware perception (perceive.py):
-    a moment, a factual notice, a 7-day pulse, and a concrete nudge.
+    remembered verse or memory, plus the live timeline (moment / notice /
+    pulse / nudge).
   * If the free-tier router (src.llm_router) has any provider configured, a
-    strictly-grounded model writes the voice line, fed all five layers as
-    constraints so its voice is page-personalised too.
+    strictly-grounded model writes the voice line, fed all five layers (incl.
+    the live next-step) as constraints so its voice is page-personalised too.
 
 Every public function fails open. The whole panel is wrapped so a failure
 never breaks the host page. No f-strings are used anywhere in this file.
@@ -460,6 +470,102 @@ def _have_llm():
 
 
 # ---------------------------------------------------------------------------
+# live timeline view (anchors perception to the clock)
+# ---------------------------------------------------------------------------
+
+def _wt(s):
+    out = []
+    cur = ""
+    for ch in (s or "").lower():
+        if ch.isalnum():
+            cur = cur + ch
+        else:
+            if len(cur) >= 4:
+                out.append(cur)
+            cur = ""
+    if len(cur) >= 4:
+        out.append(cur)
+    return out
+
+
+def _match_habit(block_label, habits, log, today_iso):
+    bl = (block_label or "").lower()
+    blt = set(_wt(block_label))
+    for h in habits:
+        nm = (h.get("name") or "").lower()
+        if not nm:
+            continue
+        nmt = set(_wt(nm))
+        if not (nmt & blt):
+            continue
+        if not log.get(h["id"], {}).get(today_iso):
+            return h
+    return None
+
+
+def _compute_live(ctx, habits, log, today_iso):
+    blocks = ctx.get("today_blocks") or []
+    aidx = ctx.get("active_idx", -1)
+    if aidx is None:
+        aidx = -1
+    try:
+        prog = float(ctx.get("progress", 0.0) or 0.0)
+    except Exception:
+        prog = 0.0
+    cur = ctx.get("current")
+    nxt = ctx.get("next_block")
+    now_dt = ctx.get("now_dt")
+    now_hm = now_dt.strftime("%H:%M") if now_dt else "--:--"
+    cur_label = (cur or {}).get("label", "") if isinstance(cur, dict) else ""
+    cur_time = (cur or {}).get("time", "") if isinstance(cur, dict) else ""
+    nxt_label = (nxt or {}).get("label", "") if isinstance(nxt, dict) else ""
+    nxt_time = (nxt or {}).get("time", "") if isinstance(nxt, dict) else ""
+    cur_habit = (_match_habit(cur_label, habits, log, today_iso)
+                 if cur_label else None)
+    nxt_habit = None
+    nxt_habit_time = ""
+    start = aidx if aidx >= 0 else 0
+    for b in blocks[start + 1:]:
+        h = _match_habit(b.get("label", ""), habits, log, today_iso)
+        if h:
+            nxt_habit = h
+            nxt_habit_time = b.get("time", "")
+            break
+    if nxt_habit is None and now_dt is not None and now_dt.hour >= 21:
+        for h in habits:
+            nm = (h.get("name") or "").lower()
+            if (("light" in nm or "sleep" in nm)
+                    and not log.get(h["id"], {}).get(today_iso)):
+                nxt_habit = h
+                nxt_habit_time = ""
+                break
+    passed = None
+    if aidx > 0:
+        for b in blocks[:aidx]:
+            h = _match_habit(b.get("label", ""), habits, log, today_iso)
+            if h:
+                passed = h
+                break
+    passed_n = aidx if aidx > 0 else 0
+    ahead = max(0, len(blocks) - passed_n - (1 if cur_label else 0))
+    return {
+        "now_hm": now_hm,
+        "cur_label": cur_label, "cur_time": cur_time,
+        "nxt_label": nxt_label, "nxt_time": nxt_time,
+        "prog": prog,
+        "cur_habit": ((cur_habit or {}).get("name", "")
+                      if isinstance(cur_habit, dict) else ""),
+        "nxt_habit": ((nxt_habit or {}).get("name", "")
+                      if isinstance(nxt_habit, dict) else ""),
+        "nxt_habit_time": nxt_habit_time,
+        "passed_habit": ((passed or {}).get("name", "")
+                         if isinstance(passed, dict) else ""),
+        "has_blocks": bool(blocks),
+        "passed_n": passed_n, "ahead": ahead,
+    }
+
+
+# ---------------------------------------------------------------------------
 # per-page stats (built from session data, handed to perceive.py)
 # ---------------------------------------------------------------------------
 
@@ -494,11 +600,6 @@ def _page_stats(ctx, voice, allow_money):
         cleared_days_7 = sum(
             1 for d in last7
             if any(t.get("done_date") == d for t in tasks))
-        first_undone = ""
-        for h in habits:
-            if not (log.get(h["id"], {}) or {}).get(today.isoformat()):
-                first_undone = h.get("name", "")
-                break
         term = set(D.terminal_ids())
         due_clients = [c for c in clients
                        if c.get("stage") not in term
@@ -552,7 +653,8 @@ def _page_stats(ctx, voice, allow_money):
                         if not t.get("done") and t.get("due")
                         and t["due"] < today.isoformat())
         due_t = sum(1 for t in tasks
-                    if not t.get("done") and t.get("due") == today.isoformat())
+                    if not t.get("done")
+                    and t.get("due") == today.isoformat())
         cons7 = _consistency(habits, log, 7)
         sw = sum(int((sd.get(d) or {}).get("sold", 0) or 0) for d in last7)
         sh = _spirit_health(spiritual)
@@ -587,14 +689,18 @@ def _page_stats(ctx, voice, allow_money):
             bo = sum(1 for b in vault.get("bills", [])
                      if not b.get("paid") and b.get("due")
                      and b["due"] < today.isoformat())
+        live = _compute_live(ctx, habits, log, today.isoformat())
         ps.update({
-            "first_undone": first_undone, "due_n": len(due_clients),
-            "due": len(due_clients), "over": len(over_clients),
+            "due_n": len(due_clients), "due": len(due_clients),
+            "over": len(over_clients),
             "yest": int((sd.get(yest_iso) or {}).get("sold", 0) or 0),
-            "hottest": hottest, "last_word": last_word,
+            "hottest": hottest,
+            "last_word": last_word,
             "word": ((se or {}).get("word") or "").strip() if se else "",
-            "depth": depth, "sat_streak": _streak_spirit(spiritual),
-            "sat_today": sat_today, "last_lesson": last_lesson,
+            "depth": depth,
+            "sat_streak": _streak_spirit(spiritual),
+            "sat_today": sat_today,
+            "last_lesson": last_lesson,
             "j_today": j_today, "j_streak": j_streak, "ws": ws,
             "delta": wdelta, "overdue": overdue_t, "due_t": due_t,
             "c": cons7, "sw": sw, "sh": sh,
@@ -602,6 +708,7 @@ def _page_stats(ctx, voice, allow_money):
             "move_days_7": move_days_7, "j_days_7": j_days_7,
             "cleared_days_7": cleared_days_7,
             "name": name, "days": days, "bo": bo,
+            "live": live,
         })
     except Exception:
         pass
@@ -929,23 +1036,28 @@ def _cap_tagged(tagged, n):
 def _v_morning(p):
     t = []
     bf = []
-    h = p["hour"]
+    live = p.get("_live") or {}
+    h = p.get("hour", 12)
     if h < 12:
         g = "Morning"
     elif h < 17:
         g = "Afternoon"
     else:
         g = "Evening"
-    m = p["mood_today"]
-    if m in LOW:
+    m = p.get("mood_today", "")
+    cur = live.get("cur_label", "")
+    if cur:
+        t.append([g + " - you're in " + cur
+                  + " right now; let it be the whole focus.", None])
+    elif m in LOW:
         t.append([g + ", and the mood reads " + m
-                  + ". I'd keep the first hour small and kind.", "pep_talk"])
+                  + ". Keep this hour small and kind.", "pep_talk"])
     elif m:
-        t.append([g + " at " + m + " - let that lead the day.", None])
+        t.append([g + " at " + m + " - let that lead the hour.", None])
     else:
-        t.append([g + ". The page is blank; one true move makes it real.", None])
+        t.append([g + ". One true move makes the hour real.", None])
     lv = p.get("last_verse")
-    if lv and (m in LOW or p.get("dow", 0) % 2 == 0):
+    if lv and (m in LOW or (p.get("dow", 0) % 2 == 0)):
         t.append(["Carry this: “" + lv["word"]
                   + "”. It held you when you wrote it.", "quoted_verse"])
         bf.append("verse " + lv["date"])
@@ -955,7 +1067,7 @@ def _v_morning(p):
 def _v_sales(p):
     t = []
     bf = []
-    m = p["mood_today"]
+    m = p.get("mood_today", "")
     if m in LOW:
         t.append(["I know it feels thin right now. Feelings lie; your log doesn't.", "pep_talk"])
         lv = p.get("last_verse")
@@ -1250,7 +1362,7 @@ def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
     parts.append("PAGE VOICE: " + voice)
     style_line = "STYLE: " + (style or "natural, warm, specific")
     if brev == "short":
-        style_line += "; keep it to one or two sentences, no padding."
+        style_line = style_line + "; keep it to one or two sentences, no padding."
     parts.append(style_line)
     parts.append("Speak 1 to 3 sentences; prefer fewer when the line is strong.")
     system = "\n".join(parts)
@@ -1470,7 +1582,7 @@ def _companion_settings(ctx):
                         cooled = info.get("cooled", False)
                         line = name + " · " + str(ms) + "ms · " + mdl
                         if cooled:
-                            line += " · cooling"
+                            line = line + " · cooling"
                         provs.append(line)
                 except Exception:
                     pass
@@ -1541,6 +1653,7 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
             except Exception:
                 pass
         page_stats = _page_stats(ctx, voice, allow_money)
+        pkt["_live"] = (page_stats or {}).get("live", {})
         perc = {}
         if _HAS_PERC:
             try:
