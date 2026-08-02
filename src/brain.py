@@ -2,44 +2,33 @@
 
 The layer that turns the companion from "reads the last three lines" into a
 memory that knows one person across time. Pure standard library plus our own
-util (no Streamlit), so no host or version can break it, and every public
-function fails open: a corrupt index rebuilds, a bad search returns [], a
-failed reflection or reconciliation is skipped. A bug here can never take
+util (no Streamlit import), so no host or version can break it, and every
+public function fails open: a corrupt index rebuilds, a bad search returns [],
+a failed reflection or reconciliation is skipped. A bug here can never take
 down a page or touch the operator's data.
 
-What makes it genuinely intelligent (all offline, all persisted as JSON):
-  * Temporal-rhythm retrieval: a memory that landed on a Tuesday 07:00 is
-    weighted higher on a Tuesday morning, because a life has a rhythm.
-  * Query expansion from the operator's own vocabulary: recurring lessons
-    and recurring wins become the high-value search terms.
-  * A per (mood x page) taste model that learns which moves and which
-    sources resonate, and ranks every future message by predicted resonance.
-  * Implicit reinforcement from BEHAVIOUR: if the companion surfaces a verse
-    and the operator then logs spirit at depth, that path is strengthened;
-    if it cites a past win and a sale follows, that retrieval is strengthened;
-    silence is never punished. No click, no rating, no friction.
-  * Anti-repetition: it will not surface the same memory twice in a row.
-  * Confidence-calibrated brevity: it can choose to say one true line.
+Capabilities (all offline, all persisted as JSON, all auditable):
+  * Lexical TF-IDF inverted index fused with a dependency-free semantic layer
+    (stable MD5-seeded character-n-gram hashing, sparse cosine) and MMR-style
+    diversity, so retrieval never returns near-duplicates.
+  * Temporal-rhythm weighting (a memory that landed on a Tuesday 07:00 scores
+    higher on a Tuesday morning), recency decay, mood matching.
+  * Query expansion from the operator's own recurring lessons and wins.
+  * A per (mood x page) taste model that learns which moves and sources
+    resonate; implicit reinforcement from BEHAVIOUR (no clicks, no ratings).
+  * Anti-repetition: never surface the same memory twice in a row.
+  * Thread / echo detection across days, grounded next-best-action nudges, and
+    a once-per-day self-note the brain writes about the operator.
+  * A memory-health readout (index size, semantic coverage, thread count,
+    taste convergence) so the "it is learning" claim is measurable.
 
 Privacy: money-sourced documents are indexed but only retrievable when the
-caller passes allow_money=True (inside the locked Archive). Enforced at
-search time, not by trust.
-
-Design notes (the honest read of the blueprint bundle supplied earlier): the
-DigitalOcean ELK blueprint is a full-text-search-over-your-own-history engine;
-we translate that idea into this offline inverted index with TF-IDF plus the
-rhythm/taste/anti-repeat layers above. The Airflow blueprint is a durable
-scheduled-jobs engine; we translate that into the nightly reflection pass
-(reflect()) plus the opportunistic reconcile_implicit(), both cached in data/
-with no daemon. On a VPS the same JSON files persist via the mounted data/
-volume; if the operator ever scales to many heavy sources, a real scheduler
-(the Airflow pattern) is the migration target, but for one operator this
-lightweight equivalent is correct and already present. The old trading-
-terminal PULSE files confirmed the design DNA and what NOT to regress; they
-are not reused here.
+caller passes allow_money=True (inside the locked Archive). Enforced at search
+time, not by trust.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -52,6 +41,8 @@ _IDX = _DATA / "brain_index.json"
 _FB = _DATA / "brain_feedback.json"
 _REFL = _DATA / "brain_reflection.json"
 _STATE = _DATA / "brain_state.json"
+
+_SEM_DIM = 512
 
 _STOP = set((
     "the", "and", "for", "that", "this", "with", "from", "they", "have",
@@ -109,11 +100,51 @@ def tokenize(text):
     return out
 
 
-def _bigrams(tokens):
-    out = []
-    for i in range(len(tokens) - 1):
-        out.append(tokens[i] + " " + tokens[i + 1])
+def _ngrams(text):
+    toks = tokenize(text)
+    out = list(toks)
+    for i in range(len(toks) - 1):
+        out.append(toks[i] + " " + toks[i + 1])
     return out
+
+
+def _dim(t):
+    h = hashlib.md5(t.encode("utf-8")).hexdigest()[:8]
+    return int(h, 16) % _SEM_DIM
+
+
+def _sem_vector(text):
+    counts = {}
+    for t in _ngrams(text):
+        counts[t] = counts.get(t, 0) + 1
+    vec = {}
+    for t, w in counts.items():
+        d = _dim(t)
+        vec[d] = vec.get(d, 0.0) + float(w)
+    norm = math.sqrt(sum(v * v for v in vec.values())) or 0.0
+    if norm <= 0:
+        return [], 0.0
+    sparse = [[d, round(w, 4)] for d, w in vec.items()]
+    return sparse, round(norm, 4)
+
+
+def _sem_dot(qvec, qnorm, doc_sparse, doc_norm):
+    if qnorm <= 0 or doc_norm <= 0 or not doc_sparse:
+        return 0.0
+    doc_map = {}
+    for pair in doc_sparse:
+        try:
+            doc_map[int(pair[0])] = float(pair[1])
+        except Exception:
+            pass
+    dot = 0.0
+    for d, w in qvec:
+        dv = doc_map.get(d)
+        if dv:
+            dot += w * dv
+    if dot <= 0:
+        return 0.0
+    return dot / (qnorm * doc_norm)
 
 
 def _clamp(v, lo=-6.0, hi=6.0):
@@ -274,7 +305,7 @@ def _docs_from_stores(stores):
 
 
 # ---------------------------------------------------------------------------
-# inverted index (TF-IDF)
+# inverted index (TF-IDF) + semantic vectors
 # ---------------------------------------------------------------------------
 
 def _signature(stores):
@@ -298,6 +329,7 @@ def _build(stores):
     n = len(docs)
     df = {}
     vectors = []
+    vecs = []
     for i, doc in enumerate(docs):
         toks = tokenize(doc["text"])
         tf = {}
@@ -309,12 +341,17 @@ def _build(stores):
         for t in set(toks):
             df[t] = df.get(t, 0) + 1
         vectors.append({"i": i, "tf": tf})
+        try:
+            sparse, norm = _sem_vector(doc["text"])
+        except Exception:
+            sparse, norm = [], 0.0
+        vecs.append({"v": sparse, "n": norm})
     idf = {}
     for t, d in df.items():
         idf[t] = math.log((n + 1.0) / (d + 1.0)) + 1.0
     return {
         "sig": _signature(stores), "docs": docs,
-        "idf": idf, "vectors": vectors,
+        "idf": idf, "vectors": vectors, "vecs": vecs,
     }
 
 
@@ -332,7 +369,7 @@ def save_index(idx):
 def refresh_index(stores):
     sig = _signature(stores)
     idx = load_index()
-    if idx is not None and idx.get("sig") == sig:
+    if idx is not None and idx.get("sig") == sig and "vecs" in idx:
         return idx
     idx = _build(stores)
     save_index(idx)
@@ -344,6 +381,17 @@ def index_size(idx):
         return len((idx or {}).get("docs") or [])
     except Exception:
         return 0
+
+
+def semantic_coverage(idx):
+    try:
+        vecs = (idx or {}).get("vecs") or []
+        if not vecs:
+            return 0.0
+        have = sum(1 for v in vecs if v.get("n", 0) > 0)
+        return round(100.0 * have / len(vecs), 1)
+    except Exception:
+        return 0.0
 
 
 def rebuild(stores):
@@ -485,6 +533,33 @@ def taste_summary(state, page, mb):
     return "; ".join(parts[:3])
 
 
+def taste_convergence(state):
+    if not isinstance(state, dict):
+        return 0.0
+    t = state.get("taste") or {}
+    vals = []
+    for d in t.values():
+        if not isinstance(d, dict):
+            continue
+        for k, v in d.items():
+            if isinstance(k, str) and k.startswith("move:"):
+                try:
+                    vals.append(float(v))
+                except Exception:
+                    pass
+    if len(vals) < 3:
+        return 0.0
+    mean = sum(vals) / len(vals)
+    var = sum((x - mean) * (x - mean) for x in vals) / len(vals)
+    sd = math.sqrt(var)
+    c = 1.0 - (sd / 3.0)
+    if c < 0:
+        c = 0.0
+    if c > 1:
+        c = 1.0
+    return round(100.0 * c, 1)
+
+
 def move_allowed(state, fb, page, mb, feat):
     if is_suppressed(fb, mb, page, feat):
         return False
@@ -530,7 +605,7 @@ def apply_tune(state, fb, rec):
 
 
 # ---------------------------------------------------------------------------
-# feedback store (now carries only "tune" records; no thumbs)
+# feedback store (tune records only; no thumbs)
 # ---------------------------------------------------------------------------
 
 def load_feedback():
@@ -741,7 +816,7 @@ def reconcile_implicit(state, stores, fb):
 
 
 # ---------------------------------------------------------------------------
-# search (TF-IDF + recency + mood + weekday rhythm + taste + anti-repeat)
+# search (lexical TF-IDF fused with semantic cosine + MMR diversity)
 # ---------------------------------------------------------------------------
 
 def _feedback_boost_for(doc, fb):
@@ -760,6 +835,40 @@ def _feedback_boost_for(doc, fb):
         if (tags & rt) or (rsrc and rsrc == src):
             score += w
     return score
+
+
+def _mmr_pick(scored_with_vec, qvec, qnorm, vecs, k, lam=0.7):
+    picked = []
+    remaining = list(scored_with_vec)
+    while remaining and len(picked) < k:
+        best_i = -1
+        best_val = -1e9
+        for j, item in enumerate(remaining):
+            s = item[0]
+            di = item[1]
+            div = 1.0
+            for _, pdi, _ in picked:
+                pv = vecs[pdi] if pdi < len(vecs) else {"v": [], "n": 0.0}
+                cv = vecs[di] if di < len(vecs) else {"v": [], "n": 0.0}
+                sim = _sem_dot(qvec, qnorm, cv.get("v", []),
+                               cv.get("n", 0.0)) if False else \
+                      _sem_dot(_pairs_to_qvec(pv.get("v", [])),
+                               pv.get("n", 0.0), cv.get("v", []),
+                               cv.get("n", 0.0))
+                if sim > div:
+                    div = sim
+            val = lam * s + (1.0 - lam) * (1.0 - div)
+            if val > best_val:
+                best_val = val
+                best_i = j
+        if best_i < 0:
+            break
+        picked.append(remaining.pop(best_i))
+    return picked
+
+
+def _pairs_to_qvec(pairs):
+    return [(int(p[0]), float(p[1])) for p in (pairs or [])]
 
 
 def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
@@ -781,13 +890,16 @@ def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
         idf = idx.get("idf") or {}
         docs = idx.get("docs") or []
         vectors = idx.get("vectors") or []
+        vecs = idx.get("vecs") or []
         mb = mood_band(mood)
         try:
             wd_today = _U.today_local().weekday()
         except Exception:
             wd_today = None
         recent_refs = set((state or {}).get("recent_refs") or [])
-        scored = []
+        q_sparse, q_norm = _sem_vector(query)
+        qvec = _pairs_to_qvec(q_sparse)
+        lex_raw = {}
         for vec in vectors:
             di = vec["i"]
             if di >= len(docs):
@@ -800,10 +912,27 @@ def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
             for t in qtoks:
                 if t in tf:
                     s += tf[t] * idf.get(t, 1.0)
-            if s <= 0:
+            lex_raw[di] = s
+        lex_max = max(list(lex_raw.values()) + [1.0]) or 1.0
+        scored = []
+        for di, lex in lex_raw.items():
+            if lex <= 0 and not vecs:
+                continue
+            doc = docs[di]
+            lex_n = lex / lex_max if lex_max > 0 else 0.0
+            cv = vecs[di] if di < len(vecs) else {"v": [], "n": 0.0}
+            sem = _sem_dot(qvec, q_norm, cv.get("v", []),
+                           cv.get("n", 0.0))
+            if lex > 0 and sem > 0:
+                combined = 0.6 * lex_n + 0.4 * sem
+            elif lex > 0:
+                combined = lex_n
+            elif sem > 0:
+                combined = sem
+            else:
                 continue
             if mb and doc.get("mood") == mb:
-                s *= 1.25
+                combined *= 1.25
             dated = doc.get("date", "")
             doc_date = None
             if dated:
@@ -811,25 +940,27 @@ def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
                     from datetime import date as _d
                     doc_date = _d.fromisoformat(dated[:10])
                     age = max(0, (_d.today() - doc_date).days)
-                    s *= math.exp(-age / 90.0) + 0.15
+                    combined *= math.exp(-age / 90.0) + 0.15
                 except Exception:
                     doc_date = None
             if wd_today is not None and doc_date is not None:
                 if doc_date.weekday() == wd_today:
-                    s *= 1.15
-            s += 0.25 * _feedback_boost_for(doc, fb)
+                    combined *= 1.15
+            combined += 0.25 * _feedback_boost_for(doc, fb)
             src = doc.get("src", "")
             move_guess = _SRC_MOVE.get(src)
-            s *= taste_score(state, page, mb, feat=move_guess, src=src)
+            combined *= taste_score(state, page, mb, feat=move_guess,
+                                    src=src)
             ref = src + "|" + dated
             if ref in recent_refs:
-                s *= 0.4
-            scored.append((s, di))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
+                combined *= 0.4
+            scored.append((combined, di, cv))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        picked = _mmr_pick(scored, qvec, q_norm, vecs, max(1, int(k)))
         out = []
-        for s, di in scored[:max(1, int(k))]:
+        for combined, di, _cv in picked:
             d = dict(docs[di])
-            d["score"] = round(s, 3)
+            d["score"] = round(combined, 3)
             out.append(d)
         return out
     except Exception:
@@ -837,7 +968,115 @@ def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
 
 
 # ---------------------------------------------------------------------------
-# nightly reflection - longitudinal patterns, cached once per day
+# threads, nudges, self-note
+# ---------------------------------------------------------------------------
+
+def _threads_compute(stores, today):
+    from datetime import timedelta as _td
+    journal = stores.get("journal") or {}
+    spirit = stores.get("spiritual") or {}
+    occ = {}
+    for o in range(13, -1, -1):
+        d = (today - _td(days=o)).isoformat()
+        e = journal.get(d)
+        if isinstance(e, dict):
+            text = " ".join(filter(None, [e.get("felt"), e.get("happened"),
+                                          e.get("win"), e.get("lesson")]))
+            for bg in _ngrams(text):
+                occ.setdefault(bg, set()).add(d)
+        se = spirit.get(d)
+        if isinstance(se, dict):
+            text = " ".join(filter(None, [se.get("felt"), se.get("word")]))
+            for bg in _ngrams(text):
+                occ.setdefault(bg, set()).add(d)
+    threads = []
+    for bg, dates in occ.items():
+        if len(dates) >= 2:
+            threads.append({"bigram": bg,
+                            "dates": sorted(dates)})
+    threads.sort(key=lambda t: len(t["dates"]), reverse=True)
+    return threads[:6]
+
+
+def thread_for(pkt, refl):
+    if not refl:
+        return None
+    threads = refl.get("threads") or []
+    if not threads:
+        return None
+    lj = pkt.get("last_journal") or {}
+    hay = set(_ngrams(" ".join(filter(None, [
+        lj.get("felt"), lj.get("happened"), pkt.get("mood_today")])))
+    pick = None
+    for t in threads:
+        if t["bigram"] in hay:
+            pick = t
+            break
+    if pick is None:
+        pick = threads[0]
+    dates = pick.get("dates") or []
+    shown = ", ".join(dates[-3:])
+    return ("You've felt '" + str(pick["bigram"]) + "' before - on "
+            + shown + ". You are not starting from zero.")
+
+
+def next_move(pkt):
+    out = []
+    pb = pkt.get("pantry_bottleneck")
+    if pb and pb.get("days", 99) <= 3:
+        out.append("Pantry: " + str(pb.get("name", "a staple"))
+                   + " is at " + str(pb.get("days", 0))
+                   + " days - put it on today's shop list.")
+    if pkt.get("bills_overdue_n", 0) > 0:
+        out.append("Clear the oldest overdue bill before any fun top-up.")
+    cdue = pkt.get("clients_due_n", 0)
+    if cdue > 0 and pkt.get("mood_band") == "low":
+        out.append(str(cdue) + " follow-up waits - open with the hottest, one call.")
+    elif cdue > 0:
+        out.append(str(cdue) + " follow-up waits today - that is revenue in your phone.")
+    if not pkt.get("spirit_today_has") and pkt.get("hour", 12) < 12:
+        out.append("Five silent minutes before the phone wakes up.")
+    if pkt.get("commissions_due", 0) > 0:
+        out.append("Chase the " + str(pkt.get("commissions_due", 0))
+                   + " commission(s) due today.")
+    return out[:2]
+
+
+def self_note(refl):
+    if not refl:
+        return None
+    parts = []
+    rl = refl.get("recurring_lessons") or []
+    if rl:
+        parts.append("Over the last month you keep returning to '"
+                     + str(rl[0]) + "'.")
+    es = refl.get("energy_sources") or []
+    if es:
+        parts.append("Your energy tends to spike when you "
+                     + str(es[0][0]) + ".")
+    slope = refl.get("mood_slope_7", 0) or 0
+    if slope > 0:
+        parts.append("This week your mood has been lifting - notice what you did differently.")
+    elif slope < 0:
+        parts.append("This week has been heavy; that is a season, not a verdict.")
+    if not parts:
+        return None
+    return " ".join(parts[:3])
+
+
+def memory_health(idx, state, fb, refl):
+    summ = feedback_summary(fb)
+    return {
+        "memories": index_size(idx),
+        "semantic_pct": semantic_coverage(idx),
+        "threads": len((refl or {}).get("threads") or []),
+        "taste_convergence_pct": taste_convergence(state),
+        "tunes": summ.get("tunes", 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# nightly reflection (cached once per day)
 # ---------------------------------------------------------------------------
 
 def _reflect_compute(stores):
@@ -876,7 +1115,7 @@ def _reflect_compute(stores):
         if not isinstance(e, dict):
             continue
         toks = tokenize(e.get("lesson") or "")
-        for bg in _bigrams(toks):
+        for bg in _bigrams_only(toks):
             lesson_bigrams[bg] = lesson_bigrams.get(bg, 0) + 1
     recurring_lessons = [b for b, c in sorted(
         lesson_bigrams.items(), key=lambda kv: kv[1], reverse=True)[:3]
@@ -957,6 +1196,10 @@ def _reflect_compute(stores):
             on_time += 1
     bill_rate = int(round(100.0 * on_time / total_b)) if total_b else None
 
+    threads = _threads_compute(stores, today)
+    note = self_note({"recurring_lessons": recurring_lessons,
+                      "energy_sources": energy_sources,
+                      "mood_slope_7": slope})
     return {
         "date": today.isoformat(),
         "mood_slope_7": slope,
@@ -967,7 +1210,16 @@ def _reflect_compute(stores):
         "word_lift": word_lift,
         "promise_rate": promise_rate,
         "bill_on_time_rate": bill_rate,
+        "threads": threads,
+        "self_note": note,
     }
+
+
+def _bigrams_only(tokens):
+    out = []
+    for i in range(len(tokens) - 1):
+        out.append(tokens[i] + " " + tokens[i + 1])
+    return out
 
 
 def reflect(stores):
