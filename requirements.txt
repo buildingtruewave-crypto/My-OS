@@ -1,3 +1,8 @@
 streamlit>=1.32.0
 pandas>=2.0.0
 numpy>=1.24.0
+# Optional but recommended: lets the free-tier router use the OpenAI SDK.
+# httpx is a second transport fallback; urllib (stdlib) is the third.
+# Omit both and PULSE still runs (offline voice + stdlib router if a key exists).
+openai>=1.0.0
+httpx>=0.27.0
