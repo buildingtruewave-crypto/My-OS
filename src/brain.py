@@ -1,37 +1,42 @@
 """PULSE brain - offline, trainable, retrieval-augmented intelligence.
 
-This is the layer that turns the companion from "reads the last three lines"
-into a memory that knows you across time. It is pure standard library (no
-Streamlit, no numpy) so no host or version can break it, and every public
+The layer that turns the companion from "reads the last three lines" into a
+memory that knows one person across time. Pure standard library plus our own
+util (no Streamlit), so no host or version can break it, and every public
 function fails open: a corrupt index rebuilds, a bad search returns [], a
-failed reflection is skipped. A bug here can never take down a page.
+failed reflection or reconciliation is skipped. A bug here can never take
+down a page or touch the operator's data.
 
-Design notes (the honest read of the blueprint bundle the operator supplied):
-  * The DigitalOcean ELK blueprint is a *full-text search over your own
-    history* engine. We translate that idea into a real, offline, in-app
-    inverted index with TF-IDF + recency + mood + feedback weighting. No
-    external vector DB, no embeddings, no network - retrieval that works on
-    the bus with no signal.
-  * The Airflow blueprint is a *durable scheduled-jobs* engine. We translate
-    that into a nightly reflection pass that runs lazily once per calendar
-    day (cached in data/brain_reflection.json) with no daemon. On a VPS the
-    same files persist via the mounted data/ volume; if the operator ever
-    scales to many heavy sources, a real scheduler (the Airflow pattern) is
-    the migration target, but for one operator this lightweight equivalent
-    is correct and already present.
-  * The old trading-terminal PULSE files confirmed the design DNA and what
-    NOT to regress (trading was deliberately retired for TrueWave); they are
-    not reused here.
+What makes it genuinely intelligent (all offline, all persisted as JSON):
+  * Temporal-rhythm retrieval: a memory that landed on a Tuesday 07:00 is
+    weighted higher on a Tuesday morning, because a life has a rhythm.
+  * Query expansion from the operator's own vocabulary: recurring lessons
+    and recurring wins become the high-value search terms.
+  * A per (mood x page) taste model that learns which moves and which
+    sources resonate, and ranks every future message by predicted resonance.
+  * Implicit reinforcement from BEHAVIOUR: if the companion surfaces a verse
+    and the operator then logs spirit at depth, that path is strengthened;
+    if it cites a past win and a sale follows, that retrieval is strengthened;
+    silence is never punished. No click, no rating, no friction.
+  * Anti-repetition: it will not surface the same memory twice in a row.
+  * Confidence-calibrated brevity: it can choose to say one true line.
 
 Privacy: money-sourced documents are indexed but only retrievable when the
-caller passes allow_money=True (i.e. inside the locked Archive). The rule is
-enforced at search time, not by trust.
+caller passes allow_money=True (inside the locked Archive). Enforced at
+search time, not by trust.
 
-Trainability: record_feedback() stores what the operator liked or disliked
-together with the state they were in (mood band + page + which moves the
-message used). is_suppressed() turns accumulated dislikes into learned rules
-that the voice obeys, and complaint_notes() feeds the operator's own past
-words back as constraints. All reset-able from Settings.
+Design notes (the honest read of the blueprint bundle supplied earlier): the
+DigitalOcean ELK blueprint is a full-text-search-over-your-own-history engine;
+we translate that idea into this offline inverted index with TF-IDF plus the
+rhythm/taste/anti-repeat layers above. The Airflow blueprint is a durable
+scheduled-jobs engine; we translate that into the nightly reflection pass
+(reflect()) plus the opportunistic reconcile_implicit(), both cached in data/
+with no daemon. On a VPS the same JSON files persist via the mounted data/
+volume; if the operator ever scales to many heavy sources, a real scheduler
+(the Airflow pattern) is the migration target, but for one operator this
+lightweight equivalent is correct and already present. The old trading-
+terminal PULSE files confirmed the design DNA and what NOT to regress; they
+are not reused here.
 """
 from __future__ import annotations
 
@@ -40,10 +45,13 @@ import math
 import re
 from pathlib import Path
 
+from . import util as _U
+
 _DATA = Path(__file__).resolve().parent.parent / "data"
 _IDX = _DATA / "brain_index.json"
 _FB = _DATA / "brain_feedback.json"
 _REFL = _DATA / "brain_reflection.json"
+_STATE = _DATA / "brain_state.json"
 
 _STOP = set((
     "the", "and", "for", "that", "this", "with", "from", "they", "have",
@@ -61,16 +69,20 @@ _STOP = set((
 ))
 
 MONEY_SRCS = set(("money", "flow", "bill", "emergency", "fund"))
-
 MOOD_LOW = set(("drained", "flat"))
 MOOD_MID = set(("steady",))
 MOOD_HIGH = set(("sharp", "on fire"))
-
 FEATURES = (
     "quoted_memory", "quoted_verse", "money_advice", "pep_talk",
     "asked_back", "long_msg", "pattern_cited",
 )
-
+_SRC_MOVE = {
+    "spirit": "quoted_verse", "journal": "quoted_memory",
+    "sale": "quoted_memory", "income": "quoted_memory",
+    "client": "quoted_memory", "flow": "money_advice",
+    "bill": "money_advice", "emergency": "money_advice",
+    "fund": "money_advice",
+}
 _TOK = re.compile(r"[a-z0-9]+")
 
 
@@ -104,6 +116,18 @@ def _bigrams(tokens):
     return out
 
 
+def _clamp(v, lo=-6.0, hi=6.0):
+    try:
+        v = float(v)
+    except Exception:
+        v = 0.0
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
 def _read_json(path):
     try:
         if path.exists() and path.stat().st_size > 0:
@@ -119,6 +143,24 @@ def _write_json(path, obj):
         path.write_text(json.dumps(obj, default=str))
     except Exception:
         pass
+
+
+def _energy(e):
+    if not e:
+        return 0
+    try:
+        mins = float(e.get("minutes", 0) or 0)
+        depth = int(e.get("depth", 0) or 0)
+        acts = e.get("acts") or []
+        felt = (e.get("felt") or "").strip()
+    except Exception:
+        return 0
+    pres = 25.0 if (mins > 0 or felt or acts or e.get("word")) else 0.0
+    m = min(mins / 60.0, 1.0) * 25.0
+    d = (max(0, min(depth, 5)) / 5.0) * 25.0
+    a = min(len(acts) / 3.0, 1.0) * 15.0
+    r = min(len(felt) / 20.0, 1.0) * 10.0
+    return int(max(0, min(100, round(pres + m + d + a + r))))
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +214,7 @@ def _docs_from_stores(stores):
                 continue
             note = h.get("note", "")
             text = (nm + " " + note).strip()
-            doc = _doc("client", h.get("ts", "")[:10], text, None,
+            doc = _doc("client", (h.get("ts") or "")[:10], text, None,
                        ["client", stg, src],
                        {"name": nm, "phone": c.get("phone", "")})
             if doc:
@@ -189,8 +231,7 @@ def _docs_from_stores(stores):
         if not isinstance(s, dict):
             continue
         text = ("sale " + str(s.get("client", "")) + " "
-                + str(s.get("phone", "")) + " "
-                + str(s.get("phone_model", s.get("phone", "")))).strip()
+                + str(s.get("phone", ""))).strip()
         doc = _doc("sale", s.get("date", ""), text, None,
                    ["sale"], {"client": s.get("client", "")})
         if doc:
@@ -233,7 +274,7 @@ def _docs_from_stores(stores):
 
 
 # ---------------------------------------------------------------------------
-# inverted index (TF-IDF) - built, persisted, refreshed on content change
+# inverted index (TF-IDF)
 # ---------------------------------------------------------------------------
 
 def _signature(stores):
@@ -298,74 +339,198 @@ def refresh_index(stores):
     return idx
 
 
-def _feedback_boost_for(doc, fb):
-    if not fb:
-        return 0.0
-    score = 0.0
-    tags = set(doc.get("tags") or [])
-    src = doc.get("src", "")
-    for rec in fb:
-        kind = rec.get("kind", "")
-        w = 1.0 if kind in ("like", "prefer") else -1.4
-        rt = set(rec.get("rtags") or [])
-        rsrc = rec.get("rsrc", "")
-        if (tags & rt) or (rsrc and rsrc == src):
-            score += w
-    return score
-
-
-def search(idx, query, k=4, allow_money=False, mood=None, fb=None):
+def index_size(idx):
     try:
-        if not idx or not idx.get("vectors"):
-            return []
-        qtoks = tokenize(query)
-        if not qtoks:
-            return []
-        idf = idx.get("idf") or {}
-        docs = idx.get("docs") or []
-        vectors = idx.get("vectors") or []
-        mb = mood_band(mood)
-        scored = []
-        for vec in vectors:
-            di = vec["i"]
-            if di >= len(docs):
-                continue
-            doc = docs[di]
-            if (not allow_money) and doc.get("src") in MONEY_SRCS:
-                continue
-            s = 0.0
-            tf = vec["tf"]
-            for t in qtoks:
-                if t in tf:
-                    s += tf[t] * idf.get(t, 1.0)
-            if s <= 0:
-                continue
-            if mb and doc.get("mood") == mb:
-                s *= 1.25
-            dated = doc.get("date", "")
-            if dated:
-                try:
-                    from datetime import date as _d
-                    dd = _d.fromisoformat(dated[:10])
-                    age = max(0, (_d.today() - dd).days)
-                    s *= math.exp(-age / 90.0) + 0.15
-                except Exception:
-                    pass
-            s += 0.25 * _feedback_boost_for(doc, fb)
-            scored.append((s, di))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-        out = []
-        for s, di in scored[:max(1, int(k))]:
-            d = dict(docs[di])
-            d["score"] = round(s, 3)
-            out.append(d)
-        return out
+        return len((idx or {}).get("docs") or [])
     except Exception:
-        return []
+        return 0
+
+
+def rebuild(stores):
+    idx = _build(stores)
+    save_index(idx)
+    return idx
 
 
 # ---------------------------------------------------------------------------
-# feedback / training store
+# state (surfaced log + taste model + anti-repeat memory)
+# ---------------------------------------------------------------------------
+
+def _empty_state():
+    return {"surfaced": [], "taste": {}, "recent_refs": []}
+
+
+def load_state():
+    obj = _read_json(_STATE)
+    if isinstance(obj, dict):
+        obj.setdefault("surfaced", [])
+        obj.setdefault("taste", {})
+        obj.setdefault("recent_refs", [])
+        return obj
+    return _empty_state()
+
+
+def save_state(state):
+    _write_json(_STATE, state or _empty_state())
+
+
+def note_surfaced(state, page, mb, moves, refs):
+    if not isinstance(state, dict):
+        return
+    state.setdefault("surfaced", [])
+    state.setdefault("recent_refs", [])
+    try:
+        ts = _U.now_local().isoformat()
+    except Exception:
+        ts = ""
+    state["surfaced"].insert(0, {
+        "ts": ts, "page": page or "", "mood_band": mb or "none",
+        "moves": list(moves or []), "refs": list(refs or []),
+        "rec": False,
+    })
+    del state["surfaced"][200:]
+    rr = list(state.get("recent_refs") or [])
+    for ref in (refs or []):
+        if ref and ref not in rr:
+            rr.insert(0, ref)
+    del rr[12:]
+    state["recent_refs"] = rr
+
+
+# ---------------------------------------------------------------------------
+# taste model
+# ---------------------------------------------------------------------------
+
+def _taste_keys(page, mb):
+    out = []
+    if page is not None and mb:
+        out.append(str(page) + "|" + str(mb))
+    if page is not None:
+        out.append(str(page) + "|any")
+    if mb:
+        out.append("any|" + str(mb))
+    return out
+
+
+def taste_score(state, page, mb, feat=None, src=None):
+    if not isinstance(state, dict) or page is None:
+        return 1.0
+    t = state.get("taste") or {}
+    adj = 0.0
+    for key in _taste_keys(page, mb):
+        d = t.get(key) or {}
+        if feat is not None:
+            adj += 0.12 * float(d.get("move:" + feat, 0) or 0)
+        if src is not None:
+            adj += 0.12 * float(d.get("src:" + src, 0) or 0)
+    if adj < -0.5:
+        adj = -0.5
+    if adj > 0.6:
+        adj = 0.6
+    m = 1.0 + adj
+    if m < 0.45:
+        return 0.45
+    if m > 1.7:
+        return 1.7
+    return m
+
+
+def _taste_field(state, page, mb, field):
+    if not isinstance(state, dict):
+        return ""
+    t = state.get("taste") or {}
+    for key in _taste_keys(page, mb):
+        v = (t.get(key) or {}).get(field)
+        if v:
+            return str(v)
+    return ""
+
+
+def taste_style(state, page, mb):
+    return _taste_field(state, page, mb, "_style")
+
+
+def taste_brevity(state, page, mb):
+    return _taste_field(state, page, mb, "_brev")
+
+
+def taste_note(state, page, mb):
+    return _taste_field(state, page, mb, "_note")
+
+
+def taste_summary(state, page, mb):
+    if not isinstance(state, dict):
+        return ""
+    t = state.get("taste") or {}
+    d = t.get((str(page) + "|" + str(mb)) if page is not None else "", {}) or {}
+    parts = []
+    for k, v in d.items():
+        try:
+            vv = float(v)
+        except Exception:
+            continue
+        if not k.startswith("move:") or abs(vv) < 2:
+            continue
+        word = k[5:].replace("_", " ")
+        if vv > 0:
+            parts.append("leans toward " + word)
+        else:
+            parts.append("holds back " + word)
+    sty = d.get("_style")
+    if sty:
+        parts.append("tone: " + str(sty))
+    note = d.get("_note")
+    if note:
+        parts.append("you asked: " + str(note))
+    return "; ".join(parts[:3])
+
+
+def move_allowed(state, fb, page, mb, feat):
+    if is_suppressed(fb, mb, page, feat):
+        return False
+    if isinstance(state, dict) and taste_score(state, page, mb, feat=feat) < 0.6:
+        return False
+    return True
+
+
+def apply_tune(state, fb, rec):
+    if not isinstance(state, dict):
+        state = _empty_state()
+    page = rec.get("page", "")
+    mb = rec.get("mood_band", "none")
+    key = str(page) + "|" + str(mb)
+    t = state.setdefault("taste", {}).setdefault(key, {})
+    for chip in (rec.get("chips") or []):
+        c = str(chip).strip().lower()
+        if c == "softer":
+            t["_style"] = "softer, warmer, less directive"
+        elif c == "more direct":
+            t["_style"] = "direct and concrete, no softening"
+        elif c == "shorter":
+            t["_brev"] = "short"
+        elif c == "skip scripture here":
+            t["move:quoted_verse"] = _clamp(t.get("move:quoted_verse", 0) - 2)
+            t["src:spirit"] = _clamp(t.get("src:spirit", 0) - 2)
+        elif c == "cite scripture":
+            t["move:quoted_verse"] = _clamp(t.get("move:quoted_verse", 0) + 2)
+            t["src:spirit"] = _clamp(t.get("src:spirit", 0) + 2)
+        elif c == "cite a past win":
+            t["move:quoted_memory"] = _clamp(t.get("move:quoted_memory", 0) + 2)
+            t["src:sale"] = _clamp(t.get("src:sale", 0) + 1)
+            t["src:income"] = _clamp(t.get("src:income", 0) + 1)
+        elif c == "more practical":
+            t["move:money_advice"] = _clamp(t.get("move:money_advice", 0) + 1)
+            t["move:pattern_cited"] = _clamp(t.get("move:pattern_cited", 0) + 1)
+        elif c == "calmer / less pep":
+            t["move:pep_talk"] = _clamp(t.get("move:pep_talk", 0) - 2)
+    note = (rec.get("note") or "").strip()
+    if note:
+        t["_note"] = note
+    return record_feedback(fb, rec)
+
+
+# ---------------------------------------------------------------------------
+# feedback store (now carries only "tune" records; no thumbs)
 # ---------------------------------------------------------------------------
 
 def load_feedback():
@@ -385,6 +550,12 @@ def record_feedback(fb, rec):
     del fb[300:]
     save_feedback(fb)
     return fb
+
+
+def reset_feedback():
+    save_feedback([])
+    save_state(_empty_state())
+    return []
 
 
 def _bucket_match(rec, mb, page):
@@ -426,7 +597,7 @@ def complaint_notes(fb, mood_band_val, page, limit=3):
         return []
     out = []
     for rec in fb:
-        if rec.get("kind") != "dislike":
+        if rec.get("kind") != "tune":
             continue
         note = (rec.get("note") or "").strip()
         if not note:
@@ -439,9 +610,8 @@ def complaint_notes(fb, mood_band_val, page, limit=3):
 
 
 def feedback_summary(fb):
-    n_like = sum(1 for r in fb if r.get("kind") in ("like", "prefer"))
-    n_dis = sum(1 for r in fb if r.get("kind") == "dislike")
-    return {"likes": n_like, "dislikes": n_dis, "total": len(fb or [])}
+    n_tune = sum(1 for r in (fb or []) if r.get("kind") == "tune")
+    return {"tunes": n_tune, "total": len(fb or [])}
 
 
 def learned_suppressions(fb, pages, moods=("low", "mid", "high", "none")):
@@ -455,9 +625,215 @@ def learned_suppressions(fb, pages, moods=("low", "mid", "high", "none")):
     return out
 
 
-def reset_feedback():
-    save_feedback([])
-    return []
+# ---------------------------------------------------------------------------
+# implicit reinforcement from behaviour
+# ---------------------------------------------------------------------------
+
+def _resonance(src, window_dates, stores):
+    try:
+        if src == "spirit":
+            sp = stores.get("spiritual") or {}
+            for d in window_dates:
+                e = sp.get(d)
+                if e and (int(e.get("depth", 0) or 0) >= 3
+                          or _energy(e) >= 70):
+                    return True
+            return False
+        if src in ("sale", "income", "client"):
+            if src == "sale":
+                for s in (stores.get("sales") or []):
+                    if s.get("date") in window_dates:
+                        return True
+            if src == "income":
+                for x in (stores.get("income") or []):
+                    if x.get("date") in window_dates:
+                        return True
+            if src == "client":
+                for c in (stores.get("clients") or []):
+                    for h in (c.get("history") or []):
+                        if (h.get("ts") or "")[:10] in window_dates:
+                            return True
+            j = stores.get("journal") or {}
+            for d in window_dates:
+                e = j.get(d)
+                if e and (e.get("win") or "").strip():
+                    return True
+            return False
+        if src in ("flow", "bill", "emergency", "fund", "money"):
+            v = stores.get("vault") or {}
+            for f in (v.get("flow") or []):
+                if f.get("date") in window_dates:
+                    return True
+            for b in (v.get("bills") or []):
+                if b.get("paid_date") in window_dates:
+                    return True
+            for t in ((v.get("emergency") or {}).get("tx") or []):
+                if t.get("date") in window_dates:
+                    return True
+            for fd in (v.get("funds") or []):
+                for t in (fd.get("tx") or []):
+                    if t.get("date") in window_dates:
+                        return True
+            return False
+    except Exception:
+        return False
+    return False
+
+
+def reconcile_implicit(state, stores, fb):
+    if not isinstance(state, dict):
+        return
+    from datetime import date as _d
+    from datetime import timedelta as _td
+    today = _d.today()
+    fb_tunes = [r for r in (fb or []) if r.get("kind") == "tune"]
+    surfaced = state.get("surfaced") or []
+    for rec in surfaced:
+        if rec.get("rec"):
+            continue
+        ts = (rec.get("ts") or "")[:10]
+        if not ts:
+            rec["rec"] = True
+            continue
+        try:
+            tsd = _d.fromisoformat(ts)
+        except Exception:
+            rec["rec"] = True
+            continue
+        if (today - tsd).days > 2:
+            rec["rec"] = True
+            continue
+        window_dates = set((ts, (tsd + _td(days=1)).isoformat()))
+        page = rec.get("page", "")
+        mb = rec.get("mood_band", "none")
+        t = state.setdefault("taste", {}).setdefault(
+            str(page) + "|" + str(mb), {})
+        pos = False
+        for ref in (rec.get("refs") or []):
+            src = str(ref).split("|")[0]
+            if _resonance(src, window_dates, stores):
+                pos = True
+        if "quoted_verse" in (rec.get("moves") or []):
+            if _resonance("spirit", window_dates, stores):
+                pos = True
+        tuned = False
+        for tr in fb_tunes:
+            trd = (tr.get("ts") or "")[:10]
+            if (tr.get("page") == page and tr.get("mood_band") == mb
+                    and trd in window_dates):
+                tuned = True
+        for mv in (rec.get("moves") or []):
+            cur = float(t.get("move:" + mv, 0) or 0)
+            if tuned:
+                t["move:" + mv] = _clamp(cur - 2)
+            elif pos:
+                t["move:" + mv] = _clamp(cur + 1)
+        for ref in (rec.get("refs") or []):
+            src = str(ref).split("|")[0]
+            cur = float(t.get("src:" + src, 0) or 0)
+            if tuned:
+                t["src:" + src] = _clamp(cur - 2)
+            elif pos:
+                t["src:" + src] = _clamp(cur + 1)
+        rec["rec"] = True
+    del surfaced[200:]
+    state["surfaced"] = surfaced
+
+
+# ---------------------------------------------------------------------------
+# search (TF-IDF + recency + mood + weekday rhythm + taste + anti-repeat)
+# ---------------------------------------------------------------------------
+
+def _feedback_boost_for(doc, fb):
+    if not fb:
+        return 0.0
+    score = 0.0
+    tags = set(doc.get("tags") or [])
+    src = doc.get("src", "")
+    for rec in fb:
+        kind = rec.get("kind", "")
+        if kind == "tune":
+            continue
+        w = 1.0 if kind in ("like", "prefer") else -1.4
+        rt = set(rec.get("rtags") or [])
+        rsrc = rec.get("rsrc", "")
+        if (tags & rt) or (rsrc and rsrc == src):
+            score += w
+    return score
+
+
+def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
+           refl=None, state=None, page=None):
+    try:
+        if not idx or not idx.get("vectors"):
+            return []
+        qtoks = list(tokenize(query))
+        if refl:
+            for bg in (refl.get("recurring_lessons") or [])[:1]:
+                for w in str(bg).split():
+                    if len(w) >= 3:
+                        qtoks.append(w)
+            for w in (refl.get("top_wins") or [])[:3]:
+                if len(str(w)) >= 3:
+                    qtoks.append(str(w))
+        if not qtoks:
+            return []
+        idf = idx.get("idf") or {}
+        docs = idx.get("docs") or []
+        vectors = idx.get("vectors") or []
+        mb = mood_band(mood)
+        try:
+            wd_today = _U.today_local().weekday()
+        except Exception:
+            wd_today = None
+        recent_refs = set((state or {}).get("recent_refs") or [])
+        scored = []
+        for vec in vectors:
+            di = vec["i"]
+            if di >= len(docs):
+                continue
+            doc = docs[di]
+            if (not allow_money) and doc.get("src") in MONEY_SRCS:
+                continue
+            s = 0.0
+            tf = vec["tf"]
+            for t in qtoks:
+                if t in tf:
+                    s += tf[t] * idf.get(t, 1.0)
+            if s <= 0:
+                continue
+            if mb and doc.get("mood") == mb:
+                s *= 1.25
+            dated = doc.get("date", "")
+            doc_date = None
+            if dated:
+                try:
+                    from datetime import date as _d
+                    doc_date = _d.fromisoformat(dated[:10])
+                    age = max(0, (_d.today() - doc_date).days)
+                    s *= math.exp(-age / 90.0) + 0.15
+                except Exception:
+                    doc_date = None
+            if wd_today is not None and doc_date is not None:
+                if doc_date.weekday() == wd_today:
+                    s *= 1.15
+            s += 0.25 * _feedback_boost_for(doc, fb)
+            src = doc.get("src", "")
+            move_guess = _SRC_MOVE.get(src)
+            s *= taste_score(state, page, mb, feat=move_guess, src=src)
+            ref = src + "|" + dated
+            if ref in recent_refs:
+                s *= 0.4
+            scored.append((s, di))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        out = []
+        for s, di in scored[:max(1, int(k))]:
+            d = dict(docs[di])
+            d["score"] = round(s, 3)
+            out.append(d)
+        return out
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +841,8 @@ def reset_feedback():
 # ---------------------------------------------------------------------------
 
 def _reflect_compute(stores):
-    from datetime import date as _d, timedelta as _td
+    from datetime import date as _d
+    from datetime import timedelta as _td
     today = _d.today()
     journal = stores.get("journal") or {}
     spirit = stores.get("spiritual") or {}
@@ -493,21 +870,17 @@ def _reflect_compute(stores):
         else:
             break
 
-    lesson_tokens = {}
     lesson_bigrams = {}
     for o in range(29, -1, -1):
         e = journal.get((today - _td(days=o)).isoformat())
         if not isinstance(e, dict):
             continue
-        les = e.get("lesson") or ""
-        toks = tokenize(les)
-        for t in toks:
-            lesson_tokens[t] = lesson_tokens.get(t, 0) + 1
+        toks = tokenize(e.get("lesson") or "")
         for bg in _bigrams(toks):
             lesson_bigrams[bg] = lesson_bigrams.get(bg, 0) + 1
-    recurring_lessons = sorted(lesson_bigrams.items(),
-                               key=lambda kv: kv[1], reverse=True)[:3]
-    recurring_lessons = [b for b, c in recurring_lessons if c >= 2]
+    recurring_lessons = [b for b, c in sorted(
+        lesson_bigrams.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        if c >= 2]
 
     win_tokens = {}
     for o in range(13, -1, -1):
@@ -527,21 +900,12 @@ def _reflect_compute(stores):
     for d, e in spirit.items():
         if not isinstance(e, dict):
             continue
-        mins = float(e.get("minutes", 0) or 0)
-        depth = int(e.get("depth", 0) or 0)
-        acts = e.get("acts") or []
-        felt = (e.get("felt") or "").strip()
-        pres = 25.0 if (mins > 0 or felt or e.get("word") or acts) else 0.0
-        en = int(max(0, min(100, round(
-            pres + min(mins / 60.0, 1.0) * 25.0
-            + (max(0, min(depth, 5)) / 5.0) * 25.0
-            + min(len(acts) / 3.0, 1.0) * 15.0
-            + min(len(felt) / 20.0, 1.0) * 10.0))))
+        en = _energy(e)
         if e.get("word"):
             word_total += 1
             if en >= 70:
                 word_with_energy += 1
-        for a in acts:
+        for a in (e.get("acts") or []):
             act_energy[a] = act_energy.get(a, 0) + en
             act_count[a] = act_count.get(a, 0) + 1
     energy_sources = []
@@ -555,12 +919,12 @@ def _reflect_compute(stores):
     if word_total >= 3:
         word_lift = int(round(100.0 * word_with_energy / word_total))
 
-    term = set()
-    from . import data as _D
+    term = set(("paid", "returned", "lost"))
     try:
+        from . import data as _D
         term = set(_D.terminal_ids())
     except Exception:
-        term = set(("paid", "returned", "lost"))
+        pass
     promised = 0
     kept = 0
     for c in clients:
@@ -610,7 +974,8 @@ def reflect(stores):
     try:
         from datetime import date as _d
         cached = _read_json(_REFL)
-        if isinstance(cached, dict) and cached.get("date") == _d.today().isoformat():
+        if (isinstance(cached, dict)
+                and cached.get("date") == _d.today().isoformat()):
             return cached
         r = _reflect_compute(stores)
         _write_json(_REFL, r)
@@ -651,24 +1016,9 @@ def top_pattern(refl, voice, mb):
             return ("Bills paid on time: "
                     + str(refl["bill_on_time_rate"])
                     + "% - that rate is the quiet engine of your runway.")
-    if refl.get("promise_rate") is not None and voice in ("sales", "focus"):
+    if (refl.get("promise_rate") is not None
+            and voice in ("sales", "focus")):
         return ("You keep " + str(refl["promise_rate"])
-                + "% of the calls you promise. The rest is just the next dial.")
+                + "% of the calls you promise. The rest is just the "
+                "next dial.")
     return None
-
-
-# ---------------------------------------------------------------------------
-# small public conveniences
-# ---------------------------------------------------------------------------
-
-def index_size(idx):
-    try:
-        return len((idx or {}).get("docs") or [])
-    except Exception:
-        return 0
-
-
-def rebuild(stores):
-    idx = _build(stores)
-    save_index(idx)
-    return idx
