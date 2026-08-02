@@ -1,16 +1,28 @@
 """PULSE companion - the voice that has read your life.
 
+The card is built to feel spoken, not displayed: a slow breathing halo, a
+caught-light hairline, a fine linen grain, a left rail in the voice's own
+colour, and the voice line set large and italic with a hanging drop-cap
+quotation glyph. A single delicate provenance line sits in the margin like a
+citation in a fine book; the machinery (the grounding facts, the ask-box,
+the tuning) lives in one collapsed, whisper-quiet drawer beneath the card,
+framed as tuning an instrument, never grading a student. There is no
+like/dislike on the card - PULSE learns from what the operator does after it
+speaks (see brain.reconcile_implicit), so the rating friction that poisons a
+presence is gone.
+
 Three layers over one context packet:
   * build_packet() reads recent journal / spirit / sales / mood / clients /
     tasks / habits / weight, and - ONLY when allow_money is True (inside the
     locked Archive) - pantry / runway / emergency / bills / commissions.
-  * A deterministic voice per page composes grounded sentences, now augmented
-    by the brain: a retrieved memory, a longitudinal pattern, and learned
-    feedback suppressions. It never invents, never leaks money on a public
-    page, and notices absence.
+  * A deterministic voice per page composes grounded sentences, augmented by
+    the brain: a retrieved memory, a longitudinal pattern, learned taste
+    suppressions, and confidence-calibrated brevity. It never invents, never
+    leaks money on a public page, and notices absence.
   * If an OpenAI-compatible key is in st.secrets, a strictly-grounded LLM
     writes the message and answers free questions, fed retrieved memories +
-    the operator's patterns + their own past complaints as constraints.
+    the operator's patterns + their taste + their own past tunes as
+    constraints.
 
 Every public function fails open. The whole panel is wrapped so a failure
 never breaks the host page. No f-strings are used anywhere in this file.
@@ -50,81 +62,136 @@ VOICE_META = {
     "quiet": ("Companion", "#8893AB"),
 }
 
-_STYLE = (
-    "<style>"
-    "@keyframes pl_breathe{0%,100%{transform:scale(1);opacity:1}"
-    "50%{transform:scale(1.45);opacity:.45}}"
-    ".plc{position:relative;overflow:hidden;margin:14px 0 4px;"
-    "padding:15px 18px 16px 20px;border:1px solid var(--hair,#1C2740);"
-    "border-radius:14px;background:linear-gradient(180deg,"
-    "rgba(18,26,43,.92),rgba(14,20,34,.94));"
-    "box-shadow:0 10px 30px -22px rgba(0,0,0,.9);"
-    "transition:transform .22s,border-color .22s,box-shadow .22s;"
-    "animation:tw-rise .5s cubic-bezier(.2,.7,.2,1) both;}"
-    ".plc:hover{transform:translateY(-2px);border-color:var(--plc);"
-    "box-shadow:0 18px 40px -20px rgba(0,0,0,.95);}"
-    ".plc-rail{position:absolute;left:0;top:0;bottom:0;width:3px;"
-    "background:linear-gradient(180deg,var(--plc),transparent 85%);}"
-    ".plc-head{display:flex;align-items:center;gap:9px;margin-bottom:9px;"
-    "flex-wrap:wrap;}"
-    ".plc-dot{width:8px;height:8px;border-radius:50%;background:var(--plc);"
-    "box-shadow:0 0 8px var(--plc);"
-    "animation:pl_breathe 2.4s ease-in-out infinite;}"
-    ".plc-name{font:700 11px/1 var(--mono,'JetBrains Mono',monospace);"
-    "letter-spacing:.2em;text-transform:uppercase;color:var(--ink-2,#B6C0D4);}"
-    ".plc-voice{font:700 10px/1 var(--mono,'JetBrains Mono',monospace);"
-    "letter-spacing:.12em;text-transform:uppercase;color:var(--plc);}"
-    ".plc-ai{font:700 8px/1 var(--mono,'JetBrains Mono',monospace);"
-    "letter-spacing:.12em;text-transform:uppercase;color:#D946EF;"
-    "border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);"
-    "border-radius:999px;padding:3px 7px;}"
-    ".plc-msg{font:500 15px/1.62 var(--body,'Manrope',sans-serif);"
-    "color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em;}"
-    ".plc-facts{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;}"
-    ".plc-chip{font:600 9px/1 var(--mono,'JetBrains Mono',monospace);"
-    "letter-spacing:.06em;color:var(--mute-2,#8893AB);"
-    "background:rgba(255,255,255,.035);border:1px solid var(--hair,#1C2740);"
-    "border-radius:999px;padding:4px 9px;}"
-    ".plc-fb{display:flex;gap:8px;align-items:center;margin-top:10px;}"
-    ".plc-fb button{padding:4px 10px;font-size:12px;}"
-    ".plc-ans{margin-top:8px;padding:11px 13px;border-radius:10px;"
-    "border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);"
-    "font:500 13.5px/1.55 var(--body,'Manrope',sans-serif);"
-    "color:var(--ink-2,#B6C0D4);font-style:italic;}"
-    "</style>"
-)
+_TUNE_CHIPS = [
+    "softer", "more direct", "shorter", "skip scripture here",
+    "cite scripture", "cite a past win", "more practical",
+    "calmer / less pep",
+]
 
-_SYS = (
-    "You are PULSE, a grounded companion for one person. You receive a "
-    "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
-    "past words most relevant to now, a PATTERNS block of what you have "
-    "learned about them over time, and a CONSTRAINTS block of how they have "
-    "asked you to behave. Rules: (1) Use ONLY facts present in CONTEXT and "
-    "RETRIEVED; never invent sales, feelings, verses, dates, clients or "
-    "events. (2) Speak in second person, warmly and specifically, in 2 to 4 "
-    "short sentences. (3) When you cite a number, quote or feeling, use the "
-    "exact one given. (4) Match their current mood. (5) Obey every line in "
-    "CONSTRAINTS without mentioning that you were told. (6) If the question "
-    "touches money, balances, pantry or the emergency fund but CONTEXT has "
-    "no money facts, reply that you keep finances private and they should "
-    "ask inside the Archive. (7) Do not ask a question back unless it is a "
-    "single gentle offer. (8) No lists, no headers, no emojis."
-)
-
-_AUTO = {
-    "morning": "Speak to them for this moment of the day, grounded.",
-    "sales": "Encourage their sales work right now, grounded in their numbers.",
-    "spirit": "Speak to them about their time with God right now, grounded.",
-    "journal": "Invite reflection on their day, grounded in what they logged.",
-    "body": "Speak to them about their body and movement, grounded.",
-    "focus": "Help them focus on what matters right now, grounded.",
-    "review": "Give a brief grounded review of how the week is shaping.",
-    "money": "Give grounded, practical money guidance for right now.",
-    "quiet": "Offer a calm, grounded word.",
+_SRC_LABEL = {
+    "spirit": "your spirit log", "journal": "your journal",
+    "sale": "a past sale", "income": "an income entry",
+    "client": "a client note", "flow": "your money log",
+    "bill": "your money log", "emergency": "your money log",
+    "fund": "your money log", "money": "your money log",
 }
 
-_DISLIKE_CHIPS = ["too preachy", "too long", "wrong vibe",
-                  "not useful", "misread me"]
+_STYLE = """
+<style>
+@keyframes plc_breathe{
+  0%,100%{transform:scale(1);opacity:.10;}
+  50%{transform:scale(1.18);opacity:.20;}
+}
+@keyframes plc_rise{
+  from{opacity:0;transform:translateY(10px);}
+  to{opacity:1;transform:none;}
+}
+.plc{
+  position:relative;overflow:hidden;margin:16px 0 6px;
+  padding:20px 22px 18px 24px;
+  border:1px solid var(--hair,#1C2740);border-radius:16px;
+  background:linear-gradient(180deg,rgba(18,26,43,.94),rgba(12,18,30,.96));
+  box-shadow:0 12px 34px -26px rgba(0,0,0,.92);
+  transition:transform .28s cubic-bezier(.2,.7,.2,1),
+             border-color .28s,box-shadow .28s;
+  animation:plc_rise .6s cubic-bezier(.2,.7,.2,1) both;
+}
+.plc:hover{
+  transform:translateY(-3px);
+  border-color:var(--plc,#4C8DFF);
+  box-shadow:0 26px 56px -28px rgba(0,0,0,.95),
+             0 0 0 1px rgba(255,255,255,.03);
+}
+.plc-grain{
+  position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background-image:radial-gradient(rgba(255,255,255,.05) .5px,transparent .6px);
+  background-size:3px 3px;mix-blend-mode:soft-light;
+}
+.plc-sheen{
+  position:absolute;left:0;right:0;top:0;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,
+     rgba(255,255,255,.16),transparent);
+  opacity:.55;transition:opacity .28s;
+}
+.plc:hover .plc-sheen{opacity:1;}
+.plc-rail{
+  position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,var(--plc,#4C8DFF),transparent 82%);
+  transition:width .28s;
+}
+.plc:hover .plc-rail{width:4px;}
+.plc-halo{
+  position:absolute;left:-34px;top:-34px;width:132px;height:132px;
+  border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,var(--plc,#4C8DFF),transparent 70%);
+  filter:blur(10px);animation:plc_breathe 5s ease-in-out infinite;
+}
+.plc-head{
+  position:relative;display:flex;align-items:center;gap:10px;
+  margin-bottom:12px;flex-wrap:wrap;
+}
+.plc-mark{
+  font:700 11px/1 var(--mono,'JetBrains Mono',monospace);
+  letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2,#B6C0D4);
+}
+.plc-voice{
+  font:600 10px/1 var(--mono,'JetBrains Mono',monospace);
+  letter-spacing:.16em;text-transform:uppercase;color:var(--plc,#4C8DFF);
+  padding:3px 9px;border-radius:999px;
+  background:rgba(255,255,255,.03);border:1px solid var(--hair,#1C2740);
+}
+.plc-ai{
+  font:700 8px/1 var(--mono,'JetBrains Mono',monospace);
+  letter-spacing:.14em;text-transform:uppercase;color:#D946EF;
+  border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);
+  border-radius:999px;padding:3px 8px;
+}
+.plc-body{position:relative;padding-left:30px;}
+.plc-quote{
+  position:absolute;left:0;top:-6px;
+  font:700 50px/1 var(--disp,'Space Grotesk',sans-serif);
+  color:var(--plc,#4C8DFF);opacity:.16;pointer-events:none;
+  user-select:none;
+}
+.plc-line{
+  margin:0;font:500 17px/1.7 var(--body,'Manrope',sans-serif);
+  color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em;
+}
+.plc-cite{
+  margin:11px 0 0 30px;font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);
+  color:var(--mute-2,#8893AB);letter-spacing:.02em;
+}
+.plc-tune-hint{
+  position:absolute;right:16px;top:18px;
+  font:600 13px/1 var(--mono,'JetBrains Mono',monospace);
+  color:var(--mute,#69748C);opacity:0;transition:opacity .28s;
+  pointer-events:none;
+}
+.plc:hover .plc-tune-hint{opacity:.5;}
+.plc-grounds-list{
+  font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);
+  color:var(--mute-2,#8893AB);margin:2px 0 12px;letter-spacing:.02em;
+}
+.plc-taste{
+  font:500 11.5px/1.5 var(--body,'Manrope',sans-serif);
+  color:var(--ink-2,#B6C0D4);font-style:italic;margin:0 0 12px;
+  border-left:2px solid var(--plc,#4C8DFF);padding-left:10px;
+}
+.plc-ans{
+  margin-top:10px;padding:12px 14px;border-radius:11px;
+  border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);
+  font:500 13.5px/1.6 var(--body,'Manrope',sans-serif);
+  color:var(--ink-2,#B6C0D4);font-style:italic;
+}
+@media (max-width:760px){
+  .plc{padding:16px 16px 14px 18px;}
+  .plc-body{padding-left:22px;}
+  .plc-quote{font-size:38px;top:-2px;}
+  .plc-line{font-size:15.5px;line-height:1.62;}
+  .plc-cite{margin-left:22px;}
+}
+</style>
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -310,12 +377,23 @@ def _get_reflection(ctx):
         return {}
 
 
-def _search(idx, fb, query, allow_money, mood, k=3):
+def _get_state():
+    if not _HAS_BRAIN:
+        return {}
+    try:
+        return _B.load_state()
+    except Exception:
+        return {}
+
+
+def _search(idx, fb, query, allow_money, mood, k=3, refl=None,
+            state=None, page=None):
     if not _HAS_BRAIN or idx is None:
         return []
     try:
         return _B.search(idx, query, k=k, allow_money=allow_money,
-                         mood=mood, fb=fb)
+                         mood=mood, fb=fb, refl=refl, state=state,
+                         page=page)
     except Exception:
         return []
 
@@ -573,34 +651,61 @@ def _auto_query(voice, pkt):
     return "morning start grounded today"
 
 
-def _augment(pkt, tagged, base_facts, idx, fb, refl, allow_money):
+def _prov_for(feat, pkt):
+    if feat == "quoted_verse":
+        lv = pkt.get("last_verse")
+        lj = pkt.get("last_journal")
+        d = (lv or {}).get("date") or (lj or {}).get("date") or ""
+        if lv or lj:
+            return "your verse" + (" · " + d if d else "")
+        return None
+    if feat == "quoted_memory":
+        lj = pkt.get("last_journal")
+        d = (lj or {}).get("date") or ""
+        if d:
+            return "your journal · " + d
+        return "your journal"
+    if feat == "money_advice":
+        return "your money log"
+    return None
+
+
+def _augment(pkt, tagged, base_facts, idx, fb, refl, state, allow_money):
     mb = pkt.get("mood_band", "none")
     page = pkt.get("page", "morning")
     out = []
     feats = set()
     facts = list(base_facts)
+    refs = []
+    prov = []
     for text, feat in tagged:
-        if feat and _HAS_BRAIN and _B.is_suppressed(fb, mb, page, feat):
+        if feat and _HAS_BRAIN and not _B.move_allowed(state, fb, page, mb, feat):
             continue
         if feat:
             feats.add(feat)
         out.append(text)
-    if _HAS_BRAIN and not _B.is_suppressed(fb, mb, page, "quoted_memory"):
+    if _HAS_BRAIN and _B.move_allowed(state, fb, page, mb, "quoted_memory"):
         docs = _search(idx, fb, _auto_query(page, pkt), allow_money,
-                       pkt.get("mood_today"), k=2)
+                       pkt.get("mood_today"), k=2, refl=refl, state=state,
+                       page=page)
         if docs:
-            sent, mf = _weave_memory(docs[0], page)
-            if not _B.is_suppressed(fb, mb, page, mf):
+            d0 = docs[0]
+            sent, mf = _weave_memory(d0, page)
+            if not (_HAS_BRAIN and not _B.move_allowed(state, fb, page, mb, mf)):
                 out.append(sent)
                 feats.add(mf)
-                facts.append("memory " + str(docs[0].get("date", "")))
-    if _HAS_BRAIN and not _B.is_suppressed(fb, mb, page, "pattern_cited"):
+                facts.append("memory " + str(d0.get("date", "")))
+                refs.append(str(d0.get("src", "")) + "|" + str(d0.get("date", "")))
+                prov.append(_SRC_LABEL.get(d0.get("src", ""), "a note")
+                            + " · " + str(d0.get("date", "")))
+    if _HAS_BRAIN and _B.move_allowed(state, fb, page, mb, "pattern_cited"):
         pat = _B.top_pattern(refl, page, mb)
         if pat:
             out.append(pat)
             feats.add("pattern_cited")
             facts.append("pattern")
-    return out, facts, feats
+            prov.append("a pattern you keep writing")
+    return out, facts, feats, refs, prov
 
 
 # ---------------------------------------------------------------------------
@@ -876,15 +981,44 @@ _VOICES = {
 }
 
 
-def _deterministic(pkt, voice, idx, fb, refl, allow_money):
+# ---------------------------------------------------------------------------
+# compose (deterministic + optional LLM), returns (msg, used_llm, meta)
+# ---------------------------------------------------------------------------
+
+def _compose(pkt, voice, idx, fb, refl, state, allow_money):
     fn = _VOICES.get(voice, _v_morning)
     tagged, base_facts = fn(pkt)
-    sents, facts, feats = _augment(pkt, tagged, base_facts, idx, fb,
-                                   refl, allow_money)
-    if not sents:
-        sents = ["I'm here. (the voice came back empty - your data is safe.)"]
-        feats = set()
-    return sents, facts, feats
+    sents, facts, feats, refs, aug_prov = _augment(
+        pkt, tagged, base_facts, idx, fb, refl, state, allow_money)
+    prov = list(aug_prov)
+    for text, feat in tagged:
+        p = _prov_for(feat, pkt)
+        if p:
+            prov.append(p)
+    mb = pkt.get("mood_band", "none")
+    brev = _B.taste_brevity(state, voice, mb) if _HAS_BRAIN else ""
+    if voice == "quiet":
+        cap = 1
+    elif mb == "low" or brev == "short":
+        cap = 2
+    else:
+        cap = 3
+    sents = sents[:max(1, cap)]
+    style = (_B.taste_style(state, voice, mb) if _HAS_BRAIN else "") or ""
+    cite = ("— " + " · ".join(prov)) if prov else ""
+    msg = " ".join(sents)
+    used = False
+    if _have_key():
+        lm = _llm_message(pkt, voice, idx, fb, refl, state,
+                          allow_money, style, brev)
+        if lm:
+            msg = lm
+            used = True
+    meta = {
+        "moves": list(feats), "refs": refs, "grounds": facts,
+        "provenance": prov, "cite_line": cite,
+    }
+    return msg, used, meta
 
 
 # ---------------------------------------------------------------------------
@@ -940,11 +1074,12 @@ def _llm_call(api_key, base_url, model, system, user):
         return None
 
 
-def _retrieved_block(idx, fb, pkt, allow_money, k=4):
+def _retrieved_block(idx, fb, pkt, allow_money, refl, state, k=4):
     if not _HAS_BRAIN or idx is None:
         return ""
     docs = _search(idx, fb, _auto_query(pkt.get("page", "morning"), pkt),
-                   allow_money, pkt.get("mood_today"), k=k)
+                   allow_money, pkt.get("mood_today"), k=k, refl=refl,
+                   state=state, page=pkt.get("page"))
     if not docs:
         return ""
     lines = []
@@ -975,20 +1110,24 @@ def _patterns_block(refl, voice, mb):
     return "\n".join(out)
 
 
-def _constraints_block(fb, mb, page):
+def _constraints_block(fb, mb, page, state):
     out = []
     if _HAS_BRAIN:
         sups = _B.learned_suppressions(fb, [page], [mb])
         for s in sups:
             out.append("Do not use the move '" + str(s["feature"])
-                       + "' in this state; the person disliked it before.")
+                       + "' in this state; the person tuned it away.")
         for note in _B.complaint_notes(fb, mb, page, limit=2):
-            out.append("The person previously said, in a state like this: '"
+            out.append("The person previously asked, in a state like this: '"
                        + note + "'.")
+        tnote = _B.taste_note(state, page, mb)
+        if tnote:
+            out.append("Standing preference: " + tnote)
     return "\n".join(out)
 
 
-def _llm_message(pkt, voice, idx, fb, refl, allow_money):
+def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
+                 style, brev):
     ki = _keyinfo()
     if not ki:
         return None
@@ -1055,7 +1194,7 @@ def _llm_message(pkt, voice, idx, fb, refl, allow_money):
                          + str(pkt["commissions_due"]) + "; pending: "
                          + str(int(pkt.get("commissions_pending", 0)))
                          + " KSh")
-    rb = _retrieved_block(idx, fb, pkt, allow_money)
+    rb = _retrieved_block(idx, fb, pkt, allow_money, refl, state)
     if rb:
         parts.append("")
         parts.append("RETRIEVED (the person's own most relevant past words):")
@@ -1065,10 +1204,10 @@ def _llm_message(pkt, voice, idx, fb, refl, allow_money):
         parts.append("")
         parts.append("PATTERNS (learned about them over time):")
         parts.append(pb)
-    cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice)
+    cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice, state)
     if cb:
         parts.append("")
-        parts.append("CONSTRAINTS (how they asked you to behave):")
+        parts.append("CONSTRAINTS (how they tuned you):")
         parts.append(cb)
     if pkt.get("anchor"):
         parts.append("")
@@ -1076,12 +1215,17 @@ def _llm_message(pkt, voice, idx, fb, refl, allow_money):
     parts.append("")
     parts.append("MOOD: " + (pkt.get("mood_today") or "-"))
     parts.append("PAGE VOICE: " + voice)
+    style_line = "STYLE: " + (style or "natural, warm, specific")
+    if brev == "short":
+        style_line += "; keep it to one or two sentences, no padding."
+    parts.append(style_line)
+    parts.append("Speak 1 to 3 sentences; prefer fewer when the line is strong.")
     system = "\n".join(parts)
     user = _AUTO.get(voice, _AUTO["morning"])
     return _llm_call(ak, bu, model, system, user)
 
 
-def _llm_answer(pkt, voice, question, idx, fb, refl, allow_money):
+def _llm_answer(pkt, voice, question, idx, fb, refl, state, allow_money):
     ki = _keyinfo()
     if not ki:
         return None
@@ -1089,7 +1233,7 @@ def _llm_answer(pkt, voice, question, idx, fb, refl, allow_money):
     parts = [_SYS, "", "CONTEXT (verified facts):"]
     parts.append("today " + str(pkt["today"]) + "; mood "
                  + (pkt.get("mood_today") or "-"))
-    rb = _retrieved_block(idx, fb, pkt, allow_money, k=5)
+    rb = _retrieved_block(idx, fb, pkt, allow_money, refl, state, k=5)
     if rb:
         parts.append("")
         parts.append("RETRIEVED (their own relevant past words):")
@@ -1099,7 +1243,7 @@ def _llm_answer(pkt, voice, question, idx, fb, refl, allow_money):
         parts.append("")
         parts.append("PATTERNS:")
         parts.append(pb)
-    cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice)
+    cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice, state)
     if cb:
         parts.append("")
         parts.append("CONSTRAINTS:")
@@ -1111,9 +1255,10 @@ def _llm_answer(pkt, voice, question, idx, fb, refl, allow_money):
     return _llm_call(ak, bu, model, system, question)
 
 
-def _offline_answer(pkt, question, idx, fb, allow_money):
+def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
     docs = _search(idx, fb, question, allow_money,
-                   pkt.get("mood_today"), k=3)
+                   pkt.get("mood_today"), k=3, refl=refl, state=state,
+                   page=pkt.get("page"))
     if not docs:
         return ("I looked through what I can see and found nothing close "
                 "to that yet. Tell me more, or log it, and I'll remember "
@@ -1131,93 +1276,135 @@ def _offline_answer(pkt, question, idx, fb, allow_money):
                 + "): '" + text + "'.")
     extra = ""
     if pkt.get("mood_today") in LOW:
-        extra = " Given how you're feeling right now, lean on that, don't argue with it."
+        extra = (" Given how you're feeling right now, lean on that, "
+                 "don't argue with it.")
     return base + extra
+
+
+_AUTO = {
+    "morning": "Speak to them for this moment of the day, grounded.",
+    "sales": "Encourage their sales work right now, grounded in their numbers.",
+    "spirit": "Speak to them about their time with God right now, grounded.",
+    "journal": "Invite reflection on their day, grounded in what they logged.",
+    "body": "Speak to them about their body and movement, grounded.",
+    "focus": "Help them focus on what matters right now, grounded.",
+    "review": "Give a brief grounded review of how the week is shaping.",
+    "money": "Give grounded, practical money guidance for right now.",
+    "quiet": "Offer a calm, grounded word.",
+}
+
+_SYS = (
+    "You are PULSE, a grounded companion for one person. You receive a "
+    "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
+    "past words most relevant to now, a PATTERNS block of what you have "
+    "learned about them over time, and a CONSTRAINTS block of how they have "
+    "tuned you. Rules: (1) Use ONLY facts present in CONTEXT and RETRIEVED; "
+    "never invent sales, feelings, verses, dates, clients or events. (2) "
+    "Speak in second person, warmly and specifically. (3) When you cite a "
+    "number, quote or feeling, use the exact one given. (4) Match their "
+    "current mood. (5) Obey every line in CONSTRAINTS without mentioning "
+    "that you were told. (6) If the question touches money, balances, "
+    "pantry or the emergency fund but CONTEXT has no money facts, reply "
+    "that you keep finances private and they should ask inside the "
+    "Archive. (7) Do not ask a question back unless it is a single gentle "
+    "offer. (8) No lists, no headers, no emojis."
+)
 
 
 # ---------------------------------------------------------------------------
 # render
 # ---------------------------------------------------------------------------
 
-def _card_html(voice, message, facts, used_llm):
+def _card_html(voice, message, cite_line, used_llm):
     label, color = VOICE_META.get(voice, ("Companion", "#8893AB"))
     msg = _e(message).replace("\n", "<br>")
     if used_llm:
         ai = '<span class="plc-ai">ai</span>'
     else:
         ai = ""
-    chips = ""
-    if facts:
-        inner = ""
-        for x in facts:
-            inner = inner + '<span class="plc-chip">' + _e(x) + '</span>'
-        chips = '<div class="plc-facts">' + inner + '</div>'
-    return (_STYLE + '<div class="plc" style="--plc:' + color + '">'
-            '<div class="plc-rail"></div>'
-            '<div class="plc-head"><span class="plc-dot"></span>'
-            '<span class="plc-name">PULSE</span>'
-            '<span class="plc-voice">' + _e(label) + '</span>' + ai
-            + '</div><div class="plc-msg">' + msg + '</div>'
-            + chips + '</div>')
+    if cite_line:
+        cite = '<div class="plc-cite">' + _e(cite_line) + '</div>'
+    else:
+        cite = ""
+    return (
+        _STYLE
+        + '<div class="plc" style="--plc:' + color + '">'
+        + '<div class="plc-grain"></div>'
+        + '<div class="plc-sheen"></div>'
+        + '<div class="plc-rail"></div>'
+        + '<div class="plc-halo"></div>'
+        + '<span class="plc-tune-hint">✎</span>'
+        + '<div class="plc-head">'
+        + '<span class="plc-mark">PULSE</span>'
+        + '<span class="plc-voice">' + _e(label) + '</span>'
+        + ai + '</div>'
+        + '<div class="plc-body">'
+        + '<span class="plc-quote">“</span>'
+        + '<p class="plc-line">' + msg + '</p></div>'
+        + cite + '</div>'
+    )
 
 
-def _feedback_widget(voice, feats, pkt):
-    k = "plc_fb_" + voice
-    c1, c2, _ = st.columns([1, 1, 6])
-    with c1:
-        if st.button("👍 helped", key=k + "_up"):
-            fb = _get_feedback()
-            rec = {"ts": U.now_local().isoformat(),
-                   "kind": "like", "page": voice,
-                   "mood_band": pkt.get("mood_band", "none"),
-                   "features": list(feats), "note": "",
-                   "rtags": [], "rsrc": ""}
-            if _HAS_BRAIN:
-                _B.record_feedback(fb, rec)
-            st.rerun()
-    with c2:
-        liked = st.button("👎 didn't land", key=k + "_down")
-    if liked:
-        with st.form(k + "_form"):
-            note = st.text_input("what felt off? (one line)",
-                                 key=k + "_note")
-            chips = st.multiselect("or pick", _DISLIKE_CHIPS, key=k + "_chips")
-            ok = st.form_submit_button("Save feedback")
-            if ok:
-                fb = _get_feedback()
-                txt = (note or "").strip()
-                if chips:
-                    txt = (txt + " [" + ", ".join(chips) + "]").strip()
-                rec = {"ts": U.now_local().isoformat(),
-                       "kind": "dislike", "page": voice,
-                       "mood_band": pkt.get("mood_band", "none"),
-                       "features": list(feats), "note": txt,
-                       "rtags": [], "rsrc": ""}
+def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta, ask_box):
+    with st.expander("·  tune this voice  ·"):
+        st.caption(
+            "PULSE learns quietly from what you do after it speaks - you "
+            "rarely need to touch this. Open it to teach a preference, or "
+            "to ask anything. There is no like or dislike here on purpose: "
+            "rating a presence trains you to stand outside it.")
+        g = meta.get("grounds") or []
+        if g:
+            st.markdown(
+                '<div class="plc-grounds-list">grounded on: '
+                + " · ".join(_e(x) for x in g) + '</div>',
+                unsafe_allow_html=True)
+        if _HAS_BRAIN:
+            summ = _B.taste_summary(state, voice, pkt.get("mood_band", "none"))
+            if summ:
+                st.markdown(
+                    '<div class="plc-taste">what PULSE has learned here: '
+                    + _e(summ) + '</div>', unsafe_allow_html=True)
+        with st.form("plc_tune_" + voice):
+            chips = st.multiselect(
+                "lean the next one toward", _TUNE_CHIPS,
+                key="plc_tc_" + voice)
+            note = st.text_input(
+                "or in your own words - what should it have leaned toward?",
+                key="plc_tn_" + voice)
+            ok = st.form_submit_button("save tune")
+            if ok and (chips or (note or "").strip()):
+                rec = {
+                    "ts": U.now_local().isoformat(), "kind": "tune",
+                    "page": voice, "mood_band": pkt.get("mood_band", "none"),
+                    "features": meta.get("moves", []),
+                    "note": (note or "").strip(), "chips": chips,
+                    "rtags": [], "rsrc": "",
+                }
                 if _HAS_BRAIN:
-                    _B.record_feedback(fb, rec)
-                st.success("Noted. PULSE will learn from this.")
+                    _B.apply_tune(state, fb, rec)
+                    _B.save_state(state)
+                st.success("Tuned. PULSE will lean that way next time.")
                 st.rerun()
-
-
-def _ask_widget(pkt, voice, idx, fb, refl, allow_money):
-    with st.expander("Ask PULSE anything"):
-        st.caption("Grounded in your logged life and what it has "
-                   "retrieved. With no API key it answers from memory.")
-        q = st.text_input("Ask", key="plc_ask_" + voice,
-                          placeholder="e.g. should I top up fun this week?")
-        if st.button("Ask", key="plc_go_" + voice):
-            qq = (q or "").strip()
-            if qq:
-                ans = _llm_answer(pkt, voice, qq, idx, fb, refl, allow_money)
-                if ans:
-                    st.markdown('<div class="plc-ans">'
-                                + _e(ans).replace("\n", "<br>")
-                                + '</div>', unsafe_allow_html=True)
-                else:
-                    st.markdown('<div class="plc-ans">'
-                                + _e(_offline_answer(pkt, qq, idx, fb,
-                                                     allow_money))
-                                + '</div>', unsafe_allow_html=True)
+        if ask_box:
+            q = st.text_input(
+                "ask PULSE anything", key="plc_ask_" + voice,
+                placeholder="e.g. should I top up fun this week?")
+            if st.button("ask", key="plc_go_" + voice):
+                qq = (q or "").strip()
+                if qq:
+                    ans = _llm_answer(pkt, voice, qq, idx, fb, refl,
+                                      state, allow_money)
+                    if ans:
+                        st.markdown(
+                            '<div class="plc-ans">'
+                            + _e(ans).replace("\n", "<br>") + '</div>',
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            '<div class="plc-ans">'
+                            + _e(_offline_answer(pkt, qq, idx, fb,
+                                                 allow_money, refl, state))
+                            + '</div>', unsafe_allow_html=True)
 
 
 def _companion_settings(ctx):
@@ -1245,11 +1432,11 @@ def _companion_settings(ctx):
             idx = _get_index(ctx, True)
             fb = _get_feedback()
             refl = _get_reflection(ctx)
+            state = _get_state()
             summ = _B.feedback_summary(fb)
             st.markdown(UI.kv([
                 ("Memories indexed", str(_B.index_size(idx))),
-                ("Feedback", str(summ.get("likes", 0)) + " liked · "
-                 + str(summ.get("dislikes", 0)) + " didn't land"),
+                ("Tunes recorded", str(summ.get("tunes", 0))),
                 ("Recurring lesson",
                  (refl.get("recurring_lessons") or ["—"])[0]
                  if refl.get("recurring_lessons") else "—"),
@@ -1260,8 +1447,7 @@ def _companion_settings(ctx):
                   else ("heavy" if (refl.get("mood_slope_7", 0) or 0) < 0
                        else "steady"))),
             ]), unsafe_allow_html=True)
-            sups = _B.learned_suppressions(
-                fb, list(VOICE_META.keys()))
+            sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
             if sups:
                 st.caption("PULSE has learned to hold back these moves:")
                 for s in sups:
@@ -1270,8 +1456,8 @@ def _companion_settings(ctx):
                                 + _e(s["feature"]),
                                 unsafe_allow_html=True)
             else:
-                st.caption("No learned suppressions yet. Use 👎 on a "
-                           "message to teach PULSE your taste.")
+                st.caption("No learned suppressions yet. Use the tune "
+                           "drawer under any message to teach a taste.")
             ca, cb, cc = st.columns(3)
             with ca:
                 if st.button("Rebuild memory index", key="plc_rebuild"):
@@ -1281,13 +1467,14 @@ def _companion_settings(ctx):
             with cb:
                 if st.button("Reset learned taste", key="plc_resetfb"):
                     _B.reset_feedback()
-                    st.success("Feedback cleared.")
+                    st.success("Taste and tunes cleared.")
                     st.rerun()
             with cc:
                 st.download_button(
                     "Export brain (.json)",
                     json.dumps({"index": idx, "feedback": fb,
-                                "reflection": refl}, default=str),
+                                "reflection": refl, "state": state},
+                               default=str),
                     file_name="pulse_brain.json",
                     mime="application/json", key="plc_expbrain")
 
@@ -1300,33 +1487,41 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
         idx = _get_index(ctx, allow_money)
         fb = _get_feedback()
         refl = _get_reflection(ctx)
-        sents, facts, feats = _deterministic(pkt, voice, idx, fb, refl,
-                                             allow_money)
-        msg = " ".join(sents)
-        used = False
-        if _have_key():
-            lm = _llm_message(pkt, voice, idx, fb, refl, allow_money)
-            if lm:
-                msg = lm
-                used = True
-        st.markdown(_card_html(voice, msg, facts, used),
-                    unsafe_allow_html=True)
+        state = _get_state()
+        if _HAS_BRAIN:
+            try:
+                _B.reconcile_implicit(state, _stores(ctx, True), fb)
+                _B.save_state(state)
+            except Exception:
+                pass
+        msg, used, meta = _compose(pkt, voice, idx, fb, refl, state,
+                                   allow_money)
+        if _HAS_BRAIN:
+            try:
+                _B.note_surfaced(state, voice,
+                                 pkt.get("mood_band", "none"),
+                                 meta.get("moves", []),
+                                 meta.get("refs", []))
+                _B.save_state(state)
+            except Exception:
+                pass
+        st.markdown(_card_html(voice, msg, meta.get("cite_line", ""),
+                               used), unsafe_allow_html=True)
         try:
-            _feedback_widget(voice, feats, pkt)
+            _extras(pkt, voice, idx, fb, refl, state, allow_money,
+                    meta, ask_box)
         except Exception:
             pass
         if voice == "quiet":
-            _companion_settings(ctx)
-        elif ask_box:
             try:
-                _ask_widget(pkt, voice, idx, fb, refl, allow_money)
+                _companion_settings(ctx)
             except Exception:
                 pass
     except Exception:
         try:
             st.markdown(_card_html(voice or "morning",
                                    "I'm here. (the companion hit a snag - "
-                                   "your data is safe.)", [], False),
+                                   "your data is safe.)", "", False),
                         unsafe_allow_html=True)
         except Exception:
             pass
