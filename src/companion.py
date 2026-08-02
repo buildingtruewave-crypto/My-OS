@@ -1,28 +1,29 @@
 """PULSE companion - the voice that has read your life.
 
 The card is built to feel spoken, not displayed: a slow breathing halo, a
-caught-light hairline, a fine linen grain, a left rail in the voice's own
-colour, and the voice line set large and italic with a hanging drop-cap
+caught-light sheen on hover, a fine linen grain, a left rail in the voice's
+own colour, and the voice line set large and italic with a hanging drop-cap
 quotation glyph. A single delicate provenance line sits in the margin like a
-citation in a fine book; the machinery (the grounding facts, the ask-box,
-the tuning) lives in one collapsed, whisper-quiet drawer beneath the card,
-framed as tuning an instrument, never grading a student. There is no
-like/dislike on the card - PULSE learns from what the operator does after it
-speaks (see brain.reconcile_implicit), so the rating friction that poisons a
-presence is gone.
+citation in a fine book; the machinery (grounding facts, the ask-box, the
+tuning, the free-tier provider that answered) lives in one collapsed,
+whisper-quiet drawer beneath the card, framed as tuning an instrument, never
+grading a student. There is NO like/dislike on the card - PULSE learns from
+what the operator does after it speaks (brain.reconcile_implicit), so the
+rating friction that poisons a presence is gone.
 
 Three layers over one context packet:
   * build_packet() reads recent journal / spirit / sales / mood / clients /
     tasks / habits / weight, and - ONLY when allow_money is True (inside the
     locked Archive) - pantry / runway / emergency / bills / commissions.
   * A deterministic voice per page composes grounded sentences, augmented by
-    the brain: a retrieved memory, a longitudinal pattern, learned taste
-    suppressions, and confidence-calibrated brevity. It never invents, never
-    leaks money on a public page, and notices absence.
-  * If an OpenAI-compatible key is in st.secrets, a strictly-grounded LLM
-    writes the message and answers free questions, fed retrieved memories +
-    the operator's patterns + their taste + their own past tunes as
-    constraints.
+    the brain: fused retrieval, a longitudinal pattern, a thread echo, a
+    grounded next-move nudge, learned taste suppressions, and confidence-
+    calibrated brevity. It never invents, never leaks money on a public page,
+    and notices absence.
+  * If the free-tier router (src.llm_router) has any provider configured, a
+    strictly-grounded model writes the message and answers free questions,
+    fed retrieved memories + the operator's patterns + their taste + their
+    own past tunes + the thread + the suggested next move as constraints.
 
 Every public function fails open. The whole panel is wrapped so a failure
 never breaks the host page. No f-strings are used anywhere in this file.
@@ -44,6 +45,13 @@ try:
 except Exception:
     _B = None
     _HAS_BRAIN = False
+
+try:
+    from . import llm_router as _R
+    _HAS_ROUTER = True
+except Exception:
+    _R = None
+    _HAS_ROUTER = False
 
 _MEM = Path(__file__).resolve().parent.parent / "data" / "companion.json"
 LOW = set(("drained", "flat"))
@@ -78,120 +86,72 @@ _SRC_LABEL = {
 
 _STYLE = """
 <style>
-@keyframes plc_breathe{
-  0%,100%{transform:scale(1);opacity:.10;}
-  50%{transform:scale(1.18);opacity:.20;}
-}
-@keyframes plc_rise{
-  from{opacity:0;transform:translateY(10px);}
-  to{opacity:1;transform:none;}
-}
-.plc{
-  position:relative;overflow:hidden;margin:16px 0 6px;
-  padding:20px 22px 18px 24px;
-  border:1px solid var(--hair,#1C2740);border-radius:16px;
-  background:linear-gradient(180deg,rgba(18,26,43,.94),rgba(12,18,30,.96));
-  box-shadow:0 12px 34px -26px rgba(0,0,0,.92);
-  transition:transform .28s cubic-bezier(.2,.7,.2,1),
-             border-color .28s,box-shadow .28s;
-  animation:plc_rise .6s cubic-bezier(.2,.7,.2,1) both;
-}
-.plc:hover{
-  transform:translateY(-3px);
-  border-color:var(--plc,#4C8DFF);
-  box-shadow:0 26px 56px -28px rgba(0,0,0,.95),
-             0 0 0 1px rgba(255,255,255,.03);
-}
-.plc-grain{
-  position:absolute;inset:0;pointer-events:none;opacity:.5;
-  background-image:radial-gradient(rgba(255,255,255,.05) .5px,transparent .6px);
-  background-size:3px 3px;mix-blend-mode:soft-light;
-}
-.plc-sheen{
-  position:absolute;left:0;right:0;top:0;height:1px;pointer-events:none;
-  background:linear-gradient(90deg,transparent,
-     rgba(255,255,255,.16),transparent);
-  opacity:.55;transition:opacity .28s;
-}
-.plc:hover .plc-sheen{opacity:1;}
-.plc-rail{
-  position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:linear-gradient(180deg,var(--plc,#4C8DFF),transparent 82%);
-  transition:width .28s;
-}
-.plc:hover .plc-rail{width:4px;}
-.plc-halo{
-  position:absolute;left:-34px;top:-34px;width:132px;height:132px;
-  border-radius:50%;pointer-events:none;
-  background:radial-gradient(circle,var(--plc,#4C8DFF),transparent 70%);
-  filter:blur(10px);animation:plc_breathe 5s ease-in-out infinite;
-}
-.plc-head{
-  position:relative;display:flex;align-items:center;gap:10px;
-  margin-bottom:12px;flex-wrap:wrap;
-}
-.plc-mark{
-  font:700 11px/1 var(--mono,'JetBrains Mono',monospace);
-  letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2,#B6C0D4);
-}
-.plc-voice{
-  font:600 10px/1 var(--mono,'JetBrains Mono',monospace);
-  letter-spacing:.16em;text-transform:uppercase;color:var(--plc,#4C8DFF);
-  padding:3px 9px;border-radius:999px;
-  background:rgba(255,255,255,.03);border:1px solid var(--hair,#1C2740);
-}
-.plc-ai{
-  font:700 8px/1 var(--mono,'JetBrains Mono',monospace);
-  letter-spacing:.14em;text-transform:uppercase;color:#D946EF;
-  border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);
-  border-radius:999px;padding:3px 8px;
-}
-.plc-body{position:relative;padding-left:30px;}
-.plc-quote{
-  position:absolute;left:0;top:-6px;
-  font:700 50px/1 var(--disp,'Space Grotesk',sans-serif);
-  color:var(--plc,#4C8DFF);opacity:.16;pointer-events:none;
-  user-select:none;
-}
-.plc-line{
-  margin:0;font:500 17px/1.7 var(--body,'Manrope',sans-serif);
-  color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em;
-}
-.plc-cite{
-  margin:11px 0 0 30px;font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);
-  color:var(--mute-2,#8893AB);letter-spacing:.02em;
-}
-.plc-tune-hint{
-  position:absolute;right:16px;top:18px;
-  font:600 13px/1 var(--mono,'JetBrains Mono',monospace);
-  color:var(--mute,#69748C);opacity:0;transition:opacity .28s;
-  pointer-events:none;
-}
-.plc:hover .plc-tune-hint{opacity:.5;}
-.plc-grounds-list{
-  font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);
-  color:var(--mute-2,#8893AB);margin:2px 0 12px;letter-spacing:.02em;
-}
-.plc-taste{
-  font:500 11.5px/1.5 var(--body,'Manrope',sans-serif);
-  color:var(--ink-2,#B6C0D4);font-style:italic;margin:0 0 12px;
-  border-left:2px solid var(--plc,#4C8DFF);padding-left:10px;
-}
-.plc-ans{
-  margin-top:10px;padding:12px 14px;border-radius:11px;
-  border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);
-  font:500 13.5px/1.6 var(--body,'Manrope',sans-serif);
-  color:var(--ink-2,#B6C0D4);font-style:italic;
-}
-@media (max-width:760px){
-  .plc{padding:16px 16px 14px 18px;}
-  .plc-body{padding-left:22px;}
-  .plc-quote{font-size:38px;top:-2px;}
-  .plc-line{font-size:15.5px;line-height:1.62;}
-  .plc-cite{margin-left:22px;}
-}
+@keyframes plcBreathe{0%,100%{transform:scale(1);opacity:.10}50%{transform:scale(1.16);opacity:.22}}
+@keyframes plcRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes plcSheen{0%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+.plc{position:relative;overflow:hidden;margin:16px 0 6px;padding:20px 22px 18px 24px;border:1px solid var(--hair,#1C2740);border-radius:16px;background:linear-gradient(180deg,rgba(18,26,43,.94),rgba(12,18,30,.96));box-shadow:0 12px 34px -26px rgba(0,0,0,.92);transition:transform .28s cubic-bezier(.2,.7,.2,1),border-color .28s,box-shadow .28s;animation:plcRise .6s cubic-bezier(.2,.7,.2,1) both}
+.plc:hover{transform:translateY(-3px);border-color:var(--plc,#4C8DFF);box-shadow:0 26px 56px -28px rgba(0,0,0,.95),0 0 0 1px rgba(255,255,255,.03)}
+.plc-grain{position:absolute;inset:0;pointer-events:none;opacity:.5;background-image:radial-gradient(rgba(255,255,255,.05) .5px,transparent .6px);background-size:3px 3px;mix-blend-mode:soft-light}
+.plc-sheen{position:absolute;top:0;left:0;width:60%;height:1px;pointer-events:none;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);opacity:0}
+.plc:hover .plc-sheen{opacity:.8;animation:plcSheen 1.1s ease}
+.plc-rail{position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--plc,#4C8DFF),transparent 82%);transition:width .28s}
+.plc:hover .plc-rail{width:4px}
+.plc-halo{position:absolute;left:-34px;top:-34px;width:132px;height:132px;border-radius:50%;pointer-events:none;background:radial-gradient(circle,var(--plc,#4C8DFF),transparent 70%);filter:blur(10px);animation:plcBreathe 5s ease-in-out infinite}
+.plc-head{position:relative;display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+.plc-mark{font:700 11px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.34em;text-transform:uppercase;color:var(--ink-2,#B6C0D4)}
+.plc-voice{font:600 10px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.16em;text-transform:uppercase;color:var(--plc,#4C8DFF);padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.03);border:1px solid var(--hair,#1C2740)}
+.plc-ai{font:700 8px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.14em;text-transform:uppercase;color:#D946EF;border:1px solid rgba(217,70,239,.4);background:rgba(217,70,239,.12);border-radius:999px;padding:3px 8px}
+.plc-via{font:600 8px/1 var(--mono,'JetBrains Mono',monospace);letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2,#8893AB);border:1px solid var(--hair,#1C2740);border-radius:999px;padding:3px 8px}
+.plc-body{position:relative;padding-left:30px}
+.plc-quote{position:absolute;left:0;top:-6px;font:700 50px/1 var(--disp,'Space Grotesk',sans-serif);color:var(--plc,#4C8DFF);opacity:.16;pointer-events:none;user-select:none}
+.plc-line{margin:0;font:500 17px/1.7 var(--body,'Manrope',sans-serif);color:var(--ink,#E8EDF7);font-style:italic;letter-spacing:-.005em}
+.plc-cite{margin:11px 0 0 30px;font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);letter-spacing:.02em}
+.plc-thread{margin:8px 0 0 30px;font:500 12px/1.5 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);border-left:2px solid var(--plc,#4C8DFF);padding-left:10px}
+.plc-nudge{margin:10px 0 0 30px;display:flex;align-items:flex-start;gap:8px;font:600 12px/1.45 var(--body,'Manrope',sans-serif);color:var(--ink,#E8EDF7)}
+.plc-nudge .arr{color:var(--plc,#4C8DFF);font:700 13px/1.3 var(--mono,'JetBrains Mono',monospace)}
+.plc-tune-hint{position:absolute;right:16px;top:18px;font:600 13px/1 var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);opacity:0;transition:opacity .28s;pointer-events:none}
+.plc:hover .plc-tune-hint{opacity:.5}
+.plc-grounds-list{font:500 11px/1.5 var(--mono,'JetBrains Mono',monospace);color:var(--mute-2,#8893AB);margin:2px 0 12px;letter-spacing:.02em}
+.plc-taste{font:500 11.5px/1.5 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);font-style:italic;margin:0 0 12px;border-left:2px solid var(--plc,#4C8DFF);padding-left:10px}
+.plc-ans{margin-top:10px;padding:12px 14px;border-radius:11px;border:1px solid var(--hair,#1C2740);background:rgba(255,255,255,.02);font:500 13.5px/1.6 var(--body,'Manrope',sans-serif);color:var(--ink-2,#B6C0D4);font-style:italic}
+.plc-health{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 14px;margin:6px 0 4px}
+.plc-health .k{font:600 10px/1.4 var(--mono,'JetBrains Mono',monospace);color:var(--mute,#69748C);letter-spacing:.06em}
+.plc-health .v{font:700 12px/1.4 var(--mono,'JetBrains Mono',monospace);color:var(--ink,#E8EDF7)}
+@media (max-width:760px){.plc{padding:16px 16px 14px 18px}.plc-body{padding-left:22px}.plc-quote{font-size:38px;top:-2px}.plc-line{font-size:15.5px;line-height:1.62}.plc-cite,.plc-thread,.plc-nudge{margin-left:22px}.plc-health{grid-template-columns:1fr}}
 </style>
 """
+
+_AUTO = {
+    "morning": "Speak to them for this moment of the day, grounded.",
+    "sales": "Encourage their sales work right now, grounded in their numbers.",
+    "spirit": "Speak to them about their time with God right now, grounded.",
+    "journal": "Invite reflection on their day, grounded in what they logged.",
+    "body": "Speak to them about their body and movement, grounded.",
+    "focus": "Help them focus on what matters right now, grounded.",
+    "review": "Give a brief grounded review of how the week is shaping.",
+    "money": "Give grounded, practical money guidance for right now.",
+    "quiet": "Offer a calm, grounded word.",
+}
+
+_SYS = (
+    "You are PULSE, a grounded companion for one person. You receive a "
+    "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
+    "past words most relevant to now, a PATTERNS block of what you have "
+    "learned about them over time, a THREAD block of a feeling they have "
+    "felt on multiple days, a NEXT MOVE block of the single most useful "
+    "concrete action right now, and a CONSTRAINTS block of how they have "
+    "tuned you. Rules: (1) Use ONLY facts present in CONTEXT and RETRIEVED; "
+    "never invent sales, feelings, verses, dates, clients or events. (2) "
+    "Speak in second person, warmly and specifically. (3) When you cite a "
+    "number, quote or feeling, use the exact one given. (4) Match their "
+    "current mood. (5) Obey every line in CONSTRAINTS without mentioning "
+    "that you were told. (6) If a NEXT MOVE is given and it fits, weave it "
+    "in naturally as one concrete step. (7) If the question touches money, "
+    "balances, pantry or the emergency fund but CONTEXT has no money facts, "
+    "reply that you keep finances private and they should ask inside the "
+    "Archive. (8) Do not ask a question back unless it is a single gentle "
+    "offer. (9) No lists, no headers, no emojis."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -396,6 +356,20 @@ def _search(idx, fb, query, allow_money, mood, k=3, refl=None,
                          page=page)
     except Exception:
         return []
+
+
+def _have_key():
+    """Kept for app.py compatibility: True only if the router has providers."""
+    if not _HAS_ROUTER:
+        return False
+    try:
+        return _R.has_providers()
+    except Exception:
+        return False
+
+
+def _have_llm():
+    return _have_key()
 
 
 # ---------------------------------------------------------------------------
@@ -982,7 +956,7 @@ _VOICES = {
 
 
 # ---------------------------------------------------------------------------
-# compose (deterministic + optional LLM), returns (msg, used_llm, meta)
+# compose (deterministic + optional free-tier LLM)
 # ---------------------------------------------------------------------------
 
 def _compose(pkt, voice, idx, fb, refl, state, allow_money):
@@ -996,6 +970,24 @@ def _compose(pkt, voice, idx, fb, refl, state, allow_money):
         if p:
             prov.append(p)
     mb = pkt.get("mood_band", "none")
+    thread = None
+    if _HAS_BRAIN:
+        try:
+            thread = _B.thread_for(pkt, refl)
+        except Exception:
+            thread = None
+    if thread and _HAS_BRAIN and _B.move_allowed(state, fb, voice, mb, "quoted_memory"):
+        sents.append(thread)
+        feats.add("quoted_memory")
+        prov.append("a thread in your own words")
+    nudge = None
+    if _HAS_BRAIN:
+        try:
+            nm = _B.next_move(pkt)
+            if nm:
+                nudge = nm[0]
+        except Exception:
+            nudge = None
     brev = _B.taste_brevity(state, voice, mb) if _HAS_BRAIN else ""
     if voice == "quiet":
         cap = 1
@@ -1004,75 +996,30 @@ def _compose(pkt, voice, idx, fb, refl, state, allow_money):
     else:
         cap = 3
     sents = sents[:max(1, cap)]
+    msg = " ".join(sents)
     style = (_B.taste_style(state, voice, mb) if _HAS_BRAIN else "") or ""
     cite = ("— " + " · ".join(prov)) if prov else ""
-    msg = " ".join(sents)
     used = False
-    if _have_key():
-        lm = _llm_message(pkt, voice, idx, fb, refl, state,
-                          allow_money, style, brev)
+    provider = None
+    if _have_llm():
+        lm, prov_name = _llm_message(pkt, voice, idx, fb, refl, state,
+                                     allow_money, style, brev, thread,
+                                     nudge)
         if lm:
             msg = lm
             used = True
+            provider = prov_name
     meta = {
         "moves": list(feats), "refs": refs, "grounds": facts,
-        "provenance": prov, "cite_line": cite,
+        "provenance": prov, "cite_line": cite, "nudge": nudge,
+        "thread": thread, "provider": provider,
     }
     return msg, used, meta
 
 
 # ---------------------------------------------------------------------------
-# optional LLM layer
+# free-tier LLM layer
 # ---------------------------------------------------------------------------
-
-def _keyinfo():
-    ak = None
-    bu = ""
-    model = "gpt-4o-mini"
-    try:
-        llm = st.secrets["llm"]
-        ak = llm.get("api_key")
-        bu = llm.get("base_url") or ""
-        model = llm.get("model") or model
-    except Exception:
-        pass
-    if not ak:
-        try:
-            ak = st.secrets["openai_api_key"]
-        except Exception:
-            ak = None
-    if not ak:
-        return None
-    return ak, bu, (model or "gpt-4o-mini")
-
-
-def _have_key():
-    try:
-        return _keyinfo() is not None
-    except Exception:
-        return False
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _llm_call(api_key, base_url, model, system, user):
-    try:
-        import openai
-    except Exception:
-        return None
-    try:
-        kw = {"api_key": api_key}
-        if base_url:
-            kw["base_url"] = base_url
-        client = openai.OpenAI(**kw)
-        r = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
-            temperature=0.7, max_tokens=220)
-        return (r.choices[0].message.content or "").strip()
-    except Exception:
-        return None
-
 
 def _retrieved_block(idx, fb, pkt, allow_money, refl, state, k=4):
     if not _HAS_BRAIN or idx is None:
@@ -1127,11 +1074,9 @@ def _constraints_block(fb, mb, page, state):
 
 
 def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
-                 style, brev):
-    ki = _keyinfo()
-    if not ki:
-        return None
-    ak, bu, model = ki
+                 style, brev, thread, nudge):
+    if not _HAS_ROUTER:
+        return None, None
     parts = [_SYS, "", "CONTEXT:"]
     parts.append("today " + str(pkt["today"]) + " ("
                  + str(pkt.get("day_type", "")) + ")")
@@ -1204,6 +1149,14 @@ def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
         parts.append("")
         parts.append("PATTERNS (learned about them over time):")
         parts.append(pb)
+    if thread:
+        parts.append("")
+        parts.append("THREAD (a feeling they have felt on multiple days):")
+        parts.append(thread)
+    if nudge:
+        parts.append("")
+        parts.append("NEXT MOVE (the single most useful concrete step):")
+        parts.append(nudge)
     cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice, state)
     if cb:
         parts.append("")
@@ -1222,14 +1175,19 @@ def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
     parts.append("Speak 1 to 3 sentences; prefer fewer when the line is strong.")
     system = "\n".join(parts)
     user = _AUTO.get(voice, _AUTO["morning"])
-    return _llm_call(ak, bu, model, system, user)
+    try:
+        text, prov_name = _R.chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": user}],
+            temperature=0.7, max_tokens=240)
+    except Exception:
+        text, prov_name = None, None
+    return text, prov_name
 
 
 def _llm_answer(pkt, voice, question, idx, fb, refl, state, allow_money):
-    ki = _keyinfo()
-    if not ki:
-        return None
-    ak, bu, model = ki
+    if not _HAS_ROUTER:
+        return None, None
     parts = [_SYS, "", "CONTEXT (verified facts):"]
     parts.append("today " + str(pkt["today"]) + "; mood "
                  + (pkt.get("mood_today") or "-"))
@@ -1252,7 +1210,13 @@ def _llm_answer(pkt, voice, question, idx, fb, refl, state, allow_money):
     parts.append("Answer the question using only the facts above. "
                  "2 to 4 sentences, second person, no lists.")
     system = "\n".join(parts)
-    return _llm_call(ak, bu, model, system, question)
+    try:
+        return _R.chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": question}],
+            temperature=0.6, max_tokens=240)
+    except Exception:
+        return None, None
 
 
 def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
@@ -1281,51 +1245,35 @@ def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
     return base + extra
 
 
-_AUTO = {
-    "morning": "Speak to them for this moment of the day, grounded.",
-    "sales": "Encourage their sales work right now, grounded in their numbers.",
-    "spirit": "Speak to them about their time with God right now, grounded.",
-    "journal": "Invite reflection on their day, grounded in what they logged.",
-    "body": "Speak to them about their body and movement, grounded.",
-    "focus": "Help them focus on what matters right now, grounded.",
-    "review": "Give a brief grounded review of how the week is shaping.",
-    "money": "Give grounded, practical money guidance for right now.",
-    "quiet": "Offer a calm, grounded word.",
-}
-
-_SYS = (
-    "You are PULSE, a grounded companion for one person. You receive a "
-    "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
-    "past words most relevant to now, a PATTERNS block of what you have "
-    "learned about them over time, and a CONSTRAINTS block of how they have "
-    "tuned you. Rules: (1) Use ONLY facts present in CONTEXT and RETRIEVED; "
-    "never invent sales, feelings, verses, dates, clients or events. (2) "
-    "Speak in second person, warmly and specifically. (3) When you cite a "
-    "number, quote or feeling, use the exact one given. (4) Match their "
-    "current mood. (5) Obey every line in CONSTRAINTS without mentioning "
-    "that you were told. (6) If the question touches money, balances, "
-    "pantry or the emergency fund but CONTEXT has no money facts, reply "
-    "that you keep finances private and they should ask inside the "
-    "Archive. (7) Do not ask a question back unless it is a single gentle "
-    "offer. (8) No lists, no headers, no emojis."
-)
-
-
 # ---------------------------------------------------------------------------
 # render
 # ---------------------------------------------------------------------------
 
-def _card_html(voice, message, cite_line, used_llm):
+def _card_html(voice, message, cite_line, used_llm, provider,
+               thread, nudge):
     label, color = VOICE_META.get(voice, ("Companion", "#8893AB"))
     msg = _e(message).replace("\n", "<br>")
     if used_llm:
         ai = '<span class="plc-ai">ai</span>'
     else:
         ai = ""
+    if used_llm and provider:
+        via = '<span class="plc-via">via ' + _e(provider) + '</span>'
+    else:
+        via = ""
     if cite_line:
         cite = '<div class="plc-cite">' + _e(cite_line) + '</div>'
     else:
         cite = ""
+    if thread:
+        thread_html = '<div class="plc-thread">' + _e(thread) + '</div>'
+    else:
+        thread_html = ""
+    if nudge:
+        nudge_html = ('<div class="plc-nudge"><span class="arr">→</span>'
+                      '<span>' + _e(nudge) + '</span></div>')
+    else:
+        nudge_html = ""
     return (
         _STYLE
         + '<div class="plc" style="--plc:' + color + '">'
@@ -1337,15 +1285,15 @@ def _card_html(voice, message, cite_line, used_llm):
         + '<div class="plc-head">'
         + '<span class="plc-mark">PULSE</span>'
         + '<span class="plc-voice">' + _e(label) + '</span>'
-        + ai + '</div>'
+        + ai + via + '</div>'
         + '<div class="plc-body">'
         + '<span class="plc-quote">“</span>'
         + '<p class="plc-line">' + msg + '</p></div>'
-        + cite + '</div>'
+        + cite + thread_html + nudge_html + '</div>'
     )
 
 
-def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta, ask_box):
+def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
     with st.expander("·  tune this voice  ·"):
         st.caption(
             "PULSE learns quietly from what you do after it speaks - you "
@@ -1385,26 +1333,25 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta, ask_box):
                     _B.save_state(state)
                 st.success("Tuned. PULSE will lean that way next time.")
                 st.rerun()
-        if ask_box:
-            q = st.text_input(
-                "ask PULSE anything", key="plc_ask_" + voice,
-                placeholder="e.g. should I top up fun this week?")
-            if st.button("ask", key="plc_go_" + voice):
-                qq = (q or "").strip()
-                if qq:
-                    ans = _llm_answer(pkt, voice, qq, idx, fb, refl,
-                                      state, allow_money)
-                    if ans:
-                        st.markdown(
-                            '<div class="plc-ans">'
-                            + _e(ans).replace("\n", "<br>") + '</div>',
-                            unsafe_allow_html=True)
-                    else:
-                        st.markdown(
-                            '<div class="plc-ans">'
-                            + _e(_offline_answer(pkt, qq, idx, fb,
-                                                 allow_money, refl, state))
-                            + '</div>', unsafe_allow_html=True)
+        q = st.text_input(
+            "ask PULSE anything", key="plc_ask_" + voice,
+            placeholder="e.g. should I top up fun this week?")
+        if st.button("ask", key="plc_go_" + voice):
+            qq = (q or "").strip()
+            if qq:
+                ans, _pn = _llm_answer(pkt, voice, qq, idx, fb, refl,
+                                       state, allow_money)
+                if ans:
+                    st.markdown(
+                        '<div class="plc-ans">'
+                        + _e(ans).replace("\n", "<br>") + '</div>',
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        '<div class="plc-ans">'
+                        + _e(_offline_answer(pkt, qq, idx, fb,
+                                             allow_money, refl, state))
+                        + '</div>', unsafe_allow_html=True)
 
 
 def _companion_settings(ctx):
@@ -1418,12 +1365,12 @@ def _companion_settings(ctx):
             st.success("Anchor saved.")
             st.rerun()
         st.markdown(
-            "**Make PULSE speak with a real model (optional).** Add this to "
-            "Streamlit Cloud → Settings → Secrets. Without it, PULSE still "
-            "talks, grounded in your log and its own memory:")
-        st.code('[llm]\napi_key = "sk-..."\nmodel = "gpt-4o-mini"\n'
-                '# base_url = "https://your-compatible-endpoint/v1"',
-                language="toml")
+            "**Make PULSE speak with a real model (optional, free tiers).** "
+            "Add a [llm] table to Streamlit Cloud → Settings → Secrets with "
+            "any of: groq_key, gemini_key, openrouter_key, cerebras_key, "
+            "github_key, openai_key (see README for the full template). "
+            "Without any key, PULSE still talks, grounded in your log and "
+            "its own memory, and the ask-box answers offline.")
     with st.expander("Memory & training (the brain)"):
         if not _HAS_BRAIN:
             st.caption("The brain module is not loaded; the companion is "
@@ -1433,20 +1380,40 @@ def _companion_settings(ctx):
             fb = _get_feedback()
             refl = _get_reflection(ctx)
             state = _get_state()
-            summ = _B.feedback_summary(fb)
-            st.markdown(UI.kv([
-                ("Memories indexed", str(_B.index_size(idx))),
-                ("Tunes recorded", str(summ.get("tunes", 0))),
-                ("Recurring lesson",
-                 (refl.get("recurring_lessons") or ["—"])[0]
-                 if refl.get("recurring_lessons") else "—"),
-                ("Energy source",
-                 (refl.get("energy_sources") or [("—", 0)])[0][0]),
-                ("Mood slope 7d",
-                 ("lifting" if (refl.get("mood_slope_7", 0) or 0) > 0
-                  else ("heavy" if (refl.get("mood_slope_7", 0) or 0) < 0
-                       else "steady"))),
-            ]), unsafe_allow_html=True)
+            health = _B.memory_health(idx, state, fb, refl)
+            provs = []
+            if _HAS_ROUTER:
+                try:
+                    hs = _R.health_summary()
+                    for name, info in hs.items():
+                        ms = info.get("last_ms", 0)
+                        mdl = info.get("model", "")
+                        cooled = info.get("cooled", False)
+                        line = name + " · " + str(ms) + "ms · " + mdl
+                        if cooled:
+                            line += " · cooling"
+                        provs.append(line)
+                except Exception:
+                    pass
+            cells = (
+                '<div class="plc-health">'
+                + '<div><div class="k">memories indexed</div><div class="v">'
+                + str(health.get("memories", 0)) + '</div></div>'
+                + '<div><div class="k">semantic coverage</div><div class="v">'
+                + str(health.get("semantic_pct", 0)) + '%</div></div>'
+                + '<div><div class="k">threads detected</div><div class="v">'
+                + str(health.get("threads", 0)) + '</div></div>'
+                + '<div><div class="k">taste convergence</div><div class="v">'
+                + str(health.get("taste_convergence_pct", 0)) + '%</div></div>'
+                + '<div><div class="k">tunes recorded</div><div class="v">'
+                + str(health.get("tunes", 0)) + '</div></div>'
+                + '<div><div class="k">providers live</div><div class="v">'
+                + str(len(provs)) + '</div></div>'
+                + '</div>'
+            )
+            st.markdown(cells, unsafe_allow_html=True)
+            if provs:
+                st.caption("last response latency: " + " | ".join(provs))
             sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
             if sups:
                 st.caption("PULSE has learned to hold back these moves:")
@@ -1506,10 +1473,11 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
             except Exception:
                 pass
         st.markdown(_card_html(voice, msg, meta.get("cite_line", ""),
-                               used), unsafe_allow_html=True)
+                               used, meta.get("provider"),
+                               meta.get("thread"), meta.get("nudge")),
+                    unsafe_allow_html=True)
         try:
-            _extras(pkt, voice, idx, fb, refl, state, allow_money,
-                    meta, ask_box)
+            _extras(pkt, voice, idx, fb, refl, state, allow_money, meta)
         except Exception:
             pass
         if voice == "quiet":
@@ -1521,7 +1489,8 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
         try:
             st.markdown(_card_html(voice or "morning",
                                    "I'm here. (the companion hit a snag - "
-                                   "your data is safe.)", "", False),
+                                   "your data is safe.)", "", False,
+                                   None, None, None),
                         unsafe_allow_html=True)
         except Exception:
             pass
