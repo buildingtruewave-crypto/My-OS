@@ -1,30 +1,8 @@
 """PULSE brain - offline, trainable, retrieval-augmented intelligence.
-
-The layer that turns the companion from "reads the last three lines" into a
-memory that knows one person across time. Pure standard library plus our own
-util (no Streamlit import), so no host or version can break it, and every
-public function fails open: a corrupt index rebuilds, a bad search returns [],
-a failed reflection or reconciliation is skipped. A bug here can never take
-down a page or touch the operator's data.
-
-Capabilities (all offline, all persisted as JSON, all auditable):
-  * Lexical TF-IDF inverted index fused with a dependency-free semantic layer
-    (stable MD5-seeded character-n-gram hashing, sparse cosine) and MMR-style
-    diversity, so retrieval never returns near-duplicates.
-  * Temporal-rhythm weighting (a memory that landed on a Tuesday 07:00 scores
-    higher on a Tuesday morning), recency decay, mood matching.
-  * Query expansion from the operator's own recurring lessons and wins.
-  * A per (mood x page) taste model that learns which moves and sources
-    resonate; implicit reinforcement from BEHAVIOUR (no clicks, no ratings).
-  * Anti-repetition: never surface the same memory twice in a row.
-  * Thread / echo detection across days, grounded next-best-action nudges, and
-    a once-per-day self-note the brain writes about the operator.
-  * A memory-health readout (index size, semantic coverage, thread count,
-    taste convergence) so the "it is learning" claim is measurable.
-
-Privacy: money-sourced documents are indexed but only retrievable when the
-caller passes allow_money=True (inside the locked Archive). Enforced at search
-time, not by trust.
+Pure standard library plus our own util (no Streamlit import), so no host or
+version can break it, and every public function fails open. Privacy:
+money-sourced documents are indexed but only retrievable when the caller
+passes allow_money=True. Enforced at search time, not by trust.
 """
 from __future__ import annotations
 
@@ -41,9 +19,7 @@ _IDX = _DATA / "brain_index.json"
 _FB = _DATA / "brain_feedback.json"
 _REFL = _DATA / "brain_reflection.json"
 _STATE = _DATA / "brain_state.json"
-
 _SEM_DIM = 512
-
 _STOP = set((
     "the", "and", "for", "that", "this", "with", "from", "they", "have",
     "been", "was", "were", "not", "but", "are", "its", "you", "your",
@@ -58,7 +34,6 @@ _STOP = set((
     "she", "he", "them", "their", "these", "those", "am", "is", "it",
     "an", "in", "on", "at", "by", "to", "of", "or", "if", "as",
 ))
-
 MONEY_SRCS = set(("money", "flow", "bill", "emergency", "fund"))
 MOOD_LOW = set(("drained", "flat"))
 MOOD_MID = set(("steady",))
@@ -80,7 +55,6 @@ _TOK = re.compile(r"[a-z0-9]+")
 # ---------------------------------------------------------------------------
 # pure helpers
 # ---------------------------------------------------------------------------
-
 def mood_band(mood):
     m = (mood or "").strip().lower()
     if m in MOOD_LOW:
@@ -197,7 +171,6 @@ def _energy(e):
 # ---------------------------------------------------------------------------
 # memory documents
 # ---------------------------------------------------------------------------
-
 def _doc(src, date, text, mood, tags, meta=None):
     t = (text or "").strip()
     if not t:
@@ -307,7 +280,6 @@ def _docs_from_stores(stores):
 # ---------------------------------------------------------------------------
 # inverted index (TF-IDF) + semantic vectors
 # ---------------------------------------------------------------------------
-
 def _signature(stores):
     parts = []
     for key in ("journal", "spiritual", "clients", "income", "sales"):
@@ -403,7 +375,6 @@ def rebuild(stores):
 # ---------------------------------------------------------------------------
 # state (surfaced log + taste model + anti-repeat memory)
 # ---------------------------------------------------------------------------
-
 def _empty_state():
     return {"surfaced": [], "taste": {}, "recent_refs": []}
 
@@ -448,7 +419,6 @@ def note_surfaced(state, page, mb, moves, refs):
 # ---------------------------------------------------------------------------
 # taste model
 # ---------------------------------------------------------------------------
-
 def _taste_keys(page, mb):
     out = []
     if page is not None and mb:
@@ -504,6 +474,10 @@ def taste_brevity(state, page, mb):
 
 def taste_note(state, page, mb):
     return _taste_field(state, page, mb, "_note")
+
+
+def taste_nudge_off(state, page, mb):
+    return _taste_field(state, page, mb, "_nudge") == "off"
 
 
 def taste_summary(state, page, mb):
@@ -598,6 +572,12 @@ def apply_tune(state, fb, rec):
             t["move:pattern_cited"] = _clamp(t.get("move:pattern_cited", 0) + 1)
         elif c == "calmer / less pep":
             t["move:pep_talk"] = _clamp(t.get("move:pep_talk", 0) - 2)
+        elif c == "more playful / lighter":
+            t["_style"] = ("light, playful, warm - a friend enjoying "
+                           "the day with them, never a coach")
+        elif c == "just flow - no reminders":
+            t["_nudge"] = "off"
+            t["move:pep_talk"] = _clamp(t.get("move:pep_talk", 0) - 2)
     note = (rec.get("note") or "").strip()
     if note:
         t["_note"] = note
@@ -607,7 +587,6 @@ def apply_tune(state, fb, rec):
 # ---------------------------------------------------------------------------
 # feedback store (tune records only; no thumbs)
 # ---------------------------------------------------------------------------
-
 def load_feedback():
     obj = _read_json(_FB)
     if isinstance(obj, list):
@@ -703,7 +682,6 @@ def learned_suppressions(fb, pages, moods=("low", "mid", "high", "none")):
 # ---------------------------------------------------------------------------
 # implicit reinforcement from behaviour
 # ---------------------------------------------------------------------------
-
 def _resonance(src, window_dates, stores):
     try:
         if src == "spirit":
@@ -818,7 +796,6 @@ def reconcile_implicit(state, stores, fb):
 # ---------------------------------------------------------------------------
 # search (lexical TF-IDF fused with semantic cosine + MMR diversity)
 # ---------------------------------------------------------------------------
-
 def _feedback_boost_for(doc, fb):
     if not fb:
         return 0.0
@@ -837,6 +814,10 @@ def _feedback_boost_for(doc, fb):
     return score
 
 
+def _pairs_to_qvec(pairs):
+    return [(int(p[0]), float(p[1])) for p in (pairs or [])]
+
+
 def _mmr_pick(scored_with_vec, qvec, qnorm, vecs, k, lam=0.7):
     picked = []
     remaining = list(scored_with_vec)
@@ -850,9 +831,7 @@ def _mmr_pick(scored_with_vec, qvec, qnorm, vecs, k, lam=0.7):
             for _, pdi, _ in picked:
                 pv = vecs[pdi] if pdi < len(vecs) else {"v": [], "n": 0.0}
                 cv = vecs[di] if di < len(vecs) else {"v": [], "n": 0.0}
-                sim = _sem_dot(qvec, qnorm, cv.get("v", []),
-                               cv.get("n", 0.0)) if False else \
-                      _sem_dot(_pairs_to_qvec(pv.get("v", [])),
+                sim = _sem_dot(_pairs_to_qvec(pv.get("v", [])),
                                pv.get("n", 0.0), cv.get("v", []),
                                cv.get("n", 0.0))
                 if sim > div:
@@ -865,10 +844,6 @@ def _mmr_pick(scored_with_vec, qvec, qnorm, vecs, k, lam=0.7):
             break
         picked.append(remaining.pop(best_i))
     return picked
-
-
-def _pairs_to_qvec(pairs):
-    return [(int(p[0]), float(p[1])) for p in (pairs or [])]
 
 
 def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
@@ -970,7 +945,6 @@ def search(idx, query, k=4, allow_money=False, mood=None, fb=None,
 # ---------------------------------------------------------------------------
 # threads, nudges, self-note
 # ---------------------------------------------------------------------------
-
 def _threads_compute(stores, today):
     from datetime import timedelta as _td
     journal = stores.get("journal") or {}
@@ -1006,7 +980,7 @@ def thread_for(pkt, refl):
         return None
     lj = pkt.get("last_journal") or {}
     hay = set(_ngrams(" ".join(filter(None, [
-        lj.get("felt"), lj.get("happened"), pkt.get("mood_today")])))
+        lj.get("felt"), lj.get("happened"), pkt.get("mood_today")]))))
     pick = None
     for t in threads:
         if t["bigram"] in hay:
@@ -1078,6 +1052,12 @@ def memory_health(idx, state, fb, refl):
 # ---------------------------------------------------------------------------
 # nightly reflection (cached once per day)
 # ---------------------------------------------------------------------------
+def _bigrams_only(tokens):
+    out = []
+    for i in range(len(tokens) - 1):
+        out.append(tokens[i] + " " + tokens[i + 1])
+    return out
+
 
 def _reflect_compute(stores):
     from datetime import date as _d
@@ -1087,7 +1067,6 @@ def _reflect_compute(stores):
     spirit = stores.get("spiritual") or {}
     clients = stores.get("clients") or []
     vault = stores.get("vault") or {}
-
     moods = []
     for o in range(6, -1, -1):
         e = journal.get((today - _td(days=o)).isoformat())
@@ -1108,7 +1087,6 @@ def _reflect_compute(stores):
             low_streak += 1
         else:
             break
-
     lesson_bigrams = {}
     for o in range(29, -1, -1):
         e = journal.get((today - _td(days=o)).isoformat())
@@ -1120,7 +1098,6 @@ def _reflect_compute(stores):
     recurring_lessons = [b for b, c in sorted(
         lesson_bigrams.items(), key=lambda kv: kv[1], reverse=True)[:3]
         if c >= 2]
-
     win_tokens = {}
     for o in range(13, -1, -1):
         e = journal.get((today - _td(days=o)).isoformat())
@@ -1131,7 +1108,6 @@ def _reflect_compute(stores):
     top_wins = [t for t, c in sorted(win_tokens.items(),
                                      key=lambda kv: kv[1],
                                      reverse=True)[:3]]
-
     act_energy = {}
     act_count = {}
     word_with_energy = 0
@@ -1157,7 +1133,6 @@ def _reflect_compute(stores):
     word_lift = None
     if word_total >= 3:
         word_lift = int(round(100.0 * word_with_energy / word_total))
-
     term = set(("paid", "returned", "lost"))
     try:
         from . import data as _D
@@ -1172,7 +1147,7 @@ def _reflect_compute(stores):
         nd = c.get("next_date", "")
         if not nd or nd >= today.isoformat():
             continue
-        if c.get("stage") in term:
+        if c.get("stage") in term or c.get("ended"):
             continue
         promised += 1
         for h in (c.get("history") or []):
@@ -1181,7 +1156,6 @@ def _reflect_compute(stores):
                 kept += 1
                 break
     promise_rate = int(round(100.0 * kept / promised)) if promised else None
-
     bills = vault.get("bills") or []
     on_time = 0
     total_b = 0
@@ -1195,7 +1169,6 @@ def _reflect_compute(stores):
         if b.get("paid") and (b.get("paid_date") or "") <= due:
             on_time += 1
     bill_rate = int(round(100.0 * on_time / total_b)) if total_b else None
-
     threads = _threads_compute(stores, today)
     note = self_note({"recurring_lessons": recurring_lessons,
                       "energy_sources": energy_sources,
@@ -1213,13 +1186,6 @@ def _reflect_compute(stores):
         "threads": threads,
         "self_note": note,
     }
-
-
-def _bigrams_only(tokens):
-    out = []
-    for i in range(len(tokens) - 1):
-        out.append(tokens[i] + " " + tokens[i + 1])
-    return out
 
 
 def reflect(stores):
@@ -1244,10 +1210,10 @@ def top_pattern(refl, voice, mb):
             return ("You've had " + str(refl["low_streak"])
                     + " heavy days in a row - that's a season, not a "
                     "verdict. Be gentle with the next hour.")
-        if refl.get("recurring_lessons"):
-            return ("A line you keep teaching yourself: '"
-                    + str(refl["recurring_lessons"][0])
-                    + "'. It's worth hearing again today.")
+    if refl.get("recurring_lessons"):
+        return ("A line you keep teaching yourself: '"
+                + str(refl["recurring_lessons"][0])
+                + "'. It's worth hearing again today.")
     if voice == "spirit":
         if refl.get("energy_sources"):
             a, e = refl["energy_sources"][0]
