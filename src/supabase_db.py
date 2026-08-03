@@ -2,29 +2,22 @@
 Reads credentials from the first source that exists (secrets -> env -> .env
 -> data/supabase.json), then talks to https://<project>.supabase.co/rest/v1
 over HTTPS with the project keys, exactly like the trading app's client.
-Table discovery never assumes column names: probes use select=* so tables
-keyed by trade_id (not id) are found correctly. Every function fails open.
+Table discovery never assumes column names (probes use select=*). Positive
+table hits are cached for 2 minutes; negatives are never cached. Every
+function fails open so a database problem never breaks a page.
 """
 from __future__ import annotations
 
 import json
 import os
+import time as _time
 from pathlib import Path
 
 import streamlit as st
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _EXIST = {}
-
-
-# ---------------------------------------------------------------------------
-# credential discovery
-# ---------------------------------------------------------------------------
-def _as_int(v, default):
-    try:
-        return int(v)
-    except Exception:
-        return default
+_EXIST_TTL = 120.0
 
 
 def _gather():
@@ -132,9 +125,35 @@ def _http(method, url, headers, params=None, body=None):
         return None, str(e)
 
 
-# ---------------------------------------------------------------------------
-# public API
-# ---------------------------------------------------------------------------
+def clear_cache():
+    _EXIST.clear()
+
+
+def table_exists(table):
+    now = _time.time()
+    hit = _EXIST.get(table)
+    if hit and hit[0] and (now - hit[1]) < _EXIST_TTL:
+        return True
+    url, key, _t = _cfg()
+    if not url or not key:
+        return False
+    status, _text = _http("GET", url.rstrip("/") + "/rest/v1/" + table,
+                          _headers(key), {"select": "*", "limit": "1"})
+    ok = status == 200
+    if ok:
+        _EXIST[table] = (True, now)
+    else:
+        _EXIST.pop(table, None)
+    return ok
+
+
+def first_existing(candidates):
+    for t in candidates:
+        if table_exists(t):
+            return t
+    return None
+
+
 def diagnose():
     url, key, table = _cfg()
     if not url:
@@ -149,47 +168,31 @@ def diagnose():
         if table_exists(t):
             found.append(t)
     if found:
-        return True, ("Connected - tables: " + ", ".join(found))
-    return False, ("Connected to Supabase but no known tables yet - "
-                   "waiting for the trading app to write.")
+        return True, ("Connected - tables: " + ", ".join(found)
+                      + " @ " + url.replace("https://", ""))
+    return False, ("Connected to " + url + " but no known tables yet "
+                   "- waiting for the trading app to write.")
 
 
 def test_connection():
     return diagnose()
 
 
-def table_exists(table):
-    if table in _EXIST:
-        return _EXIST[table]
-    url, key, _t = _cfg()
-    if not url or not key:
-        return False
-    status, _text = _http("GET", url.rstrip("/") + "/rest/v1/" + table,
-                          _headers(key), {"select": "*", "limit": "1"})
-    ok = status == 200
-    _EXIST[table] = ok
-    return ok
-
-
-def first_existing(candidates):
-    for t in candidates:
-        if table_exists(t):
-            return t
-    return None
-
-
 def fetch_rows(table, limit=1000, order=None):
-    """Return (rows, message). rows is a list (newest handled by caller's
-    sort), [] when the table is empty/missing, None on a hard failure."""
+    """Return (rows, message). rows is a list (caller sorts), [] when the
+    table is empty/missing, None on a hard failure."""
     url, key, _t = _cfg()
     if not url or not key:
         _ok, why = diagnose()
         return None, why
+    base = url.rstrip("/") + "/rest/v1/" + table
     params = {"select": "*", "limit": str(int(limit))}
     if order:
         params["order"] = order
-    status, text = _http("GET", url.rstrip("/") + "/rest/v1/" + table,
-                         _headers(key), params)
+    status, text = _http("GET", base, _headers(key), params)
+    if status == 400 and order:
+        status, text = _http("GET", base, _headers(key),
+                             {"select": "*", "limit": str(int(limit))})
     if status == 200:
         try:
             rows = json.loads(text)
