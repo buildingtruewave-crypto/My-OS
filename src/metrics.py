@@ -57,7 +57,6 @@ def today_area_split(routine, weekday):
 
 
 # ---------- habits ----------
-
 def day_frac(log, habits, date_iso):
     if not habits:
         return 0.0
@@ -132,7 +131,6 @@ def consistency_by_weekday(habits, log, days=60):
 
 
 # ---------- goals / journal ----------
-
 def goal_pct(g):
     try:
         if not g["target"]:
@@ -177,7 +175,6 @@ def journal_completion(journal, n=30):
 
 
 # ---------- sales ----------
-
 def sales_rate(daily, today, n=30):
     from .data import START_DATE
     start = max(START_DATE, today - dt.timedelta(days=n - 1))
@@ -221,7 +218,6 @@ def rejects_30d(daily, today):
 
 
 # ---------- TrueWave pipeline ----------
-
 def client_counts(clients, today):
     t = today.isoformat()
     wk = (today + dt.timedelta(days=7)).isoformat()
@@ -230,7 +226,8 @@ def client_counts(clients, today):
     ret = role_id("returned")
     lost = role_id("lost")
     cash = role_id("cash")
-    act = [c for c in clients if c.get("stage") not in term]
+    live = [c for c in clients if not c.get("ended")]
+    act = [c for c in live if c.get("stage") not in term]
     return dict(
         active=len(act),
         due=[c for c in act if c.get("next_date") == t],
@@ -240,10 +237,11 @@ def client_counts(clients, today):
             and t < c["next_date"] <= wk],
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
-        sold=sum(1 for c in clients if won and c.get("stage") == won),
-        cashq=sum(1 for c in clients if cash and c.get("stage") == cash),
-        returned=sum(1 for c in clients if ret and c.get("stage") == ret),
-        lost=sum(1 for c in clients if lost and c.get("stage") == lost),
+        sold=sum(1 for c in live if won and c.get("stage") == won),
+        cashq=sum(1 for c in live if cash and c.get("stage") == cash),
+        returned=sum(1 for c in live
+                     if ret and c.get("stage") == ret),
+        lost=sum(1 for c in live if lost and c.get("stage") == lost),
     )
 
 
@@ -258,7 +256,8 @@ def stage_counts(clients):
 def call_sheet(clients, today):
     t = today.isoformat()
     term = terminal_ids()
-    act = [c for c in clients if c.get("stage") not in term]
+    act = [c for c in clients if c.get("stage") not in term
+           and not c.get("ended")]
     due = [c for c in act if c.get("next_date") and c["next_date"] <= t]
     heat_order = {"Hot": 0, "Warm": 1, "Cold": 2}
     due.sort(key=lambda c: (heat_order.get(c.get("heat", "Warm"), 1),
@@ -299,7 +298,6 @@ def moves_on(clients, d_iso):
 
 
 # ---------- commissions ----------
-
 def commission_stats(sales, today_iso):
     due_today, overdue = [], []
     paid_sum = pending_sum = 0.0
@@ -341,7 +339,6 @@ def comm_editable(sale, inst, today):
 
 
 # ---------- income / flow ----------
-
 def income_total(income, lo="0000", hi="9999"):
     return sum(float(x.get("amount", 0)) for x in income
                if lo <= x.get("date", "") <= hi)
@@ -379,7 +376,6 @@ def flow_week_inout(flow, today):
 
 
 # ---------- money OS ----------
-
 def item_saved(it):
     return sum(float(t.get("amount", 0)) for t in it.get("tx", []))
 
@@ -471,7 +467,6 @@ def bills_overdue(v, today):
 
 
 # ---------- pantry / runway / emergency ----------
-
 def pantry_days_left_item(it, today):
     daily = float(it.get("daily", 0) or 0)
     stock = float(it.get("stock", 0) or 0)
@@ -534,7 +529,6 @@ def emergency_progress(vault):
 
 
 # ---------- spiritual energy (derived, never random) ----------
-
 def _spirit_present(e):
     if not e:
         return False
@@ -557,7 +551,7 @@ def spiritual_energy(e):
     a_comp = min(len(acts) / 3.0, 1.0) * 15.0
     r_comp = min(len(felt) / 20.0, 1.0) * 10.0
     return int(max(0, min(100, round(presence + m_comp + d_comp
-                                       + a_comp + r_comp))))
+                                     + a_comp + r_comp))))
 
 
 def spiritual_streak(spiritual):
@@ -596,7 +590,6 @@ def spiritual_today(spiritual, today):
 
 
 # ---------- bots ----------
-
 def bot_stats(logs, bot_id):
     ls = [l for l in logs if l.get("bot") == bot_id]
     wins = [l for l in ls if float(l["pnl"]) > 0]
@@ -625,7 +618,6 @@ def bot_week(logs, today, days=7):
 
 
 # ---------- body / issues / tasks / score ----------
-
 def weight_latest(weights):
     if not weights:
         return None
@@ -668,7 +660,8 @@ def life_score(cons, jcomp, srate, goal_avg):
 def day_pulse(d_iso, ctx):
     clients = ctx["clients"]
     term = terminal_ids()
-    non_t = [c for c in clients if c.get("stage") not in term]
+    non_t = [c for c in clients if c.get("stage") not in term
+             and not c.get("ended")]
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
