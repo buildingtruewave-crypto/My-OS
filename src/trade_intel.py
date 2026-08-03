@@ -1,12 +1,12 @@
 """Trade Intelligence - the connected analyst council.
-The trading app SENDS each Deriv trade (profit/loss) into Supabase. PULSE
-RECEIVES it, stores it in the deriv_trades table, and continuously scans it
-across 7d / 30d / 90d / all-time windows to answer one question:
-"is this a good venture, and how much can we risk?"
-Everything is deterministic and measurable. The council returns WAIT until
-the sample is large enough. The LLM router only narrates; the verdict is
-pure math. Fails open: if Supabase is offline the panel shows the real
-reason, never an error.
+The trading app SENDS each trade (profit/loss) into Supabase. PULSE RECEIVES
+it over the REST API and continuously scans it across 7d / 30d / 90d /
+all-time windows to answer one question: "is this a good venture, and how
+much can we risk?" Everything is deterministic and measurable - real
+expectancy, profit factor, drawdown and fractional-Kelly sizing. The council
+returns WAIT until the sample is large enough; it never gambles on a handful
+of trades. The LLM router only narrates; the verdict is pure math. Fails
+open: if Supabase is offline the panel shows the real reason, never an error.
 """
 from __future__ import annotations
 
@@ -93,71 +93,8 @@ def _money(x):
 
 
 # ---------------------------------------------------------------------------
-# Supabase fetch
+# Supabase fetch (REST)
 # ---------------------------------------------------------------------------
-def fetch_trades(limit=4000):
-    """Return (trades, message). trades is None on failure, [] if empty."""
-    if not _HAS_SB:
-        return None, "supabase_db module not loaded"
-    conn = SB.get_connection()
-    if conn is None:
-        _ok, why = SB.diagnose()
-        return None, why or "cannot reach Supabase"
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT to_regclass('public.deriv_trades');")
-            exists = cur.fetchone()[0]
-        if not exists:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "CREATE TABLE IF NOT EXISTS deriv_trades ("
-                    " id BIGSERIAL PRIMARY KEY,"
-                    " ts TIMESTAMPTZ DEFAULT now(),"
-                    " pnl DOUBLE PRECISION,"
-                    " stake DOUBLE PRECISION,"
-                    " market TEXT,"
-                    " strategy TEXT,"
-                    " note TEXT"
-                    ");")
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS deriv_trades_ts_idx "
-                    "ON deriv_trades (ts);")
-            conn.commit()
-            return [], "table ready - waiting for the trading app"
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'deriv_trades' "
-                "ORDER BY ordinal_position;")
-            cols = [r[0] for r in cur.fetchall()]
-        if not cols:
-            return [], "table ready - waiting for the trading app"
-        lower = [c.lower() for c in cols]
-        pnl_col = next((c for c in lower if c in _PNL_KEYS), None)
-        if pnl_col is None:
-            return None, ("no pnl column found - expected one of: "
-                          + ", ".join(_PNL_KEYS))
-        ts_col = next((c for c in lower if c in _TS_KEYS), None)
-        order = ts_col if ts_col else "id"
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM deriv_trades ORDER BY "
-                        + order + " DESC LIMIT %s;", (int(limit),))
-            rows = cur.fetchall()
-            desc = [d[0] for d in cur.description] \
-                if cur.description else []
-        norm = _normalize([dict(zip(desc, r)) for r in rows])
-        if norm is None:
-            return None, "could not read a pnl column"
-        return norm, "ok"
-    except Exception as e:
-        return None, str(e)
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-
-
 def _normalize(rows):
     out = []
     for d in rows:
@@ -181,11 +118,26 @@ def _normalize(rows):
             "ts": ts,
             "pnl": pnl,
             "stake": _to_float(d.get("stake")),
-            "market": d.get("market") or d.get("symbol") or "",
-            "note": d.get("note") or d.get("strategy") or "",
+            "market": d.get("market") or d.get("symbol")
+            or d.get("asset") or "",
+            "direction": d.get("direction") or d.get("side") or "",
+            "strategy": d.get("strategy") or "",
+            "note": d.get("note") or "",
         })
     out.sort(key=lambda x: _naive(x["ts"]))
     return out
+
+
+def fetch_trades(limit=4000):
+    """Return (trades, message). trades is None on failure, [] if empty."""
+    if not _HAS_SB:
+        return None, "supabase_db module not loaded"
+    rows, msg = SB.fetch_trades(limit)
+    if rows is None:
+        return None, msg or "cannot reach Supabase"
+    if not rows:
+        return [], msg or "table ready - waiting for the trading app"
+    return _normalize(rows), "ok"
 
 
 # ---------------------------------------------------------------------------
