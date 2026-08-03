@@ -1,14 +1,9 @@
 """Supabase bridge over the REST API - no psycopg2, no direct Postgres.
-Reads credentials from EVERY place they might live, in this order:
-  1. Streamlit secrets  - [supabase] table OR top-level keys
-  2. Process environment variables
-  3. .env file          - the same one your other app uses
-  4. data/supabase.json - plain fallback
-Then talks to https://<project>.supabase.co/rest/v1 over HTTPS with the
-project keys, exactly like the trading app's supabase-js client, so both
-apps always agree. If the configured trades table doesn't exist, it probes
-common table names so it finds wherever the other app writes. Every function
-fails open and diagnose() returns the exact HTTP reason.
+Reads credentials from the first source that exists (secrets -> env -> .env
+-> data/supabase.json), then talks to https://<project>.supabase.co/rest/v1
+over HTTPS with the project keys, exactly like the trading app's client.
+Table discovery never assumes column names: probes use select=* so tables
+keyed by trade_id (not id) are found correctly. Every function fails open.
 """
 from __future__ import annotations
 
@@ -19,44 +14,17 @@ from pathlib import Path
 import streamlit as st
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-_TABLE_CACHE = [None]
+_EXIST = {}
 
 
 # ---------------------------------------------------------------------------
 # credential discovery
 # ---------------------------------------------------------------------------
-def _read_dotenv():
-    """Parse .env files manually (no dependency). First occurrence wins."""
-    out = {}
-    candidates = []
+def _as_int(v, default):
     try:
-        root = Path(__file__).resolve().parent.parent
-        candidates.append(root / ".env")
-        candidates.append(root / "src" / ".env")
-        candidates.append(Path.cwd() / ".env")
+        return int(v)
     except Exception:
-        pass
-    for f in candidates:
-        try:
-            if not (f.exists() and f.stat().st_size > 0):
-                continue
-            for line in f.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                if line.startswith("export "):
-                    line = line[7:].strip()
-                k, _, v = line.partition("=")
-                k = k.strip()
-                v = v.strip().strip('"').strip("'")
-                # strip trailing inline comment for unquoted values
-                if v and not v.startswith('"') and " #" in v:
-                    v = v.split(" #", 1)[0].strip()
-                if k and k not in out:
-                    out[k] = v
-        except Exception:
-            continue
-    return out
+        return default
 
 
 def _gather():
@@ -67,7 +35,6 @@ def _gather():
         if v and not vals.get(k):
             vals[k] = v
 
-    # 1) Streamlit secrets: [supabase] table, then top-level keys
     try:
         s = st.secrets
         try:
@@ -86,14 +53,23 @@ def _gather():
                 pass
     except Exception:
         pass
-    # 2) process environment
     for kk in ("SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_SECRET_KEY",
                "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_TABLE"):
         put(kk, os.environ.get(kk, ""))
-    # 3) .env file (the one your other app uses)
-    for k, v in _read_dotenv().items():
-        put(k, v)
-    # 4) data/supabase.json
+    for f in (_DATA_DIR.parent / ".env", Path.cwd() / ".env"):
+        try:
+            if f.exists() and f.stat().st_size > 0:
+                for line in f.read_text().splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") \
+                            or "=" not in line:
+                        continue
+                    if line.startswith("export "):
+                        line = line[7:].strip()
+                    k, _, v = line.partition("=")
+                    put(k.strip(), v.strip().strip('"').strip("'"))
+        except Exception:
+            continue
     try:
         f = _DATA_DIR / "supabase.json"
         if f.exists() and f.stat().st_size > 0:
@@ -114,13 +90,10 @@ def _cfg():
            or v.get("publishable_key")
            or v.get("SUPABASE_PUBLISHABLE_KEY") or "").strip()
     table = (v.get("table") or v.get("SUPABASE_TABLE")
-             or "deriv_trades").strip() or "deriv_trades"
+             or "trades").strip() or "trades"
     return url, key, table
 
 
-# ---------------------------------------------------------------------------
-# HTTP
-# ---------------------------------------------------------------------------
 def _headers(key):
     return {
         "apikey": key,
@@ -131,7 +104,6 @@ def _headers(key):
 
 
 def _http(method, url, headers, params=None, body=None):
-    """Return (status:int|None, text:str). Tries httpx then stdlib urllib."""
     if params:
         try:
             from urllib.parse import urlencode
@@ -160,27 +132,8 @@ def _http(method, url, headers, params=None, body=None):
         return None, str(e)
 
 
-def _resolve_table(url, key, preferred):
-    """Find the real trades table, even if the other app named it else."""
-    if _TABLE_CACHE[0]:
-        return _TABLE_CACHE[0]
-    cands = [preferred] + [t for t in
-                           ("deriv_trades", "trades", "bot_trades",
-                            "deriv_bot_trades", "pulse_trades")
-                           if t != preferred]
-    base = url.rstrip("/") + "/rest/v1/"
-    for t in cands:
-        status, _text = _http("GET", base + t, _headers(key),
-                              {"select": "id", "limit": "1"})
-        if status == 200:
-            _TABLE_CACHE[0] = t
-            return t
-    _TABLE_CACHE[0] = preferred
-    return preferred
-
-
 # ---------------------------------------------------------------------------
-# public API (same signatures trade_intel / bots expect)
+# public API
 # ---------------------------------------------------------------------------
 def diagnose():
     url, key, table = _cfg()
@@ -191,38 +144,52 @@ def diagnose():
     if not key:
         return False, ("Supabase URL found but no key. Add the full "
                        "sb_secret_... (or sb_publishable_...) key.")
-    table = _resolve_table(url, key, table)
-    base = url.rstrip("/") + "/rest/v1/" + table
-    status, text = _http("GET", base, _headers(key),
-                         {"select": "id", "limit": "1"})
-    if status == 200:
-        return True, "Connected - " + table + " reachable"
-    if status == 404:
-        return False, ("Connected to Supabase but no trades table yet "
-                       "(tried " + table + ")")
-    if status in (401, 403):
-        return False, ("Key rejected (HTTP " + str(status) + ") - use "
-                       "the full unmasked key, not the •••• one")
-    if status is None:
-        return False, "Network error: " + str(text)[:160]
-    return False, "HTTP " + str(status) + ": " + str(text)[:160]
+    found = []
+    for t in ("trades", "deriv_trade_research", "deriv_venture_advice"):
+        if table_exists(t):
+            found.append(t)
+    if found:
+        return True, ("Connected - tables: " + ", ".join(found))
+    return False, ("Connected to Supabase but no known tables yet - "
+                   "waiting for the trading app to write.")
 
 
 def test_connection():
     return diagnose()
 
 
-def fetch_trades(limit=1000):
+def table_exists(table):
+    if table in _EXIST:
+        return _EXIST[table]
+    url, key, _t = _cfg()
+    if not url or not key:
+        return False
+    status, _text = _http("GET", url.rstrip("/") + "/rest/v1/" + table,
+                          _headers(key), {"select": "*", "limit": "1"})
+    ok = status == 200
+    _EXIST[table] = ok
+    return ok
+
+
+def first_existing(candidates):
+    for t in candidates:
+        if table_exists(t):
+            return t
+    return None
+
+
+def fetch_rows(table, limit=1000, order=None):
     """Return (rows, message). rows is a list (newest handled by caller's
     sort), [] when the table is empty/missing, None on a hard failure."""
-    url, key, table = _cfg()
+    url, key, _t = _cfg()
     if not url or not key:
         _ok, why = diagnose()
         return None, why
-    table = _resolve_table(url, key, table)
-    base = url.rstrip("/") + "/rest/v1/" + table
-    status, text = _http("GET", base, _headers(key),
-                         {"select": "*", "limit": str(int(limit))})
+    params = {"select": "*", "limit": str(int(limit))}
+    if order:
+        params["order"] = order
+    status, text = _http("GET", url.rstrip("/") + "/rest/v1/" + table,
+                         _headers(key), params)
     if status == 200:
         try:
             rows = json.loads(text)
@@ -232,11 +199,16 @@ def fetch_trades(limit=1000):
         except Exception:
             return None, "Bad JSON from Supabase"
     if status == 404:
-        return [], ("table '" + table + "' missing - waiting for the "
-                    "trading app to write, or run the one-time SQL")
+        return [], "table '" + table + "' missing"
     if status in (401, 403):
-        return None, ("Key rejected (HTTP " + str(status) + ") - use "
-                      "the full unmasked key")
+        return None, "Key rejected (HTTP " + str(status) + ")"
     if status is None:
         return None, "Network error: " + str(text)[:160]
     return None, "HTTP " + str(status) + ": " + str(text)[:160]
+
+
+def fetch_trades(limit=4000):
+    t = first_existing(["trades", "deriv_trades", "bot_trades"])
+    if t is None:
+        return [], "no trades table yet - waiting for the trading app"
+    return fetch_rows(t, limit)
