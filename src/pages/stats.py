@@ -44,7 +44,6 @@ def render(ctx):
     wk_in, wk_out = M.flow_week_inout(vault.get("flow", []), today)
     sp_health = M.spiritual_health(spiritual, 30)
     sp_streak = M.spiritual_streak(spiritual)
-
     row = [
         UI.tile("Life Score",
                 str(score) if score is not None else "--",
@@ -64,7 +63,6 @@ def render(ctx):
                 "scale", "jewel", 160),
     ]
     st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
-
     w_streak = 0
     for h in habits:
         if h["name"].startswith("Workout"):
@@ -76,7 +74,6 @@ def render(ctx):
         (sp_streak, "spirit", "jewel"),
         (M.best_habit_streak(log, habits), "best habit", "win"),
     ]), unsafe_allow_html=True)
-
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     sp_series = M.spiritual_series(spiritual, 30)
@@ -87,7 +84,6 @@ def render(ctx):
                           xfmt=lambda d: d.strftime("%d")),
             right="30d energy · health " + U.fmt_pct(sp_health, False)),
             unsafe_allow_html=True)
-
     if any(log.values()):
         cseries = M.consistency_series(log, habits, 30)
         st.markdown(UI.panel(
@@ -95,7 +91,6 @@ def render(ctx):
             UI.equity_svg(cseries, "st_eq", kind="pct",
                           xfmt=lambda d: d.strftime("%d")),
             right="last 30 days"), unsafe_allow_html=True)
-
     c1, c2 = st.columns(2, gap="medium")
     with c1:
         cwd = M.consistency_by_weekday(habits, log, 60)
@@ -111,7 +106,6 @@ def render(ctx):
         st.markdown(UI.panel("Phones Sold - last 7 days",
                              UI.bars(wk), right="per day"),
                     unsafe_allow_html=True)
-
     c3, c4 = st.columns(2, gap="medium")
     with c3:
         sc = M.stage_counts(clients)
@@ -135,7 +129,6 @@ def render(ctx):
         st.markdown(UI.panel("Income by Source", UI.hbars(items),
                              right=U.fmt_kes(M.income_total(income))),
                     unsafe_allow_html=True)
-
     c5, c6 = st.columns(2, gap="medium")
     with c5:
         rows = []
@@ -178,11 +171,12 @@ def render(ctx):
         ])
         st.markdown(UI.panel("TrueWave + Spirit + Activity", body),
                     unsafe_allow_html=True)
-
     c7, c8 = st.columns(2, gap="medium")
     with c7:
         done_n = miss_n = 0
         for h in habits:
+            if D.habit_optional(h):
+                continue
             s = log.get(h["id"], {})
             for d, v in s.items():
                 if v:
@@ -202,10 +196,12 @@ def render(ctx):
                 "Checks start Aug 1.")), unsafe_allow_html=True)
     with c8:
         st.markdown(UI.panel("How the Score Works", UI.kv([
-            ("Life score formula", "40 / 20 / 20 / 20"),
-            ("Consistency weight", "40%"),
-            ("Journal weight", "20%"),
-            ("Sales logging weight", "20%"),
-            ("Goal weight", "20%"),
+            ("Sales logging", "25%"),
+            ("Spirit", "25%"),
+            ("Journal", "20%"),
+            ("Goals", "15%"),
+            ("Habits", "15%"),
+            ("Habits auto-fill", "journal / sales / clients / scale"),
+            ("Weigh-in", "optional - never scored"),
             ("Edit the blend", "metrics.life_score()"),
         ])), unsafe_allow_html=True)
