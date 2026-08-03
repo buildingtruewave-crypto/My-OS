@@ -1,6 +1,7 @@
 """TrueWave - the full client journey. Opens with a live Call Sheet. The
 pipeline + plans are editable from the panel at the bottom. Terminal clients
-show where their journey ended. Bulk-import leads from CSV.
+show where their journey ended; the Journey-ended button lifts any client out
+of the active pipeline in one tap. Bulk-import leads from CSV.
 """
 from __future__ import annotations
 
@@ -76,6 +77,31 @@ def _journey(c, ctx, k):
     today, now_str = ctx["today"], ctx["now_str"]
     ids = D.all_stage_ids()
     st.markdown(UI.stepper_html(c), unsafe_allow_html=True)
+
+    # ---- journey ended / reopened -------------------------------------
+    if c.get("ended"):
+        st.markdown(
+            '<div style="display:flex;align-items:center;gap:8px;'
+            'flex-wrap:wrap;margin:-4px 0 10px">'
+            + UI.badge("JOURNEY ENDED", "#7C8AA5")
+            + '<span class="tw-sub">out of the pipeline'
+            + (("  ·  " + html.escape(str(c.get("ended_date", ""))))
+               if c.get("ended_date") else "") + '</span></div>',
+            unsafe_allow_html=True)
+        if st.button("Reopen journey", key=k + "rj"):
+            D.reopen_journey(c["id"], now_str)
+            st.rerun()
+    else:
+        ec1, ec2 = st.columns([0.8, 3.2])
+        with ec1:
+            sure = st.checkbox("sure?", key=k + "ejc")
+        with ec2:
+            if st.button("Journey ended - out of pipeline",
+                         key=k + "ej", disabled=not sure):
+                D.end_journey(c["id"], now_str)
+                st.rerun()
+    # ---------------------------------------------------------------------
+
     j1, j2 = st.columns([2, 1])
     with j1:
         cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
@@ -89,7 +115,6 @@ def _journey(c, ctx, k):
             if ns != c["stage"]:
                 D.set_stage(c["id"], ns, now_str)
                 st.rerun()
-
     plan_opts = _plan_options()
     cur_p = c.get("plan", "") or ""
     pi = plan_opts.index(cur_p) if cur_p in plan_opts else 0
@@ -105,7 +130,6 @@ def _journey(c, ctx, k):
         note = D.plan_note(plan)
         if note:
             st.caption(note)
-
     q1, q2 = st.columns(2)
     with q1:
         qual = st.text_input("Qualified (M-Pesa review)",
@@ -137,7 +161,6 @@ def _verify(c, ctx, k):
     dr = D.role_id("delivered")
     wr = D.role_id("won")
     rr = D.role_id("returned")
-
     st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
                 'DOCS &amp; VERIFICATION</div>',
                 unsafe_allow_html=True)
@@ -163,7 +186,6 @@ def _verify(c, ctx, k):
             "Docs updated" + (" - FAILED: " + ", ".join(failed)
                               if failed else ""))
         st.rerun()
-
     cur_credit = c.get("credit", "pending")
     credit = st.selectbox(
         "Credit team outcome", D.CREDIT_OUTCOMES,
@@ -187,7 +209,6 @@ def _verify(c, ctx, k):
                         + (" / stage -> " + D.stage_label(res_stage)
                            if credit != "pending" else ""))
         st.rerun()
-
     st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
                 'DELIVERY &amp; RETURN WINDOW</div>',
                 unsafe_allow_html=True)
@@ -241,7 +262,6 @@ def _verify(c, ctx, k):
             st.rerun()
         if rr is None:
             st.caption("tag a stage 'returned'")
-
     r1, r2 = st.columns(2)
     with r1:
         rem = st.text_input("Remark", value=c.get("remark", ""),
@@ -272,9 +292,10 @@ def _memory(c, ctx, k):
 
 def _client_block(c, ctx):
     k = "c" + c["id"]
+    ended_bit = "  ·  ENDED" if c.get("ended") else ""
     label = (str(c.get("name", "?")) + "  ·  "
-             + D.stage_label(c.get("stage", "new"), "?") + "  ·  "
-             + str(c.get("phone", "")))
+             + D.stage_label(c.get("stage", "new"), "?")
+             + ended_bit + "  ·  " + str(c.get("phone", "")))
     with st.expander(label):
         d1, d2, d3 = st.columns([5, 4, 3], gap="medium")
         with d1:
@@ -315,7 +336,7 @@ def _pipeline_editor():
                 st.markdown(
                     '<div style="padding-top:8px">'
                     + UI.badge(D.ROLE_LABEL.get(s.get("role", ""),
-                                              "—"),
+                                                "—"),
                                s.get("color", "#7C8AA5")) + '</div>',
                     unsafe_allow_html=True)
             with c3:
@@ -366,7 +387,6 @@ def _pipeline_editor():
                 obj["stages"] = stages
                 D.save_pipeline_obj(obj)
                 st.rerun()
-
         with st.form("pf"):
             st.markdown('<div class="tw-lab" style="margin:8px 0 8px">'
                         'EDIT LABELS / COLOR / PATH / ROLE</div>',
@@ -468,13 +488,16 @@ def _pipeline_editor():
 
 
 def _outcome_text(c):
+    if c.get("ended"):
+        ed = c.get("ended_date", "")
+        return "ENDED" + (("  ·  " + str(ed)) if ed else "")
     term = D.terminal_ids()
     stg = c.get("stage", "new")
     if stg not in term:
         return "—"
     odate = (c.get("paid_date") or c.get("returned_date")
              or c.get("created", ""))
-    return D.stage_label(stg, stg) + ((" " + str(odate)) if odate else "")
+    return D.stage_label(stg, stg) + (("  " + str(odate)) if odate else "")
 
 
 def render(ctx):
@@ -482,7 +505,6 @@ def render(ctx):
     cc = M.client_counts(clients, today)
     window = M.clients_in_window(clients, today)
     sheet = M.call_sheet(clients, today)
-
     row = [
         UI.tile("Call Sheet", str(len(sheet)), "phone them now",
                 "win" if sheet else "mute",
@@ -499,17 +521,14 @@ def render(ctx):
                 "win", "win", "check", "win", 200),
     ]
     st.markdown(UI.tiles_grid(row, 6), unsafe_allow_html=True)
-
     if sheet:
         st.markdown(UI.panel(
             "Today's Call Sheet - hottest first",
             "".join(UI.client_card(c, today) for c in sheet[:8]),
             right="tap a number to dial"), unsafe_allow_html=True)
-
     _add_lead(ctx)
     _bulk_import(ctx)
     _pipeline_editor()
-
     sc = M.stage_counts(clients)
     items = [(D.stage_label(sid, sid), sc.get(sid, 0),
               D.stage_color(sid)) for sid in D.all_stage_ids()
@@ -517,7 +536,6 @@ def render(ctx):
     st.markdown(UI.panel("Pipeline by Stage", UI.hbars(items),
                          right=str(len(clients)) + " total"),
                 unsafe_allow_html=True)
-
     s1, s2 = st.columns([3, 2])
     with s1:
         q = st.text_input(
@@ -530,7 +548,6 @@ def render(ctx):
                           if s == "All stages"
                           else D.stage_label(s, s),
                           key="cw_s")
-
     ql = q.strip().lower()
     shown = []
     for c in clients:
@@ -549,9 +566,8 @@ def render(ctx):
         shown.append(c)
     term = M.terminal_ids()
     shown.sort(key=lambda c: (
-        1 if c.get("stage") in term else 0,
+        1 if (c.get("stage") in term or c.get("ended")) else 0,
         c.get("next_date") or c.get("created") or "9999"))
-
     if not shown:
         st.markdown(UI.panel("Clients", UI.empty_state(
             "No clients match - log your first lead above.")),
@@ -561,7 +577,6 @@ def render(ctx):
                    + " - narrow with search or the stage filter.")
     for c in shown[:60]:
         _client_block(c, ctx)
-
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
     rows = []
@@ -573,6 +588,8 @@ def render(ctx):
                    "cash": ("CASH", "#F5B544")}.get(
                        D.stage_role(c.get("stage", "")),
                        ("LIVE", D.stage_color(c.get("stage", ""))))
+        if c.get("ended"):
+            st_chip = ("ENDED", "#7C8AA5")
         rows.append([
             (c.get("created", ""), "num"),
             (str(c.get("name", "")), ""),
