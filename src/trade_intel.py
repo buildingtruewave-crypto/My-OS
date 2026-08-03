@@ -1,9 +1,12 @@
 """Trade Intelligence - the connected analyst council.
-The trading app SENDS trades + AI research + venture advice into Supabase.
-PULSE RECEIVES it and shows the other app's council verdict (from
+The Deriv sender writes trades + AI research + venture advice into Supabase.
+PULSE receives it and shows the sender's council verdict (from
 deriv_venture_advice) as the primary read, with PULSE's own deterministic
 math (expectancy / profit factor / drawdown / fractional-Kelly) as a
-cross-check. Fails open everywhere - a missing table never breaks the page.
+cross-check. Recognises common raw-trade column names (pnl/profit,
+dt/ts/timestamp/...). Refresh is fast (20s) and force-refresh clears the
+table cache; a new-trades counter lets the page flash when a trade lands.
+Fails open everywhere - a missing table never breaks the page.
 """
 from __future__ import annotations
 
@@ -18,24 +21,14 @@ except Exception:
     SB = None
     _HAS_SB = False
 
-try:
-    from . import llm_router as _R
-    _HAS_ROUTER = True
-except Exception:
-    _R = None
-    _HAS_ROUTER = False
-
 MIN_SAMPLE = 20
-CACHE_TTL = 60
-_PNL_KEYS = ("pnl", "profit", "profit_loss", "pl", "net",
-             "result", "amount", "pips_amount")
-_TS_KEYS = ("ts", "timestamp", "time", "created_at", "date",
-            "closed_at", "trade_time")
+CACHE_TTL = 20
+_PNL_KEYS = ("pnl", "profit", "profit_loss", "pl", "net", "result",
+             "amount", "pips_amount", "gain", "profit_usd", "pnl_usd")
+_TS_KEYS = ("dt", "ts", "timestamp", "time", "created_at", "date",
+            "closed_at", "trade_time", "opened_at")
 
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
 def _utcnow():
     try:
         return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
@@ -65,7 +58,7 @@ def _to_dt(v):
                 "%Y-%m-%d %H:%M:%S.%f%z", "%Y-%m-%d %H:%M:%S%z",
                 "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S",
                 "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d"):
+                "%Y-%m-%d %H:%M", "%Y-%m-%d"):
         try:
             return dt.datetime.strptime(s, fmt)
         except Exception:
@@ -122,9 +115,6 @@ def _normalize(rows):
     return out
 
 
-# ---------------------------------------------------------------------------
-# remote research / advice
-# ---------------------------------------------------------------------------
 def _map_action(verdict_text):
     v = (verdict_text or "").upper()
     if any(k in v for k in ("AVOID", "STAY OUT", "NO TRADE", "STOP",
@@ -194,9 +184,6 @@ def _fetch_remote():
     return out
 
 
-# ---------------------------------------------------------------------------
-# local deterministic stats (cross-check)
-# ---------------------------------------------------------------------------
 def _window(trades, days, now):
     if days is None:
         return trades
@@ -287,8 +274,8 @@ def _venture_score(a):
 def _local_verdict(all_s, score):
     n = all_s["n"]
     if n < MIN_SAMPLE:
-        return {"action": "WAIT", "score": score,
-                "risk_pct": 0.0, "confidence": "low",
+        return {"action": "WAIT", "score": score, "risk_pct": 0.0,
+                "confidence": "low",
                 "summary": ("Only %d trades logged - the cross-check "
                             "needs %d+ to speak." % (n, MIN_SAMPLE))}
     risk = _risk_pct(all_s)
@@ -298,8 +285,7 @@ def _local_verdict(all_s, score):
                 "summary": "Positive expectancy, controlled drawdown."}
     if score >= 55 and all_s["expectancy"] > 0:
         return {"action": "ENTER SMALL", "score": score,
-                "risk_pct": min(risk, 2.0),
-                "confidence": "medium",
+                "risk_pct": min(risk, 2.0), "confidence": "medium",
                 "summary": "Real but modest edge - pilot size."}
     if score >= 40:
         return {"action": "WAIT", "score": score, "risk_pct": 0.0,
@@ -345,9 +331,6 @@ def _council(a):
     return out
 
 
-# ---------------------------------------------------------------------------
-# assembly + cache
-# ---------------------------------------------------------------------------
 def _build():
     now = _utcnow()
     rows, msg = (SB.fetch_trades() if _HAS_SB
@@ -364,14 +347,13 @@ def _build():
         windows[label] = _stats(_window(trades, days, now))
     all_s = windows["all"]
     score = _venture_score(all_s)
-    remote = _fetch_remote()
     return {
         "connected": True, "message": msg,
         "n_total": len(trades), "windows": windows,
         "council": _council(all_s),
         "verdict": _local_verdict(all_s, score),
         "recent": list(reversed(trades))[:12],
-        "remote": remote,
+        "remote": _fetch_remote(),
         "last_sync": now.isoformat(),
     }
 
@@ -380,14 +362,23 @@ def get_signal(force=False):
     try:
         import time as _time
         now = _time.time()
+        if force and _HAS_SB:
+            try:
+                SB.clear_cache()
+            except Exception:
+                pass
         cache = st.session_state.get("_ti_cache")
         if cache and not force \
                 and (now - cache.get("at", 0) < CACHE_TTL):
             return cache.get("data")
         data = _build()
+        last = int(st.session_state.get("_ti_last_count", 0) or 0)
+        data["new_trades"] = max(0, data.get("n_total", 0) - last)
+        st.session_state["_ti_last_count"] = data.get("n_total", 0)
         st.session_state["_ti_cache"] = {"at": now, "data": data}
         return data
     except Exception as e:
         return {"connected": False, "message": str(e), "n_total": 0,
                 "windows": {}, "council": [], "verdict": None,
-                "recent": [], "remote": {}, "last_sync": ""}
+                "recent": [], "remote": {}, "last_sync": "",
+                "new_trades": 0}
