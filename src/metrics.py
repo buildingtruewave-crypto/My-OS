@@ -1,6 +1,7 @@
-"""Derived stats + the signal layer. Pure read-side. The cash-offer queue is
-now driven by ONE source of truth (is_cash_offer) so it can never drift from
-the client records.
+"""Derived stats + the signal layer. Pure read-side. The active pipeline and
+the cash-offer queue are kept strictly separate: the pipeline is in-progress
+clients only; the cash queue is a holding bucket of rejected clients that the
+`ended` flag never touches.
 """
 from __future__ import annotations
 
@@ -8,8 +9,8 @@ import calendar as _cal
 import datetime as dt
 
 from .data import (EVENT_COLOR, EVENT_ICON, EVENT_LABELS,
-                   is_cash_offer, role_id, stage_color, stage_label,
-                   terminal_ids)
+                   is_active_pipeline, is_cash_offer, role_id,
+                   stage_color, stage_label, terminal_ids)
 
 
 def _mins(t):
@@ -217,12 +218,11 @@ def rejects_30d(daily, today):
 def client_counts(clients, today):
     t = today.isoformat()
     wk = (today + dt.timedelta(days=7)).isoformat()
-    term = terminal_ids()
     won = role_id("won")
     ret = role_id("returned")
     lost = role_id("lost")
     live = [c for c in clients if not c.get("ended")]
-    act = [c for c in live if c.get("stage") not in term]
+    act = [c for c in clients if is_active_pipeline(c)]
     return dict(
         active=len(act),
         due=[c for c in act if c.get("next_date") == t],
@@ -232,19 +232,17 @@ def client_counts(clients, today):
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
         sold=sum(1 for c in live if won and c.get("stage") == won),
-        cashq=sum(1 for c in live if is_cash_offer(c)),
+        cashq=sum(1 for c in clients if is_cash_offer(c)),
         returned=sum(1 for c in live if ret and c.get("stage") == ret),
         lost=sum(1 for c in live if lost and c.get("stage") == lost),
     )
 
 
 def cash_queue(clients):
-    """Every client that belongs in the Cash-Offer Queue, regardless of
-    which path put them there (stage role or credit outcome)."""
-    return [c for c in clients
-            if not c.get("ended")
-            and c.get("stage") not in terminal_ids()
-            and is_cash_offer(c)]
+    """Every cash-offer (rejected) client. Deliberately ignores the `ended`
+    flag: ending a journey never empties this queue. Only a terminal stage
+    (Paid / Lost / Returned) removes a client from it."""
+    return [c for c in clients if is_cash_offer(c)]
 
 
 def stage_counts(clients):
@@ -256,10 +254,10 @@ def stage_counts(clients):
 
 
 def call_sheet(clients, today):
+    """In-progress clients only - cash-offer (rejected) clients are excluded
+    because they live in their own queue."""
     t = today.isoformat()
-    term = terminal_ids()
-    act = [c for c in clients if c.get("stage") not in term
-           and not c.get("ended")]
+    act = [c for c in clients if is_active_pipeline(c)]
     due = [c for c in act if c.get("next_date") and c["next_date"] <= t]
     heat_order = {"Hot": 0, "Warm": 1, "Cold": 2}
     due.sort(key=lambda c: (heat_order.get(c.get("heat", "Warm"), 1),
@@ -687,9 +685,7 @@ def signal_counts(events, today_iso):
 
 def day_pulse(d_iso, ctx):
     clients = ctx["clients"]
-    term = terminal_ids()
-    non_t = [c for c in clients if c.get("stage") not in term
-             and not c.get("ended")]
+    non_t = [c for c in clients if is_active_pipeline(c)]
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
@@ -701,7 +697,10 @@ def day_pulse(d_iso, ctx):
     return {
         "new_clients": [c for c in clients if c.get("created") == d_iso],
         "followups": [c for c in non_t if c.get("next_date") == d_iso],
-        "cash_queue": [c for c in non_t if is_cash_offer(c)],
+        "cash_queue": [c for c in clients
+                       if is_cash_offer(c)
+                       and str(c.get("history", [{"ts": ""}])[-1]
+                               .get("ts", "")).startswith(d_iso)],
         "moves": moves_on(clients, d_iso),
         "outcomes": outcomes,
         "daily": ctx["sales_daily"].get(d_iso),
