@@ -1,14 +1,15 @@
-"""Derived stats for the life OS, the TrueWave pipeline, the money OS, the
-pantry / runway / emergency model and the spiritual energy model. Pure
-read-side: never mutates, never auto-deducts. Active vs sealed ventures keep
-the outer money and the protected heart from double-counting.
+"""Derived stats + the signal layer. Pure read-side. The cash-offer queue is
+now driven by ONE source of truth (is_cash_offer) so it can never drift from
+the client records.
 """
 from __future__ import annotations
 
 import calendar as _cal
 import datetime as dt
 
-from .data import (role_id, stage_color, stage_label, terminal_ids)
+from .data import (EVENT_COLOR, EVENT_ICON, EVENT_LABELS,
+                   is_cash_offer, role_id, stage_color, stage_label,
+                   terminal_ids)
 
 
 def _mins(t):
@@ -60,8 +61,7 @@ def today_area_split(routine, weekday):
 def day_frac(log, habits, date_iso):
     if not habits:
         return 0.0
-    done = sum(1 for h in habits
-               if log.get(h["id"], {}).get(date_iso))
+    done = sum(1 for h in habits if log.get(h["id"], {}).get(date_iso))
     return done / len(habits) * 100
 
 
@@ -126,8 +126,7 @@ def consistency_by_weekday(habits, log, days=60):
                 for h in habits]
         if vals:
             acc[d.weekday()].append(sum(vals) / len(vals))
-    return {w: (sum(v) / len(v) * 100 if v else 0.0)
-            for w, v in acc.items()}
+    return {w: (sum(v) / len(v) * 100 if v else 0.0) for w, v in acc.items()}
 
 
 # ---------- goals / journal ----------
@@ -135,8 +134,7 @@ def goal_pct(g):
     try:
         if not g["target"]:
             return 0.0
-        return max(0.0, min(100.0,
-                            float(g["current"]) / float(g["target"])
+        return max(0.0, min(100.0, float(g["current"]) / float(g["target"])
                             * 100))
     except Exception:
         return 0.0
@@ -169,8 +167,7 @@ def journal_streak(journal):
 def journal_completion(journal, n=30):
     today = dt.date.today()
     hit = sum(1 for o in range(n)
-              if (today - dt.timedelta(days=o)).isoformat()
-              in journal)
+              if (today - dt.timedelta(days=o)).isoformat() in journal)
     return hit / n * 100
 
 
@@ -182,8 +179,7 @@ def sales_rate(daily, today, n=30):
     if days <= 0:
         return 0.0
     hits = sum(1 for o in range(days)
-               if daily.get((today - dt.timedelta(days=o))
-                            .isoformat()))
+               if daily.get((today - dt.timedelta(days=o)).isoformat()))
     return hits / days * 100
 
 
@@ -225,24 +221,30 @@ def client_counts(clients, today):
     won = role_id("won")
     ret = role_id("returned")
     lost = role_id("lost")
-    cash = role_id("cash")
     live = [c for c in clients if not c.get("ended")]
     act = [c for c in live if c.get("stage") not in term]
     return dict(
         active=len(act),
         due=[c for c in act if c.get("next_date") == t],
-        over=[c for c in act
-              if c.get("next_date") and c["next_date"] < t],
+        over=[c for c in act if c.get("next_date") and c["next_date"] < t],
         up=[c for c in act if c.get("next_date")
             and t < c["next_date"] <= wk],
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
         sold=sum(1 for c in live if won and c.get("stage") == won),
-        cashq=sum(1 for c in live if cash and c.get("stage") == cash),
-        returned=sum(1 for c in live
-                     if ret and c.get("stage") == ret),
+        cashq=sum(1 for c in live if is_cash_offer(c)),
+        returned=sum(1 for c in live if ret and c.get("stage") == ret),
         lost=sum(1 for c in live if lost and c.get("stage") == lost),
     )
+
+
+def cash_queue(clients):
+    """Every client that belongs in the Cash-Offer Queue, regardless of
+    which path put them there (stage role or credit outcome)."""
+    return [c for c in clients
+            if not c.get("ended")
+            and c.get("stage") not in terminal_ids()
+            and is_cash_offer(c)]
 
 
 def stage_counts(clients):
@@ -322,8 +324,7 @@ def commissions_window(sales, today, days=7):
     rows = []
     for s in sales:
         for i in s.get("inst", []):
-            if (i.get("due") and lo <= i["due"] <= hi
-                    and not i.get("paid")):
+            if i.get("due") and lo <= i["due"] <= hi and not i.get("paid"):
                 rows.append((s, i))
     rows.sort(key=lambda p: p[1]["due"])
     return rows
@@ -381,8 +382,7 @@ def item_saved(it):
 
 
 def cash_on_hand(v):
-    return sum(float(p.get("balance", 0))
-               for p in v.get("positions", []))
+    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
 
 
 def bills_saved(v):
@@ -446,8 +446,7 @@ def snapshots_series(v):
     out = []
     for s in v.get("snapshots", []):
         try:
-            out.append((dt.date.fromisoformat(s["date"]),
-                        float(s["net"])))
+            out.append((dt.date.fromisoformat(s["date"]), float(s["net"])))
         except Exception:
             pass
     return out
@@ -485,8 +484,7 @@ def pantry_days_left_item(it, today):
 
 
 def pantry_bottleneck(pantry, today):
-    items = [it for it in pantry.get("items", [])
-             if not it.get("hidden")
+    items = [it for it in pantry.get("items", []) if not it.get("hidden")
              and float(it.get("daily", 0) or 0) > 0]
     best = None
     for it in items:
@@ -528,7 +526,7 @@ def emergency_progress(vault):
     return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
 
 
-# ---------- spiritual energy (derived, never random) ----------
+# ---------- spiritual energy ----------
 def _spirit_present(e):
     if not e:
         return False
@@ -596,10 +594,9 @@ def bot_stats(logs, bot_id):
     losses = [l for l in ls if float(l["pnl"]) < 0]
     pnl = sum(float(l["pnl"]) for l in ls)
     risk = sum(float(l.get("risk", 0)) for l in ls)
-    avg_win = (sum(float(l["pnl"]) for l in wins) / len(wins)) \
-        if wins else 0.0
-    avg_loss = (abs(sum(float(l["pnl"]) for l in losses))
-                / len(losses)) if losses else 0.0
+    avg_win = (sum(float(l["pnl"]) for l in wins) / len(wins)) if wins else 0.0
+    avg_loss = (abs(sum(float(l["pnl"]) for l in losses)) / len(losses)) \
+        if losses else 0.0
     rr = (avg_win / avg_loss) if avg_loss > 0 else 0.0
     wr = (len(wins) / len(ls) * 100) if ls else 0.0
     return dict(n=len(ls), w=len(wins), l=len(losses), pnl=pnl,
@@ -643,18 +640,49 @@ def task_counts(tasks, today):
     t = today.isoformat()
     return dict(
         open=sum(1 for x in tasks if not x.get("done")),
-        done_today=sum(1 for x in tasks
-                       if x.get("done_date") == t),
+        done_today=sum(1 for x in tasks if x.get("done_date") == t),
         overdue=sum(1 for x in tasks if not x.get("done")
                     and x.get("due") and x["due"] < t),
         total=len(tasks),
         done_all=sum(1 for x in tasks if x.get("done")),
+        auto=sum(1 for x in tasks if x.get("auto")),
     )
 
 
 def life_score(cons, jcomp, srate, goal_avg):
     v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
     return int(max(0, min(100, round(v))))
+
+
+# ---------- signal layer ----------
+def signal_feed(events, n=30):
+    out = []
+    for e in (events or [])[:n]:
+        et = e.get("type", "note")
+        out.append({
+            "ts": e.get("ts", ""),
+            "time": str(e.get("ts", ""))[11:16],
+            "date": e.get("date", ""),
+            "type": et,
+            "label": e.get("label", EVENT_LABELS.get(et, et)),
+            "detail": e.get("detail", ""),
+            "icon": EVENT_ICON.get(et, "pulse"),
+            "color": EVENT_COLOR.get(et, "#8893AB"),
+            "autopilot": "autopilot" in (e.get("tags") or []),
+        })
+    return out
+
+
+def signal_counts(events, today_iso):
+    evs = events or []
+    today_n = sum(1 for e in evs if e.get("date") == today_iso)
+    auto_n = sum(1 for e in evs if "autopilot" in (e.get("tags") or []))
+    types = {}
+    for e in evs:
+        t = e.get("type", "note")
+        types[t] = types.get(t, 0) + 1
+    return dict(total=len(evs), today=today_n, autopilot=auto_n,
+                types=types)
 
 
 def day_pulse(d_iso, ctx):
@@ -668,21 +696,19 @@ def day_pulse(d_iso, ctx):
     v = ctx["vault"]
     flow = [f for f in v.get("flow", []) if f.get("date") == d_iso]
     se = ctx.get("spiritual", {}).get(d_iso)
+    events = [e for e in (ctx.get("events") or [])
+              if e.get("date") == d_iso]
     return {
-        "new_clients": [c for c in clients
-                        if c.get("created") == d_iso],
-        "followups": [c for c in non_t
-                      if c.get("next_date") == d_iso],
+        "new_clients": [c for c in clients if c.get("created") == d_iso],
+        "followups": [c for c in non_t if c.get("next_date") == d_iso],
+        "cash_queue": [c for c in non_t if is_cash_offer(c)],
         "moves": moves_on(clients, d_iso),
         "outcomes": outcomes,
         "daily": ctx["sales_daily"].get(d_iso),
-        "sales": [s for s in ctx["sales"]
-                  if s.get("date") == d_iso],
+        "sales": [s for s in ctx["sales"] if s.get("date") == d_iso],
         "inst_due": [(s, i) for s in ctx["sales"]
-                     for i in s.get("inst", [])
-                     if i.get("due") == d_iso],
-        "income": [x for x in ctx["income"]
-                   if x.get("date") == d_iso],
+                     for i in s.get("inst", []) if i.get("due") == d_iso],
+        "income": [x for x in ctx["income"] if x.get("date") == d_iso],
         "flow": flow,
         "bot_logs": [l for l in ctx["bots"].get("logs", [])
                      if l.get("date") == d_iso],
@@ -690,5 +716,6 @@ def day_pulse(d_iso, ctx):
                         if w.get("date") == d_iso), None),
         "tasks_done": [t for t in ctx["tasks"]
                        if t.get("done_date") == d_iso],
+        "events": events,
         "spiritual": spiritual_energy(se) if se is not None else None,
     }
