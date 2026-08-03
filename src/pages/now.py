@@ -15,7 +15,8 @@ from .. import widgets as W
 
 def _today_done(habits, log, today):
     return sum(1 for h in habits
-               if log.get(h["id"], {}).get(today.isoformat()))
+               if not D.habit_optional(h)
+               and log.get(h["id"], {}).get(today.isoformat()))
 
 
 def render(ctx):
@@ -40,7 +41,8 @@ def render(ctx):
     tc = M.task_counts(tasks, today)
     window = M.clients_in_window(clients, today)
     sheet = M.call_sheet(clients, today)
-    done_today, total_h = _today_done(habits, log, today), len(habits)
+    done_today = _today_done(habits, log, today)
+    total_h = len([h for h in habits if not D.habit_optional(h)])
     d_entry = daily.get(t_iso) or {}
     sold_today = int(d_entry.get("sold", 0))
     rej_today = int(d_entry.get("system_rej", 0)) \
@@ -50,7 +52,6 @@ def render(ctx):
         income, (today - dt.timedelta(days=6)).isoformat(), t_iso)
     se = M.spiritual_today(spiritual, today)
     ss = M.spiritual_streak(spiritual)
-
     row1 = [
         UI.tile("Life Score",
                 str(score) if score is not None else "--",
@@ -72,7 +73,6 @@ def render(ctx):
                 "mute", "ink", "check", "accent", 160),
     ]
     st.markdown(UI.tiles_grid(row1, 5), unsafe_allow_html=True)
-
     c1, c2 = st.columns([3, 2], gap="medium")
     with c1:
         if any(log.values()):
@@ -96,7 +96,6 @@ def render(ctx):
                         nxt["time"] if nxt else "--:--",
                         nxt["label"] if nxt else "")),
             unsafe_allow_html=True)
-
     row3 = [
         UI.tile("New Leads 7d", str(cc["new7"]), "ads + live",
                 "mute", "ink", "bolt", "accent", 0),
@@ -120,7 +119,6 @@ def render(ctx):
                 "win" if sold_week else "ink", "phone", "win", 210),
     ]
     st.markdown(UI.tiles_grid(row3, 8), unsafe_allow_html=True)
-
     f1, f2 = st.columns([3, 2], gap="medium")
     with f1:
         sc = M.stage_counts(clients)
@@ -138,7 +136,6 @@ def render(ctx):
         st.markdown(UI.panel("Income Mix - since Aug 1",
                              UI.hbars(items)),
                     unsafe_allow_html=True)
-
     c3, c4, c5 = st.columns([5, 3, 4], gap="medium")
     with c3:
         cmap = M.day_consistency_map(log, habits, today.year,
@@ -181,7 +178,6 @@ def render(ctx):
             "Focus Split Today",
             UI.donut(split, str(total_b), "blocks", total_b)),
             unsafe_allow_html=True)
-
     c6, c7 = st.columns([4, 1], gap="medium")
     with c6:
         if sheet:
@@ -207,7 +203,6 @@ def render(ctx):
                 (w_streak, "workout", "jewel"),
                 (ss, "spirit", "jewel"),
             ])), unsafe_allow_html=True)
-
     c8, c9 = st.columns([3, 2], gap="medium")
     with c8:
         rows = []
@@ -239,7 +234,6 @@ def render(ctx):
         )
         st.markdown(UI.panel("Archive", body, right="locked"),
                     unsafe_allow_html=True)
-
     st.markdown("<div style='height:6px'></div>",
                 unsafe_allow_html=True)
     hc1, hc2 = st.columns([2, 3], gap="medium")
