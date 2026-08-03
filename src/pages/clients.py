@@ -2,7 +2,7 @@
 The ACTIVE PIPELINE holds only in-progress clients. The CASH-OFFER QUEUE is a
 separate bucket of rejected clients that a journey-end never empties. Every
 client on the Call Sheet and in the Cash-Offer Queue has a one-tap "Called"
-tick that logs the touch and auto-reschedules the next call.
+tick that captures the outcome, logs the touch and auto-reschedules.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
 
+_CALLED_OUTCOMES = ["Reached", "No answer", "Voicemail", "Wrong time"]
 _RESCHEDULE = [("tomorrow", 1), ("in 2 days", 2), ("in 3 days", 3),
                ("next week", 7)]
 
@@ -26,19 +27,27 @@ def _plan_options():
     return [""] + [p["label"] for p in D.get_plans()]
 
 
+def _days_since(date_str, today):
+    try:
+        return max(0, (today - dt.date.fromisoformat(str(date_str))).days)
+    except Exception:
+        return None
+
+
 def _called_controls(c, ctx, key):
-    """One-tap 'Called' tick: logs the touch and auto-reschedules."""
+    """One-tap 'Called' tick: capture outcome, log the touch, reschedule."""
     today, now_str = ctx["today"], ctx["now_str"]
     labels = [r[0] for r in _RESCHEDULE]
     days = dict(_RESCHEDULE)
     st.markdown('<div class="tw-lab" style="margin:2px 0 6px">'
                 'MARK CALLED</div>', unsafe_allow_html=True)
+    outcome = st.selectbox("outcome", _CALLED_OUTCOMES, key=key + "oc")
     choice = st.selectbox("next call", labels, key=key + "rs")
     if st.button("Called ✓", type="primary", key=key + "cb"):
         nd = (today + dt.timedelta(days=days[choice])).isoformat()
-        D.mark_called(c["id"], now_str, nd)
+        D.mark_called(c["id"], now_str, nd, outcome=outcome)
         st.rerun()
-    st.caption("Logs the touch & moves them off today's sheet.")
+    st.caption("Logs the touch & reschedules - they drop off today's sheet.")
 
 
 def _call_sheet_row(c, ctx, key):
@@ -46,6 +55,24 @@ def _call_sheet_row(c, ctx, key):
     with c1:
         st.markdown(UI.client_card(c, ctx["today"]),
                     unsafe_allow_html=True)
+    with c2:
+        _called_controls(c, ctx, key)
+
+
+def _cash_row(c, ctx, key):
+    today = ctx["today"]
+    age = _days_since(c.get("created", ""), today)
+    cold = age is not None and age >= 7
+    c1, c2 = st.columns([4, 1.6], gap="medium")
+    with c1:
+        st.markdown(UI.client_card(c, today), unsafe_allow_html=True)
+        if age is not None:
+            tone = "tw-loss" if cold else "tw-mute"
+            st.markdown('<div class="' + tone + '" style="font:600 11px '
+                        'var(--mono);margin:-2px 0 8px">'
+                        + ("⚠ going cold · " if cold else "")
+                        + str(age) + "d since logged</div>",
+                        unsafe_allow_html=True)
     with c2:
         _called_controls(c, ctx, key)
 
@@ -129,10 +156,10 @@ def _journey(c, ctx, k):
                 D.end_journey(c["id"], now_str)
                 st.rerun()
         if D.is_cash_offer(c):
-            st.caption("This client is a cash-offer (rejected) client. "
-                       "Ending the journey removes them from the active "
-                       "pipeline but they stay in the Cash-Offer Queue. "
-                       "To clear them fully, mark them Paid or Lost.")
+            st.caption("This is a cash-offer (rejected) client. Ending the "
+                       "journey removes them from the active pipeline but "
+                       "they stay in the Cash-Offer Queue. To clear them "
+                       "fully, mark them Paid or Lost.")
 
     j1, j2 = st.columns([2, 1])
     with j1:
@@ -511,22 +538,23 @@ def _outcome_text(c):
 def _cash_offer_panel(clients, ctx):
     cq = M.cash_queue(clients)
     st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
-                'CASH-OFFER QUEUE - REJECTED TO CASH</div>',
-                unsafe_allow_html=True)
+                'CASH-OFFER QUEUE - REJECTED TO CREDIT ('
+                + str(len(cq)) + ')</div>', unsafe_allow_html=True)
     if not cq:
         st.markdown(UI.panel(
             "Cash-Offer Queue",
             UI.empty_state(
                 "When a client's credit outcome is CASH OFFER - CREDIT, they "
                 "load here automatically. This is a holding queue of rejected "
-                "clients, separate from the active pipeline."),
+                "clients - separate from the active pipeline. Ending a journey "
+                "never empties it; only marking Paid or Lost clears a client."),
             right="auto-aligned"), unsafe_allow_html=True)
         return
-    st.caption("These clients were declined for financing and offered cash. "
-               "They stay here until marked Paid or Lost - ending a journey "
-               "does not remove them. Tick Called to log and reschedule.")
+    st.caption("Declined for financing, offered cash. They stay here until "
+               "marked Paid or Lost - ending a journey does not remove them. "
+               "Tick Called to log the outcome and reschedule.")
     for c in cq:
-        _call_sheet_row(c, ctx, "cq" + c["id"])
+        _cash_row(c, ctx, "cq" + c["id"])
 
 
 def render(ctx):
@@ -556,7 +584,7 @@ def render(ctx):
         st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
                     "TODAY'S CALL SHEET - IN-PROGRESS - HOTTEST FIRST</div>",
                     unsafe_allow_html=True)
-        st.caption("Tick Called to log the touch and auto-reschedule the "
+        st.caption("Tick Called to log the outcome and auto-reschedule the "
                    "next call - they drop off this list instantly.")
         for c in sheet[:8]:
             _call_sheet_row(c, ctx, "cs" + c["id"])
