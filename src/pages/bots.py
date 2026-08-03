@@ -1,22 +1,170 @@
 """Deriv + Alpaca bots and any other venture: risk taken, what it gave
-back, and the demo-to-real transition - reviewed weekly and monthly."""
+back, and the demo-to-real transition - plus the Deriv CONNECTED
+INTELLIGENCE panel that receives live trade results from the trading app
+via Supabase and runs the analyst council over them.
+"""
 from __future__ import annotations
+
+import html
 
 import streamlit as st
 
 from .. import data as D
 from .. import metrics as M
+from .. import trade_intel as TI
 from .. import ui as UI
 
 _STATUS = {"testing": ("TESTING", "#F5B544"),
            "demo": ("DEMO", "#7C8AA5"),
            "live": ("LIVE", "#34D399")}
 
+_ACT_COLOR = {"ENTER": "#34D399", "ENTER SMALL": "#2DD4BF",
+              "WAIT": "#F5B544", "AVOID": "#F0556B"}
+_CONF_COLOR = {"high": "#34D399", "medium": "#F5B544", "low": "#7C8AA5"}
+
+
+def _window_tile(label, s, delay):
+    if s["n"] == 0:
+        return UI.tile(label, "—", "no trades", "mute", "ink",
+                       "pulse", "accent", delay)
+    net = s["net"]
+    tone = "win" if net > 0 else ("loss" if net < 0 else "mute")
+    vt = "win" if net > 0 else ("loss" if net < 0 else "ink")
+    delta = "%.0f%% WR · %d trades" % (s["win_rate"] * 100, s["n"])
+    return UI.tile(label, "%+.2f" % net, delta, tone, vt,
+                   "trend", "accent", delay)
+
+
+def _stance_badge(stance):
+    color = {"bullish": "#34D399", "cautious": "#F5B544",
+             "bearish": "#F0556B"}.get(stance, "#7C8AA5")
+    return UI.badge(stance.upper(), color)
+
+
+def _deriv_intelligence():
+    c1, c2 = st.columns([5, 1])
+    with c2:
+        force = st.button("⟳ Refresh", key="ti_refresh")
+    data = TI.get_signal(force=force)
+    with c1:
+        if data["connected"]:
+            chip = UI.badge("● CONNECTED", "#34D399")
+        else:
+            chip = UI.badge("● OFFLINE", "#F0556B")
+        bits = [chip]
+        if data.get("n_total"):
+            bits.append(UI.badge(str(data["n_total"]) + " trades",
+                                 "#4C8DFF"))
+        if data.get("span_days"):
+            bits.append(UI.badge(str(data["span_days"]) + " days history",
+                                 "#8B7CFF"))
+        if data.get("last_sync"):
+            bits.append(UI.badge("sync " + data["last_sync"][11:19],
+                                 "#7C8AA5"))
+        st.markdown('<div class="tw-lab" style="margin:6px 0 8px">'
+                    'DERIV · CONNECTED INTELLIGENCE</div>'
+                    '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+                    + " ".join(bits) + '</div>',
+                    unsafe_allow_html=True)
+
+    if not data["connected"]:
+        st.markdown(UI.panel(
+            "Signal Feed",
+            UI.empty_state("Not connected to Supabase - "
+                           + str(data.get("message", ""))),
+            right="offline"), unsafe_allow_html=True)
+        return
+
+    if data["n_total"] == 0:
+        st.markdown(UI.panel(
+            "Signal Feed",
+            UI.empty_state("The deriv_trades table is ready. As soon as the "
+                           "trading app posts its first result, the council "
+                           "starts scanning it across days, weeks and "
+                           "months."),
+            right="listening"), unsafe_allow_html=True)
+        return
+
+    w = data["windows"]
+    row = [_window_tile("Last 7 days", w["7d"], 0),
+           _window_tile("Last 30 days", w["30d"], 40),
+           _window_tile("Last 90 days", w["90d"], 80),
+           _window_tile("All time", w["all"], 120)]
+    st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    v = data["verdict"]
+    if v:
+        act_color = _ACT_COLOR.get(v["action"], "#7C8AA5")
+        conf_color = _CONF_COLOR.get(v["confidence"], "#7C8AA5")
+        verdict_html = (
+            '<div style="display:flex;align-items:center;gap:14px;'
+            'flex-wrap:wrap;margin-bottom:10px">'
+            '<span style="font:800 30px/1 var(--disp);color:'
+            + act_color + ';letter-spacing:-.01em">'
+            + html.escape(v["action"]) + '</span>'
+            + UI.badge("score %d/100" % v["score"], act_color)
+            + UI.badge("risk %.2f%%/trade" % v["risk_pct"], "#4C8DFF")
+            + UI.badge("confidence " + v["confidence"].upper(),
+                       conf_color)
+            + '</div>'
+            '<div style="font:500 13.5px/1.55 var(--body);'
+            'color:var(--ink)">' + html.escape(v["summary"])
+            + '</div>')
+        cov = ""
+        if data.get("earliest") and data.get("latest"):
+            cov = data["earliest"] + " → " + data["latest"]
+        st.markdown(UI.panel("Council Verdict", verdict_html,
+                             right=cov or "venture read"),
+                    unsafe_allow_html=True)
+
+        council_rows = []
+        for c in data["council"]:
+            council_rows.append(
+                '<div style="display:flex;gap:10px;align-items:flex-start;'
+                'padding:9px 0;border-bottom:1px solid var(--hair)">'
+                + _stance_badge(c["stance"])
+                + '<div><div class="tw-sub" style="margin-top:0">'
+                + html.escape(c["name"]) + '</div>'
+                '<div style="font:500 12.5px/1.45 var(--body);'
+                'color:var(--ink-2)">' + html.escape(c["point"])
+                + '</div></div></div>')
+        st.markdown(UI.panel("The Analyst Council",
+                             "".join(council_rows),
+                             right="edge · risk · sample · form"),
+                    unsafe_allow_html=True)
+
+        if data.get("discussion"):
+            st.markdown(UI.panel(
+                "Council Discussion",
+                '<div style="font:500 13.5px/1.6 var(--body);'
+                'color:var(--ink-2);white-space:pre-line">'
+                + html.escape(data["discussion"]) + '</div>',
+                right="reasoning chain"), unsafe_allow_html=True)
+
+    feed = []
+    for i, t in enumerate(data["recent"]):
+        ts = t.get("ts")
+        d = ts.strftime("%b %d") if ts else "—"
+        tm = ts.strftime("%H:%M") if ts else ""
+        pnl = t["pnl"]
+        tone = "win" if pnl >= 0 else "loss"
+        kind = "in" if pnl >= 0 else "out"
+        market = html.escape(t.get("market") or "Deriv")
+        note = html.escape(t.get("note") or "")
+        main = '<b>' + market + '</b>'
+        feed.append(UI.log_row(d, tm, kind, pnl, main,
+                               meta_html=note, tone=tone,
+                               delay=min(i * 30, 300)))
+    st.markdown(UI.panel("Received Trades",
+                         '<div class="tw-loglist">' + " ".join(feed)
+                         + '</div>',
+                         right="newest first"), unsafe_allow_html=True)
+
 
 def render(ctx):
     bots, today = ctx["bots"], ctx["today"]
     blist, logs = bots["bots"], bots["logs"]
-
     all_pnl = sum(float(l["pnl"]) for l in logs)
     wins = sum(1 for l in logs if float(l["pnl"]) > 0)
     wr = (wins / len(logs) * 100) if logs else 0.0
@@ -33,7 +181,6 @@ def render(ctx):
                 "mute", "ink", "target", "jewel", 120),
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
-
     cols = st.columns(min(max(len(blist), 1), 2), gap="medium")
     for i, b in enumerate(blist):
         s = M.bot_stats(logs, b["id"])
@@ -77,8 +224,10 @@ def render(ctx):
                     ])
                 st.markdown(UI.table(["Date", "Risk", "PnL", "Notes"],
                                      rows), unsafe_allow_html=True)
-
-    st.markdown("<div style='height:10px'></div>",
+    st.markdown("<div style='height:12px'></div>",
+                unsafe_allow_html=True)
+    _deriv_intelligence()
+    st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
     e1, e2 = st.columns(2, gap="medium")
     with e1:
