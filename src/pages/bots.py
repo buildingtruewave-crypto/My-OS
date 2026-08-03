@@ -11,8 +11,14 @@ import streamlit as st
 
 from .. import data as D
 from .. import metrics as M
-from .. import trade_intel as TI
 from .. import ui as UI
+
+try:
+    from .. import trade_intel as TI
+    _HAS_TI = True
+except Exception:
+    TI = None
+    _HAS_TI = False
 
 _STATUS = {"testing": ("TESTING", "#F5B544"),
            "demo": ("DEMO", "#7C8AA5"),
@@ -20,7 +26,8 @@ _STATUS = {"testing": ("TESTING", "#F5B544"),
 
 _ACT_COLOR = {"ENTER": "#34D399", "ENTER SMALL": "#2DD4BF",
               "WAIT": "#F5B544", "AVOID": "#F0556B"}
-_CONF_COLOR = {"high": "#34D399", "medium": "#F5B544", "low": "#7C8AA5"}
+_CONF_COLOR = {"high": "#34D399", "medium": "#F5B544",
+               "low": "#7C8AA5"}
 
 
 def _window_tile(label, s, delay):
@@ -42,6 +49,15 @@ def _stance_badge(stance):
 
 
 def _deriv_intelligence():
+    st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
+                'DERIV · CONNECTED INTELLIGENCE</div>',
+                unsafe_allow_html=True)
+    if not _HAS_TI:
+        st.markdown(UI.panel(
+            "Signal Feed",
+            UI.empty_state("trade_intel module not loaded."),
+            right="offline"), unsafe_allow_html=True)
+        return
     c1, c2 = st.columns([5, 1])
     with c2:
         force = st.button("⟳ Refresh", key="ti_refresh")
@@ -56,15 +72,14 @@ def _deriv_intelligence():
             bits.append(UI.badge(str(data["n_total"]) + " trades",
                                  "#4C8DFF"))
         if data.get("span_days"):
-            bits.append(UI.badge(str(data["span_days"]) + " days history",
-                                 "#8B7CFF"))
+            bits.append(UI.badge(str(data["span_days"])
+                                 + " days history", "#8B7CFF"))
         if data.get("last_sync"):
-            bits.append(UI.badge("sync " + data["last_sync"][11:19],
+            bits.append(UI.badge("sync "
+                                 + data["last_sync"][11:19],
                                  "#7C8AA5"))
-        st.markdown('<div class="tw-lab" style="margin:6px 0 8px">'
-                    'DERIV · CONNECTED INTELLIGENCE</div>'
-                    '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-                    + " ".join(bits) + '</div>',
+        st.markdown('<div style="display:flex;gap:6px;'
+                    'flex-wrap:wrap">' + " ".join(bits) + '</div>',
                     unsafe_allow_html=True)
 
     if not data["connected"]:
@@ -78,10 +93,10 @@ def _deriv_intelligence():
     if data["n_total"] == 0:
         st.markdown(UI.panel(
             "Signal Feed",
-            UI.empty_state("The deriv_trades table is ready. As soon as the "
-                           "trading app posts its first result, the council "
-                           "starts scanning it across days, weeks and "
-                           "months."),
+            UI.empty_state("The deriv_trades table is ready. As soon "
+                           "as the trading app posts its first result, "
+                           "the council starts scanning it across days, "
+                           "weeks and months."),
             right="listening"), unsafe_allow_html=True)
         return
 
@@ -91,7 +106,8 @@ def _deriv_intelligence():
            _window_tile("Last 90 days", w["90d"], 80),
            _window_tile("All time", w["all"], 120)]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:8px'></div>",
+                unsafe_allow_html=True)
 
     v = data["verdict"]
     if v:
@@ -104,7 +120,8 @@ def _deriv_intelligence():
             + act_color + ';letter-spacing:-.01em">'
             + html.escape(v["action"]) + '</span>'
             + UI.badge("score %d/100" % v["score"], act_color)
-            + UI.badge("risk %.2f%%/trade" % v["risk_pct"], "#4C8DFF")
+            + UI.badge("risk %.2f%%/trade" % v["risk_pct"],
+                       "#4C8DFF")
             + UI.badge("confidence " + v["confidence"].upper(),
                        conf_color)
             + '</div>'
@@ -121,8 +138,9 @@ def _deriv_intelligence():
         council_rows = []
         for c in data["council"]:
             council_rows.append(
-                '<div style="display:flex;gap:10px;align-items:flex-start;'
-                'padding:9px 0;border-bottom:1px solid var(--hair)">'
+                '<div style="display:flex;gap:10px;'
+                'align-items:flex-start;padding:9px 0;'
+                'border-bottom:1px solid var(--hair)">'
                 + _stance_badge(c["stance"])
                 + '<div><div class="tw-sub" style="margin-top:0">'
                 + html.escape(c["name"]) + '</div>'
@@ -157,9 +175,10 @@ def _deriv_intelligence():
                                meta_html=note, tone=tone,
                                delay=min(i * 30, 300)))
     st.markdown(UI.panel("Received Trades",
-                         '<div class="tw-loglist">' + " ".join(feed)
-                         + '</div>',
-                         right="newest first"), unsafe_allow_html=True)
+                         '<div class="tw-loglist">'
+                         + " ".join(feed) + '</div>',
+                         right="newest first"),
+                unsafe_allow_html=True)
 
 
 def render(ctx):
@@ -224,9 +243,9 @@ def render(ctx):
                     ])
                 st.markdown(UI.table(["Date", "Risk", "PnL", "Notes"],
                                      rows), unsafe_allow_html=True)
-    st.markdown("<div style='height:12px'></div>",
-                unsafe_allow_html=True)
+
     _deriv_intelligence()
+
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
     e1, e2 = st.columns(2, gap="medium")
@@ -267,5 +286,5 @@ def render(ctx):
             st.rerun()
         st.markdown(UI.panel(
             "This Week - all ventures",
-            UI.bars(M.bot_week(logs, today, 7)), right="net per day"),
-            unsafe_allow_html=True)
+            UI.bars(M.bot_week(logs, today, 7)),
+            right="net per day"), unsafe_allow_html=True)
