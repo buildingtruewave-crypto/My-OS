@@ -2,6 +2,16 @@
 Every meaningful action records an event and triggers autopilot, so a change
 in one module ripples through the whole system. Recording starts Fri 1 Aug
 2026 (Nairobi). Nothing is faked; nothing is auto-deducted.
+
+Pipeline model:
+- ACTIVE PIPELINE  = clients still being processed (not ended, not terminal,
+                     and NOT cash-offer). Cash-offer clients are rejected, so
+                     they are not "in progress".
+- CASH-OFFER QUEUE = clients whose credit outcome is a cash offer. This is a
+                     holding bucket of REJECTED clients. It ignores the
+                     `ended` flag on purpose - ending a journey never empties
+                     it. Only moving a client to a terminal stage (Paid/Lost/
+                     Returned) removes them from the queue.
 """
 from __future__ import annotations
 
@@ -137,7 +147,6 @@ FUND_SEED = [("hho", "HHO Carbon Cleaning - Nairobi",
 
 # --------------------------------------------------------------------------
 # THE CONNECTION ENGINE - declarative map of what ripples where.
-# Both self-documenting and executed by autopilot.
 # --------------------------------------------------------------------------
 CONNECTIONS = {
     "client_added": [
@@ -151,10 +160,16 @@ CONNECTIONS = {
         ("journal", "client touch lands in Day Pulse"),
         ("signals", "logged on the Signals feed"),
     ],
+    "client_called": [
+        ("callsheet", "drops off today's Call Sheet immediately"),
+        ("pipeline", "next call auto-scheduled to the chosen day"),
+        ("journal", "logged as a client touch"),
+        ("signals", "logged on the Signals feed"),
+    ],
     "credit_cash_offer": [
-        ("cash_queue", "auto-loads into the Cash-Offer Queue"),
+        ("cash_queue", "auto-loads into the Cash-Offer Queue (rejected)"),
         ("task", "auto-creates a cash-offer follow-up task"),
-        ("journal", "flags in Day Pulse"),
+        ("pipeline", "removed from the active pipeline - it is a rejection"),
         ("signals", "highlighted on the Signals feed"),
     ],
     "client_delivered": [
@@ -164,16 +179,18 @@ CONNECTIONS = {
     ],
     "client_paid": [
         ("sold", "Paid & Closed increments everywhere"),
+        ("cash_queue", "leaves the Cash-Offer Queue - it is won"),
         ("income", "ready to record as Commission income"),
-        ("journal", "logged as a deal closed"),
         ("stats", "TrueWave KPIs update"),
     ],
     "client_returned": [
         ("returned", "Returned increments + window closes"),
+        ("cash_queue", "leaves the Cash-Offer Queue"),
         ("journal", "logged as an outcome"),
     ],
     "journey_ended": [
         ("pipeline", "leaves call sheet, active count, follow-ups"),
+        ("cash_queue", "STAYS in the Cash-Offer Queue - it is a rejection list"),
         ("journal", "removed from live Day Pulse"),
         ("signals", "logged on the Signals feed"),
     ],
@@ -204,6 +221,7 @@ CONNECTIONS = {
 EVENT_LABELS = {
     "client_added": "Lead logged",
     "stage_moved": "Stage moved",
+    "client_called": "Called & rescheduled",
     "credit_cash_offer": "Cash offer issued",
     "credit_set": "Credit outcome",
     "client_delivered": "Delivered",
@@ -221,23 +239,23 @@ EVENT_LABELS = {
 }
 EVENT_ICON = {
     "client_added": "users", "stage_moved": "trend",
-    "credit_cash_offer": "cash", "credit_set": "check",
-    "client_delivered": "cal", "client_paid": "check",
-    "client_returned": "bolt", "journey_ended": "x",
-    "journey_reopened": "pulse", "sale_logged": "phone",
-    "commission_paid": "cash", "income_added": "trend",
-    "task_added": "list", "touch": "phone", "plan_set": "target",
-    "note": "edit",
+    "client_called": "phone", "credit_cash_offer": "cash",
+    "credit_set": "check", "client_delivered": "cal",
+    "client_paid": "check", "client_returned": "bolt",
+    "journey_ended": "x", "journey_reopened": "pulse",
+    "sale_logged": "phone", "commission_paid": "cash",
+    "income_added": "trend", "task_added": "list", "touch": "phone",
+    "plan_set": "target", "note": "edit",
 }
 EVENT_COLOR = {
     "client_added": "#4C8DFF", "stage_moved": "#2DD4BF",
-    "credit_cash_offer": "#F5B544", "credit_set": "#8B7CFF",
-    "client_delivered": "#2DD4BF", "client_paid": "#34D399",
-    "client_returned": "#F0556B", "journey_ended": "#7C8AA5",
-    "journey_reopened": "#34D399", "sale_logged": "#34D399",
-    "commission_paid": "#34D399", "income_added": "#34D399",
-    "task_added": "#8B7CFF", "touch": "#2DD4BF",
-    "plan_set": "#38BDF8", "note": "#8893AB",
+    "client_called": "#38BDF8", "credit_cash_offer": "#F5B544",
+    "credit_set": "#8B7CFF", "client_delivered": "#2DD4BF",
+    "client_paid": "#34D399", "client_returned": "#F0556B",
+    "journey_ended": "#7C8AA5", "journey_reopened": "#34D399",
+    "sale_logged": "#34D399", "commission_paid": "#34D399",
+    "income_added": "#34D399", "task_added": "#8B7CFF",
+    "touch": "#2DD4BF", "plan_set": "#38BDF8", "note": "#8893AB",
 }
 
 
@@ -497,11 +515,11 @@ def is_terminal(c):
 
 def is_cash_offer(c):
     """A client belongs in the Cash-Offer Queue if their stage carries the
-    cash role OR their credit outcome is a cash offer - whichever landed
-    first. This is the single source of truth for the queue."""
+    cash role OR their credit outcome is a cash offer. This queue is a list
+    of REJECTED clients, independent of the active pipeline, so the `ended`
+    flag is deliberately ignored: ending a journey never empties the queue.
+    Only a terminal stage (Paid / Lost / Returned) removes a client."""
     if not isinstance(c, dict):
-        return False
-    if c.get("ended"):
         return False
     if c.get("stage", "") in terminal_ids():
         return False
@@ -510,6 +528,20 @@ def is_cash_offer(c):
     if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
         return True
     return False
+
+
+def is_active_pipeline(c):
+    """In-progress only: not ended, not terminal, and not a cash-offer
+    (rejected) client."""
+    if not isinstance(c, dict):
+        return False
+    if c.get("ended"):
+        return False
+    if c.get("stage", "") in terminal_ids():
+        return False
+    if is_cash_offer(c):
+        return False
+    return True
 
 
 def plan_note(label):
@@ -683,7 +715,7 @@ def save_events(x):
 
 
 # --------------------------------------------------------------------------
-# EVENT LEDGER - every ripple starts here
+# EVENT LEDGER
 # --------------------------------------------------------------------------
 def record_event(etype, label, detail="", entity="", entity_id="",
                  tags=None):
@@ -710,7 +742,7 @@ def get_events():
 
 
 # --------------------------------------------------------------------------
-# AUTOPILOT - executes the CONNECTIONS map
+# AUTOPILOT
 # --------------------------------------------------------------------------
 def _autopilot_add_task(text, area, priority, due_iso):
     try:
@@ -731,7 +763,6 @@ def _autopilot_add_task(text, area, priority, due_iso):
 
 
 def autopilot_client_stage(c, from_stage, to_stage, now_str):
-    """Fire every ripple that belongs to a stage change."""
     try:
         name = c.get("name", "?")
         to_role = stage_role(to_stage)
@@ -747,7 +778,7 @@ def autopilot_client_stage(c, from_stage, to_stage, now_str):
                 "Sales", "High", today_iso)
             record_event(
                 "credit_cash_offer", "Cash offer queued",
-                name + " loaded into the Cash-Offer Queue",
+                name + " loaded into the Cash-Offer Queue (rejected)",
                 "client", c.get("id", ""), ["cash", "autopilot"])
         if to_role == "delivered":
             record_event("client_delivered", "Delivered",
@@ -756,7 +787,8 @@ def autopilot_client_stage(c, from_stage, to_stage, now_str):
         if to_role == "won":
             record_event("client_paid", "Paid & closed",
                          name + " paid - deal closed",
-                         "client", c.get("id", ""), ["truetwave", "income"])
+                         "client", c.get("id", ""),
+                         ["truetwave", "income"])
         if to_role == "returned":
             record_event("client_returned", "Returned",
                          name + " returned inside the window",
@@ -770,7 +802,6 @@ def autopilot_client_stage(c, from_stage, to_stage, now_str):
 
 
 def autopilot_credit(c, credit, now_str):
-    """When a credit outcome lands, align the queue + tasks automatically."""
     try:
         name = c.get("name", "?")
         record_event("credit_set", "Credit outcome",
@@ -1133,6 +1164,23 @@ def touch_client(cid, note, now_str):
         record_event("touch", "Client touch",
                      str(c.get("name", "?")) + ": " + note,
                      "client", cid, ["truetwave"])
+
+
+def mark_called(cid, now_str, next_date_iso, note=""):
+    """Tick that a client was called: log the touch, auto-reschedule the
+    next call, and drop them off today's Call Sheet."""
+    c = _find_client(cid)
+    if c:
+        c["next_date"] = next_date_iso
+        c["next_action"] = "Follow-up call"
+        c.setdefault("history", []).append(
+            {"ts": now_str,
+             "note": note or ("Called - next call " + next_date_iso),
+             "stage": c.get("stage", "")})
+        save_clients(st.session_state["clients"])
+        record_event("client_called", "Called & rescheduled",
+                     str(c.get("name", "?")) + " -> " + next_date_iso,
+                     "client", cid, ["truetwave", "callsheet"])
 
 
 def set_stage(cid, stage, now_str, note=""):
