@@ -1,7 +1,18 @@
-"""Derived stats + the signal layer. Pure read-side. The active pipeline and
-the cash-offer queue are kept strictly separate: the pipeline is in-progress
-clients only; the cash queue is a holding bucket of rejected clients that the
-`ended` flag never touches.
+"""Derived stats for the life OS, the TrueWave pipeline, the money OS, the
+pantry / runway / emergency model, the spiritual energy model and the signal
+layer. Pure read-side: never mutates, never auto-deducts.
+
+Pipeline separation:
+- ACTIVE PIPELINE = in-progress clients only (not ended, not terminal,
+  not cash-offer).
+- CASH-OFFER QUEUE = rejected clients; the `ended` flag never empties it.
+
+Habits: optional habits (the weigh-in) are excluded from every consistency
+computation. effective_habit_log merges stored ticks with habits that
+auto-fill from real data (journal / sales / client touches / weigh-ins).
+
+Life score weights: sales 25% · spirit 25% · journal 20% · goals 15% ·
+habits 15%.
 """
 from __future__ import annotations
 
@@ -9,6 +20,7 @@ import calendar as _cal
 import datetime as dt
 
 from .data import (EVENT_COLOR, EVENT_ICON, EVENT_LABELS,
+                   START_DATE, habit_optional, habit_source,
                    is_active_pipeline, is_cash_offer, role_id,
                    stage_color, stage_label, terminal_ids)
 
@@ -18,6 +30,7 @@ def _mins(t):
     return int(h) * 60 + int(m)
 
 
+# ---------- routine ----------
 def today_blocks(routine, weekday):
     b = [dict(x) for x in routine
          if weekday in x.get("days", list(range(7)))]
@@ -58,12 +71,63 @@ def today_area_split(routine, weekday):
     return out
 
 
+# ---------- habit auto-fill ----------
+def effective_habit_log(habits, stored_log, journal, sales_daily,
+                        clients, weights, today):
+    """Merge stored habit ticks with habits that are auto-detected from real
+    data (journal / sales tally / client touches / weigh-ins). Auto habits
+    are recomputed on every run, so they always self-correct - you never
+    tick them. Optional habits (weigh-in) only ever get True entries, never
+    False, so a day without a weigh-in stays neutral instead of reading as
+    missed. Never mutates stored_log."""
+    eff = {}
+    for hid, days in (stored_log or {}).items():
+        eff[hid] = dict(days)
+    auto = []
+    for h in (habits or []):
+        src = habit_source(h)
+        if src:
+            auto.append((h, src))
+    if not auto:
+        return eff
+    journal_dates = set()
+    for d_iso, e in (journal or {}).items():
+        if e and (e.get("happened") or e.get("win")
+                  or e.get("lesson") or e.get("mood")):
+            journal_dates.add(d_iso)
+    sales_dates = set((sales_daily or {}).keys())
+    client_dates = set()
+    for c in (clients or []):
+        for entry in c.get("history", []):
+            ts = str(entry.get("ts", ""))[:10]
+            if ts:
+                client_dates.add(ts)
+    weight_dates = set(w.get("date") for w in (weights or [])
+                       if w.get("date"))
+    src_dates = {"journal": journal_dates, "sales": sales_dates,
+                 "clients": client_dates, "weigh": weight_dates}
+    one = dt.timedelta(days=1)
+    d = START_DATE
+    while d <= today:
+        diso = d.isoformat()
+        for h, src in auto:
+            optional = (src == "weigh")
+            if diso in src_dates.get(src, set()):
+                eff.setdefault(h["id"], {})[diso] = True
+            elif not optional:
+                eff.setdefault(h["id"], {})[diso] = False
+        d += one
+    return eff
+
+
 # ---------- habits ----------
 def day_frac(log, habits, date_iso):
-    if not habits:
+    counted = [h for h in habits if not habit_optional(h)]
+    if not counted:
         return 0.0
-    done = sum(1 for h in habits if log.get(h["id"], {}).get(date_iso))
-    return done / len(habits) * 100
+    done = sum(1 for h in counted
+               if log.get(h["id"], {}).get(date_iso))
+    return done / len(counted) * 100
 
 
 def consistency_series(log, habits, n=30):
@@ -111,20 +175,22 @@ def best_habit_streak(log, habits):
 
 
 def overall_consistency(habits, log, n=30):
-    if not habits:
+    counted = [h for h in habits if not habit_optional(h)]
+    if not counted:
         return 0.0
-    pcts = [habit_stats(log, h["id"], n)[2] for h in habits]
+    pcts = [habit_stats(log, h["id"], n)[2] for h in counted]
     return sum(pcts) / len(pcts)
 
 
 def consistency_by_weekday(habits, log, days=60):
+    counted = [h for h in habits if not habit_optional(h)]
     today = dt.date.today()
     acc = {w: [] for w in range(7)}
     for o in range(days):
         d = today - dt.timedelta(days=o)
         ds = d.isoformat()
         vals = [1.0 if log.get(h["id"], {}).get(ds) else 0.0
-                for h in habits]
+                for h in counted]
         if vals:
             acc[d.weekday()].append(sum(vals) / len(vals))
     return {w: (sum(v) / len(v) * 100 if v else 0.0)
@@ -137,7 +203,8 @@ def goal_pct(g):
         if not g["target"]:
             return 0.0
         return max(0.0, min(100.0,
-                            float(g["current"]) / float(g["target"]) * 100))
+                            float(g["current"]) / float(g["target"])
+                            * 100))
     except Exception:
         return 0.0
 
@@ -169,19 +236,20 @@ def journal_streak(journal):
 def journal_completion(journal, n=30):
     today = dt.date.today()
     hit = sum(1 for o in range(n)
-              if (today - dt.timedelta(days=o)).isoformat() in journal)
+              if (today - dt.timedelta(days=o)).isoformat()
+              in journal)
     return hit / n * 100
 
 
 # ---------- sales ----------
 def sales_rate(daily, today, n=30):
-    from .data import START_DATE
     start = max(START_DATE, today - dt.timedelta(days=n - 1))
     days = (today - start).days + 1
     if days <= 0:
         return 0.0
     hits = sum(1 for o in range(days)
-               if daily.get((today - dt.timedelta(days=o)).isoformat()))
+               if daily.get((today - dt.timedelta(days=o))
+                            .isoformat()))
     return hits / days * 100
 
 
@@ -227,14 +295,16 @@ def client_counts(clients, today):
     return dict(
         active=len(act),
         due=[c for c in act if c.get("next_date") == t],
-        over=[c for c in act if c.get("next_date") and c["next_date"] < t],
+        over=[c for c in act
+              if c.get("next_date") and c["next_date"] < t],
         up=[c for c in act if c.get("next_date")
             and t < c["next_date"] <= wk],
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
         sold=sum(1 for c in live if won and c.get("stage") == won),
         cashq=sum(1 for c in clients if is_cash_offer(c)),
-        returned=sum(1 for c in live if ret and c.get("stage") == ret),
+        returned=sum(1 for c in live
+                     if ret and c.get("stage") == ret),
         lost=sum(1 for c in live if lost and c.get("stage") == lost),
     )
 
@@ -382,7 +452,8 @@ def item_saved(it):
 
 
 def cash_on_hand(v):
-    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
+    return sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
 
 
 def bills_saved(v):
@@ -446,7 +517,8 @@ def snapshots_series(v):
     out = []
     for s in v.get("snapshots", []):
         try:
-            out.append((dt.date.fromisoformat(s["date"]), float(s["net"])))
+            out.append((dt.date.fromisoformat(s["date"]),
+                        float(s["net"])))
         except Exception:
             pass
     return out
@@ -527,7 +599,7 @@ def emergency_progress(vault):
     return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
 
 
-# ---------- spiritual energy ----------
+# ---------- spiritual energy (derived, never random) ----------
 def _spirit_present(e):
     if not e:
         return False
@@ -597,8 +669,8 @@ def bot_stats(logs, bot_id):
     risk = sum(float(l.get("risk", 0)) for l in ls)
     avg_win = (sum(float(l["pnl"]) for l in wins) / len(wins)) \
         if wins else 0.0
-    avg_loss = (abs(sum(float(l["pnl"]) for l in losses)) / len(losses)) \
-        if losses else 0.0
+    avg_loss = (abs(sum(float(l["pnl"]) for l in losses))
+                / len(losses)) if losses else 0.0
     rr = (avg_win / avg_loss) if avg_loss > 0 else 0.0
     wr = (len(wins) / len(ls) * 100) if ls else 0.0
     return dict(n=len(ls), w=len(wins), l=len(losses), pnl=pnl,
@@ -642,7 +714,8 @@ def task_counts(tasks, today):
     t = today.isoformat()
     return dict(
         open=sum(1 for x in tasks if not x.get("done")),
-        done_today=sum(1 for x in tasks if x.get("done_date") == t),
+        done_today=sum(1 for x in tasks
+                       if x.get("done_date") == t),
         overdue=sum(1 for x in tasks if not x.get("done")
                     and x.get("due") and x["due"] < t),
         total=len(tasks),
@@ -651,8 +724,11 @@ def task_counts(tasks, today):
     )
 
 
-def life_score(cons, jcomp, srate, goal_avg):
-    v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
+def life_score(cons, jcomp, srate, goal_avg, spirit=0.0):
+    """Sales 25% · Spirit 25% · Journal 20% · Goals 15% · Habits 15%.
+    Habits are supporting infrastructure, not the core of the OS."""
+    v = (cons * 0.15 + jcomp * 0.20 + srate * 0.25
+         + goal_avg * 0.15 + spirit * 0.25)
     return int(max(0, min(100, round(v))))
 
 
@@ -678,7 +754,8 @@ def signal_feed(events, n=30):
 def signal_counts(events, today_iso):
     evs = events or []
     today_n = sum(1 for e in evs if e.get("date") == today_iso)
-    auto_n = sum(1 for e in evs if "autopilot" in (e.get("tags") or []))
+    auto_n = sum(1 for e in evs
+                 if "autopilot" in (e.get("tags") or []))
     types = {}
     for e in evs:
         t = e.get("type", "note")
@@ -699,15 +776,19 @@ def day_pulse(d_iso, ctx):
     events = [e for e in (ctx.get("events") or [])
               if e.get("date") == d_iso]
     return {
-        "new_clients": [c for c in clients if c.get("created") == d_iso],
+        "new_clients": [c for c in clients
+                        if c.get("created") == d_iso],
         "followups": [c for c in act if c.get("next_date") == d_iso],
         "moves": moves_on(clients, d_iso),
         "outcomes": outcomes,
         "daily": ctx["sales_daily"].get(d_iso),
-        "sales": [s for s in ctx["sales"] if s.get("date") == d_iso],
+        "sales": [s for s in ctx["sales"]
+                  if s.get("date") == d_iso],
         "inst_due": [(s, i) for s in ctx["sales"]
-                     for i in s.get("inst", []) if i.get("due") == d_iso],
-        "income": [x for x in ctx["income"] if x.get("date") == d_iso],
+                     for i in s.get("inst", [])
+                     if i.get("due") == d_iso],
+        "income": [x for x in ctx["income"]
+                   if x.get("date") == d_iso],
         "flow": flow,
         "bot_logs": [l for l in ctx["bots"].get("logs", [])
                      if l.get("date") == d_iso],
