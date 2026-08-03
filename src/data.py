@@ -1,6 +1,5 @@
 """Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
-
 Two locks. The outer vault (ARCHIVE_PIN) holds everyday money. Inside it, two
 sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
 heart: food security on one side, the emergency ring-fence plus any venture
@@ -47,7 +46,6 @@ ACCENTS = {
 MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
 DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
             "fri": 4, "sat": 5, "sun": 6}
-
 ROLES = ["", "won", "lost", "cash", "delivered", "returned"]
 ROLE_LABEL = {
     "": "— (none)",
@@ -58,7 +56,6 @@ ROLE_LABEL = {
     "returned": "Returned",
 }
 TERMINAL_ROLES = {"won", "lost", "returned"}
-
 SOURCES = ["Facebook Ads", "TikTok Live", "TikTok DM", "Instagram",
            "WhatsApp", "Walk-in", "Referral", "Outbound Call"]
 HEATS = ["Hot", "Warm", "Cold"]
@@ -71,7 +68,6 @@ CREDIT_OUTCOMES = ["pending", "APPROVED", "CASH OFFER - CREDIT",
 COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
-
 PANTRY_CATS = ["staple", "protein", "drink", "treat", "other"]
 PANTRY_SEED = [
     ("ugali", "Ugali (maize flour)", "g", 2000.0, 500.0, "staple", False),
@@ -83,11 +79,9 @@ PANTRY_SEED = [
     ("oil", "Cooking oil", "ml", 750.0, 15.0, "staple", True),
 ]
 RUNWAY_SEED = {"monthly_burn": 0.0, "emergency_months": 3}
-
 SPIRIT_ACTS = ["Prayer", "Reading", "Worship", "Fasting", "Silence",
                "Serving", "Giving", "Prayer walk"]
 SPIRIT_DEPTHS = [1, 2, 3, 4, 5]
-
 ROUTINE_SEED = [
     ("06:00", "Wake up", "Life", "weekdays"),
     ("06:10", "Morning coffee", "Life", "weekdays"),
@@ -249,9 +243,9 @@ def routine_to_text(blocks):
         elif b["days"] == list(range(7)):
             scope = "all"
         else:
-            scope = ",".join(k for k, v in DAY_ABBR.items()
-                             if v in b["days"])
-        lines.append(b["time"] + "  " + b["label"] + "  #" + b["tag"]
+            scope = ", ".join(k for k, v in DAY_ABBR.items()
+                              if v in b["days"])
+        lines.append(b["time"] + "   " + b["label"] + "  #" + b["tag"]
                      + "  @" + scope)
     return "\n".join(lines)
 
@@ -425,6 +419,16 @@ def journey_ids():
     return [s["id"] for s in get_stages() if s.get("track")]
 
 
+def is_terminal(c):
+    """Out of the active pipeline: reached a terminal stage
+    (won / lost / returned) or the journey was ended by hand."""
+    if not isinstance(c, dict):
+        return True
+    if c.get("ended"):
+        return True
+    return c.get("stage", "") in terminal_ids()
+
+
 def plan_note(label):
     for p in get_plans():
         if p.get("label") == label:
@@ -440,24 +444,24 @@ def _ensure_key(key, fname, factory):
 def _migrate_vault(v):
     dirty = False
     for k, fab in (("positions", lambda: [
-        {"id": pid, "name": nm, "balance": 0.0, "tx": []}
-        for (pid, nm) in POSITION_SEED]),
-                   ("bills", lambda: [
-        {"id": bid, "name": nm, "need": 0.0, "saved": 0.0,
-         "due": "", "paid": False, "paid_date": "", "tx": []}
-        for (bid, nm) in BILL_SEED]),
-                   ("fun", lambda: {"budget": 0.0, "used": 0.0,
-                                    "tx": []}),
-                   ("items", list),
-                   ("funds", lambda: [
-        {"id": fid, "name": nm, "target_lo": lo, "target_hi": hi,
-         "deadline": dl, "balance": 0.0, "sealed": False, "tx": []}
-        for (fid, nm, lo, hi, dl) in FUND_SEED]),
-                   ("flow", list),
-                   ("snapshots", list),
-                   ("pantry", _seed_pantry),
-                   ("runway", lambda: dict(RUNWAY_SEED)),
-                   ("emergency", lambda: {"balance": 0.0, "tx": []})):
+            {"id": pid, "name": nm, "balance": 0.0, "tx": []}
+            for (pid, nm) in POSITION_SEED]),
+            ("bills", lambda: [
+                {"id": bid, "name": nm, "need": 0.0, "saved": 0.0,
+                 "due": "", "paid": False, "paid_date": "", "tx": []}
+                for (bid, nm) in BILL_SEED]),
+            ("fun", lambda: {"budget": 0.0, "used": 0.0,
+                             "tx": []}),
+            ("items", list),
+            ("funds", lambda: [
+                {"id": fid, "name": nm, "target_lo": lo, "target_hi": hi,
+                 "deadline": dl, "balance": 0.0, "sealed": False, "tx": []}
+                for (fid, nm, lo, hi, dl) in FUND_SEED]),
+            ("flow", list),
+            ("snapshots", list),
+            ("pantry", _seed_pantry),
+            ("runway", lambda: dict(RUNWAY_SEED)),
+            ("emergency", lambda: {"balance": 0.0, "tx": []})):
         if k not in v:
             v[k] = fab()
             dirty = True
@@ -596,7 +600,6 @@ def save_spiritual(x):
 
 
 # ---------- the single writer that moves real money ----------
-
 def move_money(pocket_id, effect, kind, note="", time_str="",
                txid="", date_iso=None):
     v = st.session_state["vault"]
@@ -636,7 +639,6 @@ def add_position(name):
 
 
 # ---------- bills / fun / items / funds ----------
-
 def bill_tx(bid, kind, amount):
     v = st.session_state["vault"]
     for b in v["bills"]:
@@ -783,7 +785,6 @@ def unseal_fund(fid):
 
 
 # ---------- pantry ----------
-
 def _pantry(v):
     return v.setdefault("pantry", _seed_pantry())
 
@@ -817,7 +818,7 @@ def pantry_set_stock(vid, stock):
         if it["id"] == vid:
             it["stock"] = float(stock)
             it["checked"] = now
-    pan["updated"] = now
+            pan["updated"] = now
     save_vault(v)
 
 
@@ -856,7 +857,6 @@ def pantry_remove(vid):
 
 
 # ---------- runway + emergency ----------
-
 def set_runway(monthly_burn=None, emergency_months=None):
     v = st.session_state["vault"]
     r = v.setdefault("runway", dict(RUNWAY_SEED))
@@ -900,7 +900,6 @@ def emergency_ratchet():
 
 
 # ---------- clients ----------
-
 def add_client(name, phone, source, heat, want, budget, note,
                today_iso, now_str):
     clients = list(st.session_state["clients"])
@@ -918,6 +917,7 @@ def add_client(name, phone, source, heat, want, budget, note,
         "returned": False, "returned_date": "",
         "next_action": "First call", "next_date": today_iso,
         "remark": "", "why_not": "",
+        "ended": False, "ended_date": "",
         "history": [{"ts": now_str,
                      "note": note or ("Lead logged from " + source),
                      "stage": first}],
@@ -963,8 +963,30 @@ def update_client(cid, patch, now_str, log_note=""):
         save_clients(st.session_state["clients"])
 
 
-# ---------- goals / issues / weights / tasks ----------
+def end_journey(cid, now_str, note=""):
+    c = _find_client(cid)
+    if c:
+        c["ended"] = True
+        c["ended_date"] = U.today_local().isoformat()
+        c.setdefault("history", []).append(
+            {"ts": now_str,
+             "note": note or "Journey ended - out of the pipeline",
+             "stage": c.get("stage", "")})
+        save_clients(st.session_state["clients"])
 
+
+def reopen_journey(cid, now_str):
+    c = _find_client(cid)
+    if c:
+        c["ended"] = False
+        c["ended_date"] = ""
+        c.setdefault("history", []).append(
+            {"ts": now_str, "note": "Journey reopened",
+             "stage": c.get("stage", "")})
+        save_clients(st.session_state["clients"])
+
+
+# ---------- goals / issues / weights / tasks ----------
 def add_goal(g):
     goals = list(st.session_state["goals"])
     g = dict(g)
@@ -999,7 +1021,6 @@ def add_task(t):
 
 
 # ---------- sales / income ----------
-
 def add_sale(s):
     sales = list(st.session_state["sales"])
     s = dict(s)
@@ -1038,7 +1059,6 @@ def add_income(date_iso, kind, amount, note):
 
 
 # ---------- bots ----------
-
 def add_bot_log(date_iso, bot_id, risk, pnl, notes):
     b = st.session_state["bots"]
     b["logs"].insert(0, {"id": _uid(), "date": date_iso,
@@ -1065,7 +1085,6 @@ def set_bot_status(bot_id, status, date_iso):
 
 
 # ---------- net worth snapshot (cash + active ventures) ----------
-
 def _snap(v):
     today = U.today_local().isoformat()
     snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
@@ -1080,7 +1099,6 @@ def _snap(v):
 
 
 # ---------- backup / restore ----------
-
 def reset_all():
     defaults = {
         "pipeline": _seed_pipeline(),
@@ -1151,7 +1169,7 @@ def export_csv_zip():
               for x in pantry.get("items", [])]
     spiritual = st.session_state.get("spiritual", {})
     sp_rows = [[d, e.get("minutes", ""), e.get("depth", ""),
-                "|".join(e.get("acts", [])), e.get("word", ""),
+                " | ".join(e.get("acts", [])), e.get("word", ""),
                 e.get("felt", ""), e.get("gratitude", "")]
                for d, e in sorted(spiritual.items(), reverse=True)]
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
