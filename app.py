@@ -1,7 +1,10 @@
 """PULSE - Life Command Center.  Entry point.
-The PULSE companion is mounted centrally after each page renders, choosing its
-voice from the page name, so no page file needs to know it exists. The Signals
-page is the live nerve center of the connection engine.
+Run locally:   pip install -r requirements.txt && streamlit run app.py
+Deploy:        see README.md (Streamlit Cloud, Docker, or systemd + nginx).
+The PULSE companion is mounted centrally after each page renders, choosing
+its voice from the page name, so no page file needs to know it exists.
+Habits that map to real data (journal / sales / clients / scale) are
+auto-filled here via the effective habit log, so they are never double-entered.
 """
 from __future__ import annotations
 
@@ -18,19 +21,29 @@ from src.pages import (bots, clients, goals, habits, journal, now,
                        stats, tasks, vault)
 
 NAV = [
-    ("\u25c9", "Now"), ("\u25a6", "Routine"), ("\u25c8", "TrueWave"),
-    ("\u25a4", "Sales"), ("\u2610", "Tasks"), ("\u270e\ufe0e", "Journal"),
-    ("\u271d", "Spirit"), ("\u2713\ufe0e", "Habits"), ("\u25d4", "Bots"),
-    ("\u25c6", "Goals"), ("\u25eb", "Stats"), ("\u25a3", "Archive"),
-    ("\u27f1", "Signals"), ("\u2699\ufe0e", "Settings"),
+    ("\u25c9", "Now"),
+    ("\u25a6", "Routine"),
+    ("\u25c8", "TrueWave"),
+    ("\u25a4", "Sales"),
+    ("\u2610", "Tasks"),
+    ("\u270e\ufe0e", "Journal"),
+    ("\u271d", "Spirit"),
+    ("\u2713\ufe0e", "Habits"),
+    ("\u25d4", "Bots"),
+    ("\u25c6", "Goals"),
+    ("\u25eb", "Stats"),
+    ("\u25a3", "Archive"),
+    ("\u27f1", "Signals"),
+    ("\u2699\ufe0e", "Settings"),
 ]
 NAV = [(g.encode().decode("unicode_escape"), n) for g, n in NAV]
 OPTIONS = [g + "    " + n for g, n in NAV]
 PAGES = {
-    "Now": now, "Routine": routine, "TrueWave": clients, "Sales": sales,
-    "Tasks": tasks, "Journal": journal, "Spirit": spiritual,
-    "Habits": habits, "Bots": bots, "Goals": goals, "Stats": stats,
-    "Archive": vault, "Signals": signals, "Settings": settings,
+    "Now": now, "Routine": routine, "TrueWave": clients,
+    "Sales": sales, "Tasks": tasks, "Journal": journal,
+    "Spirit": spiritual, "Habits": habits, "Bots": bots,
+    "Goals": goals, "Stats": stats, "Archive": vault,
+    "Signals": signals, "Settings": settings,
 }
 VOICE_MAP = {
     "Now": "morning", "Routine": "morning", "TrueWave": "sales",
@@ -87,19 +100,26 @@ events_l = D.get("events")
 today_blocks = M.today_blocks(routine, wd)
 active_idx, progress, current, next_block = M.active_block_info(
     today_blocks, now_dt)
-cons = M.overall_consistency(habits, log, 30)
+
+# Auto-fill habits that map to real data; the weigh-in stays optional.
+log_eff = M.effective_habit_log(habits, log, journal, sales_daily,
+                                clients_l, weights, today)
+cons = M.overall_consistency(habits, log_eff, 30)
 jcomp = M.journal_completion(journal, 30)
 srate = M.sales_rate(sales_daily, today, 30)
 gavg = (sum(M.goal_pct(g) for g in goals) / len(goals)) if goals else 0.0
+spirit_h = M.spiritual_health(spiritual_l, 30)
 started = today >= D.START_DATE
-score = M.life_score(cons, jcomp, srate, gavg) if started else None
+score = M.life_score(cons, jcomp, srate, gavg,
+                     spirit_h) if started else None
 
 ctx = dict(today=today, today_iso=today_iso, now_dt=now_dt,
            now_str=now_str, day_type=day_type, routine=routine,
            today_blocks=today_blocks, active_idx=active_idx,
-           progress=progress, current=current, next_block=next_block,
-           habits=habits, habit_log=log, goals=goals, issues=issues,
-           journal=journal, weights=weights, clients=clients_l,
+           progress=progress, current=current,
+           next_block=next_block, habits=habits, habit_log=log_eff,
+           goals=goals, issues=issues, journal=journal,
+           weights=weights, clients=clients_l,
            sales_daily=sales_daily, sales=sales_l, bots=bots_d,
            vault=vault_d, tasks=tasks_l, income=income_l,
            spiritual=spiritual_l, events=events_l, started=started,
