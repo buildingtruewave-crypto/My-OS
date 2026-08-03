@@ -1,17 +1,21 @@
-"""PULSE data layer + the Connection Engine.
-Every meaningful action records an event and triggers autopilot, so a change
-in one module ripples through the whole system. Recording starts Fri 1 Aug
-2026 (Nairobi). Nothing is faked; nothing is auto-deducted.
+"""Empty-on-purpose, editable, persisted life + business + money + spirit data.
+Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 
 Pipeline model:
 - ACTIVE PIPELINE  = clients still being processed (not ended, not terminal,
-                     and NOT cash-offer). Cash-offer clients are rejected, so
-                     they are not "in progress".
+  and NOT cash-offer). Cash-offer clients are rejected, so they are not
+  "in progress".
 - CASH-OFFER QUEUE = clients whose credit outcome is a cash offer. This is a
-                     holding bucket of REJECTED clients. It ignores the
-                     `ended` flag on purpose - ending a journey never empties
-                     it. Only moving a client to a terminal stage (Paid/Lost/
-                     Returned) removes them from the queue.
+  holding bucket of REJECTED clients. It ignores the `ended` flag on purpose:
+  ending a journey never empties it. Only moving a client to a terminal stage
+  (Paid / Lost / Returned) removes them from the queue.
+
+Connection Engine: every meaningful action records an event and triggers
+autopilot, so a change in one module ripples through the whole system.
+
+Habits: habits whose names map to real data (journal / sales / clients /
+weigh-in) auto-fill from that data and are never manually ticked. The
+weigh-in is optional and never counts against consistency.
 """
 from __future__ import annotations
 
@@ -38,21 +42,30 @@ RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "events"]
 
 TAG_COLORS = {
-    "Content": "#4C8DFF", "Sales": "#2DD4BF", "Body": "#34D399",
-    "Mind": "#D946EF", "Life": "#F5B544", "Rest": "#7C8AA5",
+    "Content": "#4C8DFF",
+    "Sales": "#2DD4BF",
+    "Body": "#34D399",
+    "Mind": "#D946EF",
+    "Life": "#F5B544",
+    "Rest": "#7C8AA5",
     "Focus": "#8B7CFF",
 }
 ACCENTS = {
-    "Electric Blue": "#4C8DFF", "Terminal Teal": "#2DD4BF",
-    "Signal Violet": "#8B7CFF", "Amber Edge": "#F5B544",
+    "Electric Blue": "#4C8DFF",
+    "Terminal Teal": "#2DD4BF",
+    "Signal Violet": "#8B7CFF",
+    "Amber Edge": "#F5B544",
 }
 MOODS = ["drained", "flat", "steady", "sharp", "on fire"]
 DAY_ABBR = {"mon": 0, "tue": 1, "wed": 2, "thu": 3,
             "fri": 4, "sat": 5, "sun": 6}
 ROLES = ["", "won", "lost", "cash", "delivered", "returned"]
 ROLE_LABEL = {
-    "": "— (none)", "won": "Closed won", "lost": "Closed lost",
-    "cash": "Cash-offer hold", "delivered": "Delivered (window)",
+    "": "— (none)",
+    "won": "Closed won",
+    "lost": "Closed lost",
+    "cash": "Cash-offer hold",
+    "delivered": "Delivered (window)",
     "returned": "Returned",
 }
 TERMINAL_ROLES = {"won", "lost", "returned"}
@@ -99,7 +112,7 @@ ROUTINE_SEED = [
     ("15:00", "Log promised clients + remarks", "Sales", "weekdays"),
     ("15:30", "Schedule tomorrow's TikToks", "Content", "weekdays"),
     ("16:30", "Bus home", "Life", "weekdays"),
-    ("18:30", "Home - blunt + unwind", "Rest", "weekdays"),
+    ("18:30", "Home - unwind", "Rest", "weekdays"),
     ("19:00", "Music - free creative time", "Rest", "all"),
     ("20:00", "Workout - 45 min", "Body", "all"),
     ("20:45", "Shower", "Body", "all"),
@@ -128,25 +141,40 @@ ROUTINE_SEED = [
     ("18:00", "Evening unwind", "Rest", "sun"),
 ]
 HABITS_SEED = [
-    ("W", "Workout 45 min"), ("J", "Journal the day"),
-    ("S", "Log sales + rejections"), ("C", "Log client follow-ups"),
-    ("G", "Weigh-in"), ("R", "Morning routine done"),
+    ("W", "Workout 45 min"),
+    ("J", "Journal the day"),
+    ("S", "Log sales + rejections"),
+    ("C", "Log client follow-ups"),
+    ("G", "Weigh-in"),
+    ("R", "Morning routine done"),
     ("L", "Lights out by 10"),
 ]
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
-    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit", "testing"),
+    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
+     "testing"),
 ]
-POSITION_SEED = [("wallet", "Cash Wallet"), ("mpesa", "M-Pesa"),
-                 ("bank", "Bank Account")]
-BILL_SEED = [("rent", "Rent"), ("power", "Power (KPLC)"),
-             ("water", "Water"), ("internet", "Internet / WiFi"),
-             ("food", "Food & Shopping"), ("transport", "Transport")]
-FUND_SEED = [("hho", "HHO Carbon Cleaning - Nairobi",
-              150000.0, 200000.0, "2027-01-31")]
+POSITION_SEED = [
+    ("wallet", "Cash Wallet"),
+    ("mpesa", "M-Pesa"),
+    ("bank", "Bank Account"),
+]
+BILL_SEED = [
+    ("rent", "Rent"),
+    ("power", "Power (KPLC)"),
+    ("water", "Water"),
+    ("internet", "Internet / WiFi"),
+    ("food", "Food & Shopping"),
+    ("transport", "Transport"),
+]
+FUND_SEED = [
+    ("hho", "HHO Carbon Cleaning - Nairobi",
+     150000.0, 200000.0, "2027-01-31"),
+]
 
 # --------------------------------------------------------------------------
 # THE CONNECTION ENGINE - declarative map of what ripples where.
+# Both self-documenting and executed by the autopilot below.
 # --------------------------------------------------------------------------
 CONNECTIONS = {
     "client_added": [
@@ -190,7 +218,7 @@ CONNECTIONS = {
     ],
     "journey_ended": [
         ("pipeline", "leaves call sheet, active count, follow-ups"),
-        ("cash_queue", "STAYS in the Cash-Offer Queue - it is a rejection list"),
+        ("cash_queue", "STAYS in the Cash-Offer Queue - rejection list"),
         ("journal", "removed from live Day Pulse"),
         ("signals", "logged on the Signals feed"),
     ],
@@ -244,8 +272,8 @@ EVENT_ICON = {
     "client_paid": "check", "client_returned": "bolt",
     "journey_ended": "x", "journey_reopened": "pulse",
     "sale_logged": "phone", "commission_paid": "cash",
-    "income_added": "trend", "task_added": "list", "touch": "phone",
-    "plan_set": "target", "note": "edit",
+    "income_added": "trend", "task_added": "list",
+    "touch": "phone", "plan_set": "target", "note": "edit",
 }
 EVENT_COLOR = {
     "client_added": "#4C8DFF", "stage_moved": "#2DD4BF",
@@ -258,7 +286,36 @@ EVENT_COLOR = {
     "touch": "#2DD4BF", "plan_set": "#38BDF8", "note": "#8893AB",
 }
 
+# --------------------------------------------------------------------------
+# HABIT AUTO-DETECTION - habits that fill themselves from real data.
+# --------------------------------------------------------------------------
+AUTO_HABIT_RULES = [
+    (("journal",), "journal"),
+    (("sales", "reject", "tally"), "sales"),
+    (("follow", "client"), "clients"),
+    (("weigh", "weight"), "weigh"),
+]
 
+
+def habit_source(habit):
+    """Return the real-data source that auto-fills this habit, or None if
+    the habit is manual (ticked by hand, e.g. workout / routine / lights)."""
+    name = str(habit.get("name", "") or "").lower()
+    for keywords, source in AUTO_HABIT_RULES:
+        if any(k in name for k in keywords):
+            return source
+    return None
+
+
+def habit_optional(habit):
+    """Optional habits (the weigh-in) are tracked when they happen but are
+    never counted against consistency - they are not daily duties."""
+    return habit_source(habit) == "weigh"
+
+
+# --------------------------------------------------------------------------
+# low-level persistence
+# --------------------------------------------------------------------------
 def _uid():
     return str(uuid.uuid4())[:8]
 
@@ -323,9 +380,11 @@ def parse_routine_text(text):
             rest = rest.replace(tm.group(0), " ").strip()
         if tag not in TAG_COLORS:
             tag = "Life"
-        blocks.append({"time": str(hh).zfill(2) + ":" + str(mm).zfill(2),
-                       "label": rest.strip(), "tag": tag,
-                       "days": _scope_days(scope)})
+        blocks.append({
+            "time": str(hh).zfill(2) + ":" + str(mm).zfill(2),
+            "label": rest.strip(), "tag": tag,
+            "days": _scope_days(scope),
+        })
     blocks.sort(key=lambda b: b["time"])
     return blocks
 
@@ -368,7 +427,8 @@ def habits_to_text(habits):
 
 
 def _seed_routine():
-    return [{"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
+    return [{"time": t, "label": l, "tag": tg,
+             "days": _scope_days(sc)}
             for (t, l, tg, sc) in ROUTINE_SEED]
 
 
@@ -378,18 +438,24 @@ def _seed_habits():
 
 
 def _seed_bots():
-    return {"bots": [{"id": bid, "name": nm, "platform": pf,
-                      "status": stt, "live_date": "", "notes": ""}
-                     for (bid, nm, pf, stt) in BOT_SEED],
-            "logs": []}
+    return {
+        "bots": [{"id": bid, "name": nm, "platform": pf,
+                  "status": stt, "live_date": "", "notes": ""}
+                 for (bid, nm, pf, stt) in BOT_SEED],
+        "logs": [],
+    }
 
 
 def _seed_pantry():
-    return {"items": [
-        {"id": i, "name": n, "unit": u, "stock": float(s),
-         "daily": float(d), "category": c, "hidden": bool(h),
-         "checked": ""} for (i, n, u, s, d, c, h) in PANTRY_SEED],
-        "updated": ""}
+    return {
+        "items": [
+            {"id": i, "name": n, "unit": u, "stock": float(s),
+             "daily": float(d), "category": c, "hidden": bool(h),
+             "checked": ""}
+            for (i, n, u, s, d, c, h) in PANTRY_SEED
+        ],
+        "updated": "",
+    }
 
 
 def _seed_vault():
@@ -402,10 +468,12 @@ def _seed_vault():
         "fun": {"budget": 0.0, "used": 0.0, "tx": []},
         "items": [],
         "funds": [{"id": fid, "name": nm, "target_lo": lo,
-                   "target_hi": hi, "deadline": dl, "balance": 0.0,
-                   "sealed": False, "tx": []}
+                   "target_hi": hi, "deadline": dl,
+                   "balance": 0.0, "sealed": False, "tx": []}
                   for (fid, nm, lo, hi, dl) in FUND_SEED],
-        "flow": [], "snapshots": [], "pantry": _seed_pantry(),
+        "flow": [],
+        "snapshots": [],
+        "pantry": _seed_pantry(),
         "runway": dict(RUNWAY_SEED),
         "emergency": {"balance": 0.0, "tx": []},
     }
@@ -437,12 +505,18 @@ def _seed_pipeline():
         ("saver", "Saver (6 mo)",
          "6 months - higher deposit + higher weekly"),
     ]
-    return {"stages": [{"id": i, "label": l, "color": c, "track": tr,
-                        "role": ro} for (i, l, c, tr, ro) in stages],
-            "plans": [{"id": i, "label": l, "note": n}
-                      for (i, l, n) in plans]}
+    return {
+        "stages": [{"id": i, "label": l, "color": c,
+                    "track": tr, "role": ro}
+                   for (i, l, c, tr, ro) in stages],
+        "plans": [{"id": i, "label": l, "note": n}
+                  for (i, l, n) in plans],
+    }
 
 
+# --------------------------------------------------------------------------
+# pipeline accessors
+# --------------------------------------------------------------------------
 def get_pipeline_obj():
     return st.session_state.get("pipeline") or _seed_pipeline()
 
@@ -551,6 +625,9 @@ def plan_note(label):
     return ""
 
 
+# --------------------------------------------------------------------------
+# session bootstrap
+# --------------------------------------------------------------------------
 def _ensure_key(key, fname, factory):
     if key not in st.session_state:
         st.session_state[key] = _read(fname) or factory()
@@ -569,9 +646,11 @@ def _migrate_vault(v):
             ("items", list),
             ("funds", lambda: [
                 {"id": fid, "name": nm, "target_lo": lo, "target_hi": hi,
-                 "deadline": dl, "balance": 0.0, "sealed": False, "tx": []}
+                 "deadline": dl, "balance": 0.0, "sealed": False,
+                 "tx": []}
                 for (fid, nm, lo, hi, dl) in FUND_SEED]),
-            ("flow", list), ("snapshots", list),
+            ("flow", list),
+            ("snapshots", list),
             ("pantry", _seed_pantry),
             ("runway", lambda: dict(RUNWAY_SEED)),
             ("emergency", lambda: {"balance": 0.0, "tx": []})):
@@ -613,8 +692,10 @@ def ensure():
     _ensure_key("spiritual", "spiritual.json", dict)
     _ensure_key("events", "events.json", list)
     _migrate_vault(st.session_state["vault"])
-    st.session_state.setdefault("name", prefs.get("name", DEFAULT_NAME))
-    st.session_state.setdefault("accent", prefs.get("accent", "#4C8DFF"))
+    st.session_state.setdefault(
+        "name", prefs.get("name", DEFAULT_NAME))
+    st.session_state.setdefault(
+        "accent", prefs.get("accent", "#4C8DFF"))
     st.session_state.setdefault(
         "tz_offset", float(prefs.get("tz_offset", 0)))
 
@@ -624,9 +705,11 @@ def get(k):
 
 
 def _save_prefs():
-    _write("prefs.json", {"name": st.session_state.get("name"),
-                          "accent": st.session_state.get("accent"),
-                          "tz_offset": st.session_state.get("tz_offset", 0)})
+    _write("prefs.json", {
+        "name": st.session_state.get("name"),
+        "accent": st.session_state.get("accent"),
+        "tz_offset": st.session_state.get("tz_offset", 0),
+    })
 
 
 def set_pref(key, value):
@@ -634,6 +717,9 @@ def set_pref(key, value):
     _save_prefs()
 
 
+# --------------------------------------------------------------------------
+# save helpers
+# --------------------------------------------------------------------------
 def save_routine(x):
     st.session_state["routine"] = x
     _write("routine.json", x)
@@ -715,7 +801,7 @@ def save_events(x):
 
 
 # --------------------------------------------------------------------------
-# EVENT LEDGER
+# EVENT LEDGER - every ripple starts here
 # --------------------------------------------------------------------------
 def record_event(etype, label, detail="", entity="", entity_id="",
                  tags=None):
@@ -742,7 +828,7 @@ def get_events():
 
 
 # --------------------------------------------------------------------------
-# AUTOPILOT
+# AUTOPILOT - executes the CONNECTIONS map
 # --------------------------------------------------------------------------
 def _autopilot_add_task(text, area, priority, due_iso):
     try:
@@ -763,6 +849,7 @@ def _autopilot_add_task(text, area, priority, due_iso):
 
 
 def autopilot_client_stage(c, from_stage, to_stage, now_str):
+    """Fire every ripple that belongs to a stage change."""
     try:
         name = c.get("name", "?")
         to_role = stage_role(to_stage)
@@ -802,6 +889,7 @@ def autopilot_client_stage(c, from_stage, to_stage, now_str):
 
 
 def autopilot_credit(c, credit, now_str):
+    """When a credit outcome lands, align the queue + tasks automatically."""
     try:
         name = c.get("name", "?")
         record_event("credit_set", "Credit outcome",
@@ -837,7 +925,8 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
     rec = {"id": _uid(), "date": d, "time": time_str or "",
-           "txid": txid or "", "kind": kind, "amount": eff, "note": note}
+           "txid": txid or "", "kind": kind, "amount": eff,
+           "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -972,7 +1061,8 @@ def fund_tx(fid, kind, amount, note=""):
                 f["balance"] = max(0.0, float(f["balance"]) - amt)
             f["tx"].insert(0, {"id": _uid(),
                                "date": U.today_local().isoformat(),
-                               "kind": kind, "amount": amt, "note": note})
+                               "kind": kind, "amount": amt,
+                               "note": note})
     _snap(v)
     save_vault(v)
 
@@ -1089,7 +1179,8 @@ def set_runway(monthly_burn=None, emergency_months=None):
 
 
 def _cash(v):
-    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
+    return sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
 
 
 def emergency_tx(kind, amount, note=""):
@@ -1107,7 +1198,8 @@ def emergency_tx(kind, amount, note=""):
         e["tx"].insert(0, {
             "id": _uid(), "date": U.today_local().isoformat(),
             "time": U.now_local().strftime("%H:%M"), "kind": kind,
-            "amount": applied, "note": note})
+            "amount": applied, "note": note,
+        })
     save_vault(v)
 
 
@@ -1125,10 +1217,10 @@ def add_client(name, phone, source, heat, want, budget, note,
     ids = all_stage_ids()
     first = ids[0] if ids else "new"
     c = {
-        "id": _uid(), "name": name, "phone": phone, "source": source,
-        "heat": heat, "want": want, "budget": budget,
-        "created": today_iso, "stage": first, "plan": "",
-        "qualified": "", "deposit": 0.0, "weekly": 0.0,
+        "id": _uid(), "name": name, "phone": phone,
+        "source": source, "heat": heat, "want": want,
+        "budget": budget, "created": today_iso, "stage": first,
+        "plan": "", "qualified": "", "deposit": 0.0, "weekly": 0.0,
         "docs": {"id_card": "pending", "selfie": "pending",
                  "next_of_kin": "pending"},
         "credit": "pending", "delivery": "pending",
@@ -1166,7 +1258,8 @@ def touch_client(cid, note, now_str):
                      "client", cid, ["truetwave"])
 
 
-def mark_called(cid, now_str, next_date_iso, outcome="Reached", note=""):
+def mark_called(cid, now_str, next_date_iso, outcome="Reached",
+                note=""):
     """Tick that a client was called: log the touch with the outcome,
     auto-reschedule the next call, and drop them off today's Call Sheet."""
     c = _find_client(cid)
@@ -1264,7 +1357,8 @@ def add_issue(text, area, due):
 
 
 def add_weight(date_iso, kg):
-    ws = [w for w in st.session_state["weights"] if w["date"] != date_iso]
+    ws = [w for w in st.session_state["weights"]
+          if w["date"] != date_iso]
     ws.append({"date": date_iso, "kg": float(kg)})
     ws.sort(key=lambda w: w["date"])
     save_weights(ws)
@@ -1330,9 +1424,9 @@ def add_income(date_iso, kind, amount, note):
 # ---------- bots ----------
 def add_bot_log(date_iso, bot_id, risk, pnl, notes):
     b = st.session_state["bots"]
-    b["logs"].insert(0, {"id": _uid(), "date": date_iso, "bot": bot_id,
-                         "risk": float(risk), "pnl": float(pnl),
-                         "notes": notes})
+    b["logs"].insert(0, {"id": _uid(), "date": date_iso,
+                         "bot": bot_id, "risk": float(risk),
+                         "pnl": float(pnl), "notes": notes})
     save_bots(b)
 
 
@@ -1353,12 +1447,14 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
-# ---------- net worth snapshot ----------
+# ---------- net worth snapshot (cash + active ventures) ----------
 def _snap(v):
     today = U.today_local().isoformat()
     snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
-    cash = sum(float(p.get("balance", 0)) for p in v.get("positions", []))
-    active = sum(float(f.get("balance", 0)) for f in v.get("funds", [])
+    cash = sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
+    active = sum(float(f.get("balance", 0))
+                 for f in v.get("funds", [])
                  if not f.get("sealed"))
     snaps.append({"date": today, "net": cash + active})
     snaps.sort(key=lambda s: s["date"])
@@ -1368,9 +1464,11 @@ def _snap(v):
 # ---------- backup / restore ----------
 def reset_all():
     defaults = {
-        "pipeline": _seed_pipeline(), "routine": _seed_routine(),
-        "habits": _seed_habits(), "habit_log": {}, "goals": [],
-        "issues": [], "journal": {}, "weights": [], "clients": [],
+        "pipeline": _seed_pipeline(),
+        "routine": _seed_routine(),
+        "habits": _seed_habits(),
+        "habit_log": {}, "goals": [], "issues": [],
+        "journal": {}, "weights": [], "clients": [],
         "sales_daily": {}, "sales": [], "income": [], "tasks": [],
         "bots": _seed_bots(), "vault": _seed_vault(),
         "spiritual": {}, "events": [],
@@ -1403,12 +1501,13 @@ def export_csv_zip():
                c.get("plan", ""), c.get("next_action", ""),
                c.get("next_date", ""), c.get("remark", ""),
                c.get("why_not", ""), c.get("paid_date", ""),
-               c.get("returned_date", ""), len(c.get("history", []))]
-              for c in clients]
+               c.get("returned_date", ""),
+               len(c.get("history", []))] for c in clients]
     flow = st.session_state.get("vault", {}).get("flow", [])
-    f_rows = [[x.get("date", ""), x.get("time", ""), x.get("txid", ""),
-               x.get("kind", ""), x.get("amount", ""),
-               x.get("pocket", ""), x.get("note", "")] for x in flow]
+    f_rows = [[x.get("date", ""), x.get("time", ""),
+               x.get("txid", ""), x.get("kind", ""),
+               x.get("amount", ""), x.get("pocket", ""),
+               x.get("note", "")] for x in flow]
     sales = st.session_state.get("sales", [])
     s_rows = []
     for s in sales:
@@ -1426,9 +1525,10 @@ def export_csv_zip():
                x.get("priority", ""), x.get("due", ""),
                x.get("done", "")] for x in tasks]
     pantry = st.session_state.get("vault", {}).get("pantry", {})
-    p_rows = [[x.get("name", ""), x.get("unit", ""), x.get("stock", ""),
-               x.get("daily", ""), x.get("category", ""),
-               x.get("hidden", ""), x.get("checked", "")]
+    p_rows = [[x.get("name", ""), x.get("unit", ""),
+               x.get("stock", ""), x.get("daily", ""),
+               x.get("category", ""), x.get("hidden", ""),
+               x.get("checked", "")]
               for x in pantry.get("items", [])]
     spiritual = st.session_state.get("spiritual", {})
     sp_rows = [[d, e.get("minutes", ""), e.get("depth", ""),
@@ -1498,7 +1598,8 @@ def restore_from_zip(blob):
                 if pr.get("accent"):
                     st.session_state["accent"] = pr["accent"]
                 if "tz_offset" in pr:
-                    st.session_state["tz_offset"] = float(pr["tz_offset"])
+                    st.session_state["tz_offset"] = float(
+                        pr["tz_offset"])
         if "vault" in st.session_state:
             _migrate_vault(st.session_state["vault"])
     except Exception:
