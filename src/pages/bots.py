@@ -1,7 +1,7 @@
-"""Deriv + Alpaca bots and any other venture: risk taken, what it gave
-back, and the demo-to-real transition - plus the Deriv CONNECTED
-INTELLIGENCE panel that receives live trade results from the trading app
-via Supabase and runs the analyst council over them.
+"""Deriv + Alpaca bots and any other venture, plus the Deriv CONNECTED
+INTELLIGENCE panel: the trading app's AI council verdict (from
+deriv_venture_advice) as the primary read, its research patterns, and
+PULSE's own deterministic math as a cross-check.
 """
 from __future__ import annotations
 
@@ -25,21 +25,21 @@ _STATUS = {"testing": ("TESTING", "#F5B544"),
            "live": ("LIVE", "#34D399")}
 
 _ACT_COLOR = {"ENTER": "#34D399", "ENTER SMALL": "#2DD4BF",
-              "WAIT": "#F5B544", "AVOID": "#F0556B"}
-_CONF_COLOR = {"high": "#34D399", "medium": "#F5B544",
-               "low": "#7C8AA5"}
+              "WAIT": "#F5B544", "AVOID": "#F0556B",
+              "WATCH": "#7C8AA5"}
 
 
 def _window_tile(label, s, delay):
-    if s["n"] == 0:
+    if not s or s.get("n", 0) == 0:
         return UI.tile(label, "—", "no trades", "mute", "ink",
                        "pulse", "accent", delay)
     net = s["net"]
     tone = "win" if net > 0 else ("loss" if net < 0 else "mute")
     vt = "win" if net > 0 else ("loss" if net < 0 else "ink")
-    delta = "%.0f%% WR · %d trades" % (s["win_rate"] * 100, s["n"])
-    return UI.tile(label, "%+.2f" % net, delta, tone, vt,
-                   "trend", "accent", delay)
+    return UI.tile(label, "%+.2f" % net,
+                   "%.0f%% WR · %d trades" % (s["win_rate"] * 100,
+                                              s["n"]),
+                   tone, vt, "trend", "accent", delay)
 
 
 def _stance_badge(stance):
@@ -48,38 +48,52 @@ def _stance_badge(stance):
     return UI.badge(stance.upper(), color)
 
 
+def _json_brief(obj, maxlen=500):
+    try:
+        if isinstance(obj, dict):
+            s = " · ".join(str(k) + ": " + str(v)
+                           for k, v in obj.items())
+        elif isinstance(obj, list):
+            s = " · ".join(str(x) for x in obj)
+        else:
+            s = str(obj)
+    except Exception:
+        s = ""
+    return s[:maxlen]
+
+
 def _deriv_intelligence():
     st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
                 'DERIV · CONNECTED INTELLIGENCE</div>',
                 unsafe_allow_html=True)
     if not _HAS_TI:
-        st.markdown(UI.panel(
-            "Signal Feed",
-            UI.empty_state("trade_intel module not loaded."),
-            right="offline"), unsafe_allow_html=True)
+        st.markdown(UI.panel("Signal Feed",
+                             UI.empty_state("trade_intel not loaded."),
+                             right="offline"),
+                    unsafe_allow_html=True)
         return
     c1, c2 = st.columns([5, 1])
     with c2:
         force = st.button("⟳ Refresh", key="ti_refresh")
     data = TI.get_signal(force=force)
+    remote = data.get("remote") or {}
     with c1:
-        if data["connected"]:
-            chip = UI.badge("● CONNECTED", "#34D399")
-        else:
-            chip = UI.badge("● OFFLINE", "#F0556B")
+        chip = (UI.badge("● CONNECTED", "#34D399")
+                if data["connected"]
+                else UI.badge("● OFFLINE", "#F0556B"))
         bits = [chip]
         if data.get("n_total"):
             bits.append(UI.badge(str(data["n_total"]) + " trades",
                                  "#4C8DFF"))
-        if data.get("span_days"):
-            bits.append(UI.badge(str(data["span_days"])
-                                 + " days history", "#8B7CFF"))
+        if remote.get("research"):
+            bits.append(UI.badge(
+                str(remote["research"]["n"]) + " researched",
+                "#8B7CFF"))
         if data.get("last_sync"):
-            bits.append(UI.badge("sync "
-                                 + data["last_sync"][11:19],
+            bits.append(UI.badge("sync " + data["last_sync"][11:19],
                                  "#7C8AA5"))
-        st.markdown('<div style="display:flex;gap:6px;'
-                    'flex-wrap:wrap">' + " ".join(bits) + '</div>',
+        st.markdown('<div style="display:flex;gap:6px;flex-wrap:wrap">'
+                    + " ".join(bits) + '</div>',
                     unsafe_allow_html=True)
 
     if not data["connected"]:
@@ -90,51 +104,104 @@ def _deriv_intelligence():
             right="offline"), unsafe_allow_html=True)
         return
 
-    if data["n_total"] == 0:
+    if not data.get("n_total") and not remote.get("has_trades"):
         st.markdown(UI.panel(
             "Signal Feed",
-            UI.empty_state("The deriv_trades table is ready. As soon "
-                           "as the trading app posts its first result, "
-                           "the council starts scanning it across days, "
-                           "weeks and months."),
+            UI.empty_state("No trades yet. Once the trading app posts "
+                           "results, the council starts scanning across "
+                           "days, weeks and months."),
             right="listening"), unsafe_allow_html=True)
         return
 
-    w = data["windows"]
-    row = [_window_tile("Last 7 days", w["7d"], 0),
-           _window_tile("Last 30 days", w["30d"], 40),
-           _window_tile("Last 90 days", w["90d"], 80),
-           _window_tile("All time", w["all"], 120)]
-    st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
-    st.markdown("<div style='height:8px'></div>",
-                unsafe_allow_html=True)
-
-    v = data["verdict"]
-    if v:
-        act_color = _ACT_COLOR.get(v["action"], "#7C8AA5")
-        conf_color = _CONF_COLOR.get(v["confidence"], "#7C8AA5")
-        verdict_html = (
+    vv = remote.get("verdict_view")
+    if vv:
+        act_color = vv["color"]
+        head = (
             '<div style="display:flex;align-items:center;gap:14px;'
             'flex-wrap:wrap;margin-bottom:10px">'
             '<span style="font:800 30px/1 var(--disp);color:'
             + act_color + ';letter-spacing:-.01em">'
-            + html.escape(v["action"]) + '</span>'
+            + html.escape(vv["action"]) + '</span>'
+            + UI.badge(vv["raw"] or "council verdict", act_color)
+            + (UI.badge("risk %.2f%%/trade" % vv["risk_pct"],
+                        "#4C8DFF") if vv["risk_pct"] else "")
+            + (UI.badge("×%s multiplier" % vv["multiplier"],
+                        "#8B7CFF") if vv["multiplier"] else "")
+            + '</div>')
+        body = head
+        if vv["reasoning"]:
+            body += ('<div style="font:500 13.5px/1.55 var(--body);'
+                     'color:var(--ink)">'
+                     + html.escape(vv["reasoning"]) + '</div>')
+        if vv["discussion"]:
+            body += ('<div class="tw-sub" style="margin-top:8px">'
+                     + html.escape(_json_brief(vv["discussion"]))
+                     + '</div>')
+        st.markdown(UI.panel("Research Council Verdict (trading app)",
+                             body, right="primary read"),
+                    unsafe_allow_html=True)
+    elif data.get("verdict"):
+        v = data["verdict"]
+        act_color = _ACT_COLOR.get(v["action"], "#7C8AA5")
+        st.markdown(UI.panel(
+            "Council Verdict",
+            '<div style="display:flex;align-items:center;gap:14px;'
+            'flex-wrap:wrap;margin-bottom:10px">'
+            '<span style="font:800 30px/1 var(--disp);color:'
+            + act_color + '">' + html.escape(v["action"]) + '</span>'
             + UI.badge("score %d/100" % v["score"], act_color)
-            + UI.badge("risk %.2f%%/trade" % v["risk_pct"],
-                       "#4C8DFF")
-            + UI.badge("confidence " + v["confidence"].upper(),
-                       conf_color)
+            + UI.badge("risk %.2f%%/trade" % v["risk_pct"], "#4C8DFF")
             + '</div>'
             '<div style="font:500 13.5px/1.55 var(--body);'
-            'color:var(--ink)">' + html.escape(v["summary"])
-            + '</div>')
-        cov = ""
-        if data.get("earliest") and data.get("latest"):
-            cov = data["earliest"] + " → " + data["latest"]
-        st.markdown(UI.panel("Council Verdict", verdict_html,
-                             right=cov or "venture read"),
-                    unsafe_allow_html=True)
+            'color:var(--ink)">' + html.escape(v["summary"]) + '</div>',
+            right="primary read"), unsafe_allow_html=True)
 
+    res = remote.get("research")
+    if res and res["n"]:
+        pats = sorted(res["patterns"].items(), key=lambda kv: kv[1],
+                      reverse=True)[:5]
+        pat_txt = ", ".join("%s ×%d" % (p, n) for p, n in pats) or "—"
+        st.markdown(UI.panel(
+            "What The Research Sees",
+            UI.kv([
+                ("Trades researched", str(res["n"])),
+                ("Strengths logged", str(res["strengths"])),
+                ("Weaknesses logged", str(res["weaknesses"])),
+                ("Mistakes logged", str(res["mistakes"])),
+                ("Patterns detected", pat_txt),
+            ]), right="from deriv_trade_research"),
+            unsafe_allow_html=True)
+
+    kn = remote.get("knowledge") or []
+    if kn:
+        rows = []
+        for k in kn[:8]:
+            w = int(k.get("wins", 0))
+            l = int(k.get("losses", 0))
+            tot = w + l
+            wr = (w / tot * 100) if tot else 0.0
+            rows.append([
+                (html.escape(str(k.get("kind", ""))), ""),
+                (html.escape(str(k.get("pattern_key", ""))), ""),
+                (str(k.get("occurrences", 0)), "num"),
+                ("%.0f%%" % wr, "num"),
+                (html.escape(str(k.get("description", ""))[:60]), ""),
+            ])
+        st.markdown(UI.panel(
+            "Accumulated Knowledge",
+            UI.table(["Kind", "Pattern", "Seen", "Win%", "Note"],
+                     rows), right="from deriv_research_knowledge"),
+            unsafe_allow_html=True)
+
+    w = data.get("windows") or {}
+    if w:
+        row = [_window_tile("Last 7 days", w.get("7d"), 0),
+               _window_tile("Last 30 days", w.get("30d"), 40),
+               _window_tile("Last 90 days", w.get("90d"), 80),
+               _window_tile("All time", w.get("all"), 120)]
+        st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
+
+    if data.get("council"):
         council_rows = []
         for c in data["council"]:
             council_rows.append(
@@ -147,38 +214,29 @@ def _deriv_intelligence():
                 '<div style="font:500 12.5px/1.45 var(--body);'
                 'color:var(--ink-2)">' + html.escape(c["point"])
                 + '</div></div></div>')
-        st.markdown(UI.panel("The Analyst Council",
+        st.markdown(UI.panel("PULSE Cross-Check",
                              "".join(council_rows),
-                             right="edge · risk · sample · form"),
+                             right="deterministic math"),
                     unsafe_allow_html=True)
 
-        if data.get("discussion"):
-            st.markdown(UI.panel(
-                "Council Discussion",
-                '<div style="font:500 13.5px/1.6 var(--body);'
-                'color:var(--ink-2);white-space:pre-line">'
-                + html.escape(data["discussion"]) + '</div>',
-                right="reasoning chain"), unsafe_allow_html=True)
-
-    feed = []
-    for i, t in enumerate(data["recent"]):
-        ts = t.get("ts")
-        d = ts.strftime("%b %d") if ts else "—"
-        tm = ts.strftime("%H:%M") if ts else ""
-        pnl = t["pnl"]
-        tone = "win" if pnl >= 0 else "loss"
-        kind = "in" if pnl >= 0 else "out"
-        market = html.escape(t.get("market") or "Deriv")
-        note = html.escape(t.get("note") or "")
-        main = '<b>' + market + '</b>'
-        feed.append(UI.log_row(d, tm, kind, pnl, main,
-                               meta_html=note, tone=tone,
-                               delay=min(i * 30, 300)))
-    st.markdown(UI.panel("Received Trades",
-                         '<div class="tw-loglist">'
-                         + " ".join(feed) + '</div>',
-                         right="newest first"),
-                unsafe_allow_html=True)
+    if data.get("recent"):
+        feed = []
+        for i, t in enumerate(data["recent"]):
+            ts = t.get("ts")
+            d = ts.strftime("%b %d") if ts else "—"
+            tm = ts.strftime("%H:%M") if ts else ""
+            pnl = t["pnl"]
+            kind = "in" if pnl >= 0 else "out"
+            market = html.escape(t.get("market") or "Deriv")
+            main = '<b>' + market + '</b>'
+            feed.append(UI.log_row(d, tm, kind, pnl, main,
+                                   tone="win" if pnl >= 0 else "loss",
+                                   delay=min(i * 30, 300)))
+        st.markdown(UI.panel("Received Trades",
+                             '<div class="tw-loglist">'
+                             + " ".join(feed) + '</div>',
+                             right="newest first"),
+                    unsafe_allow_html=True)
 
 
 def render(ctx):
@@ -286,5 +344,5 @@ def render(ctx):
             st.rerun()
         st.markdown(UI.panel(
             "This Week - all ventures",
-            UI.bars(M.bot_week(logs, today, 7)),
-            right="net per day"), unsafe_allow_html=True)
+            UI.bars(M.bot_week(logs, today, 7)), right="net per day"),
+            unsafe_allow_html=True)
