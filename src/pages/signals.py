@@ -1,7 +1,8 @@
-"""Signals - the live nerve center. This is where you watch the whole system
-react in real time. The Connection Map shows, declaratively, what every action
-ripples into; the live feed shows each ripple as it fires; and the autopilot
-log shows the tasks and queue entries PULSE created for you.
+"""Signals - the live nerve center. Watch the whole system react in real
+time. The Connection Map documents, declaratively, what every action ripples
+into; the live feed shows each ripple as it fires on a color-matched rail;
+and the autopilot readout shows the tasks and queue entries PULSE created
+for you.
 """
 from __future__ import annotations
 
@@ -12,27 +13,36 @@ import streamlit as st
 from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
+from .. import util as U
 
 
 def _feed_row(s, i):
-    ap = ('<span class="tw-badge" style="background:rgba(217,70,239,.14);'
-          'color:#D946EF;border-color:rgba(217,70,239,.4)">AUTO</span>') \
-        if s["autopilot"] else ""
+    auto = ('<span class="tw-badge" style="background:rgba(217,70,239,.14);'
+            'color:#D946EF;border-color:rgba(217,70,239,.4)">AUTO</span>'
+            ) if s["autopilot"] else ""
+    rail = ('<div class="tw-log-rail" style="background:' + s["color"]
+            + ';box-shadow:0 0 10px ' + U.hexa(s["color"], 0.4)
+            + '"></div>')
+    tm = ('<span class="tw-time"><span class="tw-time-d">'
+          + html.escape(s["date"]) + '</span>'
+          + ('<span class="tw-time-t">' + html.escape(s["time"])
+             + '</span>' if s["time"] else "") + '</span>')
     main = ('<span style="color:' + s["color"] + ';font-weight:700">'
             + html.escape(s["label"]) + '</span>'
             + (' &nbsp;·&nbsp; ' + html.escape(s["detail"])
                if s["detail"] else ""))
-    return UI.log_row(s["date"], s["time"], "", 0, main,
-                      meta_html=ap, tone="neutral",
-                      delay=min(i * 25, 300))
+    return ('<div class="tw-log" style="animation-delay:'
+            + str(min(i * 25, 300)) + 'ms">' + rail
+            + '<div class="tw-log-body"><div class="tw-log-top">' + tm
+            + auto + '</div><div class="tw-log-main">' + main
+            + '</div></div></div>')
 
 
 def _connection_map():
-    from ..data import CONNECTIONS, EVENT_COLOR, EVENT_LABELS
     rows = []
-    for etype, targets in CONNECTIONS.items():
-        color = EVENT_COLOR.get(etype, "#8893AB")
-        label = EVENT_LABELS.get(etype, etype)
+    for etype, targets in D.CONNECTIONS.items():
+        color = D.EVENT_COLOR.get(etype, "#8893AB")
+        label = D.EVENT_LABELS.get(etype, etype)
         chips = " ".join(
             '<span class="tw-badge" style="background:rgba(255,255,255,.04);'
             'color:var(--ink-2);border-color:var(--hair)">'
@@ -41,10 +51,10 @@ def _connection_map():
         rows.append(
             '<div style="display:flex;align-items:flex-start;gap:14px;'
             'padding:12px 0;border-bottom:1px solid rgba(28,39,64,.5)">'
-            '<div style="flex:0 0 190px">'
+            '<div style="flex:0 0 200px">'
             '<div style="font:700 13px var(--disp);color:' + color + '">'
             + html.escape(label) + '</div>'
-            '<div class="tw-sub" style="margin-top:4px">' + chips + '</div>'
+            '<div class="tw-sub" style="margin-top:5px">' + chips + '</div>'
             '</div>'
             '<div style="flex:1;font:500 12.5px/1.6 var(--body);'
             'color:var(--ink-2)">' + detail + '</div></div>')
@@ -66,7 +76,7 @@ def render(ctx):
                 "win" if sc["today"] else "ink", "pulse", "accent", 0),
         UI.tile("Autopilot Actions", str(sc["autopilot"]),
                 "created for you", "jewel", "jewel", "bot", "jewel", 40),
-        UI.tile("Cash-Offer Queue", str(len(cq)), "auto-aligned",
+        UI.tile("Cash-Offer Queue", str(len(cq)), "rejected → cash",
                 "win" if cq else "mute",
                 "win" if cq else "ink", "cash", "jewel", 80),
         UI.tile("Auto-Tasks Live", str(len(auto_tasks)),
@@ -75,21 +85,20 @@ def render(ctx):
                 "mute", "ink", "hash", "accent", 160),
     ]
     st.markdown(UI.tiles_grid(row, 5), unsafe_allow_html=True)
-
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     c1, c2 = st.columns([3, 2], gap="medium")
     with c1:
         feed = M.signal_feed(events, 30)
         if feed:
-            body = '<div class="tw-loglist">' + "".join(
-                _feed_row(s, i) for i, s in enumerate(feed)) + '</div>'
+            body = ('<div class="tw-loglist">'
+                    + "".join(_feed_row(s, i) for i, s in enumerate(feed))
+                    + '</div>')
         else:
             body = UI.empty_state(
-                "No signals yet. Move a client on TrueWave and watch it "
-                "ripple here instantly.")
-        st.markdown(UI.panel("Live Signal Feed", body,
-                             right="newest first"),
+                "No signals yet. Move a client on TrueWave, tick a call, or "
+                "issue a cash offer - and watch it ripple here instantly.")
+        st.markdown(UI.panel("Live Signal Feed", body, right="newest first"),
                     unsafe_allow_html=True)
     with c2:
         if cq:
@@ -105,7 +114,8 @@ def render(ctx):
                                  UI.empty_state(
                                      "When a client gets a CASH OFFER - "
                                      "CREDIT outcome, they load here "
-                                     "automatically.")),
+                                     "automatically."),
+                                 right="rejected bucket"),
                         unsafe_allow_html=True)
 
         if auto_tasks:
