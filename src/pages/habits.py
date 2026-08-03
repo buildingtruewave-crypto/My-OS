@@ -13,7 +13,8 @@ from .. import widgets as W
 
 def _today_done(habits, log, today):
     return sum(1 for h in habits
-               if log.get(h["id"], {}).get(today.isoformat()))
+               if not D.habit_optional(h)
+               and log.get(h["id"], {}).get(today.isoformat()))
 
 
 def render(ctx):
@@ -21,29 +22,27 @@ def render(ctx):
     weights = ctx["weights"]
     dates = [today - dt.timedelta(days=o) for o in range(34, -1, -1)]
     cons = M.overall_consistency(habits, log, 30)
-    done_today, total_h = _today_done(habits, log, today), len(habits)
+    done_today = _today_done(habits, log, today)
+    total_h = len([h for h in habits if not D.habit_optional(h)])
     best = M.best_habit_streak(log, habits)
-
     row = [
         UI.tile("Consistency 30d", U.fmt_pct(cons, False),
-                "all habits", "win" if cons >= 70 else "mute",
+                "counted habits", "win" if cons >= 70 else "mute",
                 "win" if cons >= 70 else "ink", "pulse", "win", 0),
         UI.tile("Done Today", str(done_today) + "/" + str(total_h),
                 "checked", "mute", "ink", "check", "accent", 40),
         UI.tile("Best Streak", str(best), "single habit",
                 "win", "win", "flame", "jewel", 80),
-        UI.tile("Habits Tracked", str(total_h), "active",
+        UI.tile("Habits Tracked", str(len(habits)), "active",
                 "mute", "ink", "grid", "accent", 120),
     ]
     st.markdown(UI.tiles_grid(row, 4), unsafe_allow_html=True)
-
     st.markdown(UI.panel("Consistency Wall - last 35 days",
                          UI.habit_grid(habits, log, dates, today),
                          right="green = done"),
                 unsafe_allow_html=True)
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
-
     c1, c2, c3 = st.columns([2, 3, 2], gap="medium")
     with c1:
         pct = (done_today / total_h * 100) if total_h else 0
@@ -58,6 +57,8 @@ def render(ctx):
             + '% today</span></div>')
         st.markdown(UI.panel("Today", head), unsafe_allow_html=True)
         W.habit_checklist("hab", habits, log, today.isoformat())
+        st.caption("Greyed rows fill themselves from your journal, sales, "
+                   "client touches and scale - you only tick the rest.")
     with c2:
         items = []
         for h in habits:
@@ -89,18 +90,21 @@ def render(ctx):
         if st.button("Log weigh-in", type="primary", key="w_save"):
             D.add_weight(wd.isoformat(), kg)
             st.rerun()
+        st.caption("Weigh in only when you want - it is optional and never "
+                   "counts against your score.")
         series = [(dt.date.fromisoformat(w["date"]), float(w["kg"]))
                   for w in sorted(weights, key=lambda x: x["date"])]
         if len(series) >= 2:
             st.markdown(UI.equity_svg(series, "w_eq", h=140,
                                       kind="num"),
                         unsafe_allow_html=True)
-
     st.markdown("<div style='height:8px'></div>",
                 unsafe_allow_html=True)
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
                 'EDIT HABITS</div>', unsafe_allow_html=True)
-    st.caption("One per line:  icon  Name   e.g.  W  Workout 45 min")
+    st.caption("One per line:  icon  Name   e.g.  W  Workout 45 min. "
+               "Names containing journal / sales / follow / weigh wire "
+               "themselves to your real data automatically.")
     txt = st.text_area("habits", value=D.habits_to_text(habits),
                        height=180, label_visibility="collapsed",
                        key="hb_text")
