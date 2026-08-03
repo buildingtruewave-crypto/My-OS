@@ -127,7 +127,8 @@ def consistency_by_weekday(habits, log, days=60):
                 for h in habits]
         if vals:
             acc[d.weekday()].append(sum(vals) / len(vals))
-    return {w: (sum(v) / len(v) * 100 if v else 0.0) for w, v in acc.items()}
+    return {w: (sum(v) / len(v) * 100 if v else 0.0)
+            for w, v in acc.items()}
 
 
 # ---------- goals / journal ----------
@@ -135,8 +136,8 @@ def goal_pct(g):
     try:
         if not g["target"]:
             return 0.0
-        return max(0.0, min(100.0, float(g["current"]) / float(g["target"])
-                            * 100))
+        return max(0.0, min(100.0,
+                            float(g["current"]) / float(g["target"]) * 100))
     except Exception:
         return 0.0
 
@@ -322,7 +323,8 @@ def commissions_window(sales, today, days=7):
     rows = []
     for s in sales:
         for i in s.get("inst", []):
-            if i.get("due") and lo <= i["due"] <= hi and not i.get("paid"):
+            if (i.get("due") and lo <= i["due"] <= hi
+                    and not i.get("paid")):
                 rows.append((s, i))
     rows.sort(key=lambda p: p[1]["due"])
     return rows
@@ -482,7 +484,8 @@ def pantry_days_left_item(it, today):
 
 
 def pantry_bottleneck(pantry, today):
-    items = [it for it in pantry.get("items", []) if not it.get("hidden")
+    items = [it for it in pantry.get("items", [])
+             if not it.get("hidden")
              and float(it.get("daily", 0) or 0) > 0]
     best = None
     for it in items:
@@ -592,7 +595,8 @@ def bot_stats(logs, bot_id):
     losses = [l for l in ls if float(l["pnl"]) < 0]
     pnl = sum(float(l["pnl"]) for l in ls)
     risk = sum(float(l.get("risk", 0)) for l in ls)
-    avg_win = (sum(float(l["pnl"]) for l in wins) / len(wins)) if wins else 0.0
+    avg_win = (sum(float(l["pnl"]) for l in wins) / len(wins)) \
+        if wins else 0.0
     avg_loss = (abs(sum(float(l["pnl"]) for l in losses)) / len(losses)) \
         if losses else 0.0
     rr = (avg_win / avg_loss) if avg_loss > 0 else 0.0
@@ -685,7 +689,7 @@ def signal_counts(events, today_iso):
 
 def day_pulse(d_iso, ctx):
     clients = ctx["clients"]
-    non_t = [c for c in clients if is_active_pipeline(c)]
+    act = [c for c in clients if is_active_pipeline(c)]
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
@@ -696,11 +700,7 @@ def day_pulse(d_iso, ctx):
               if e.get("date") == d_iso]
     return {
         "new_clients": [c for c in clients if c.get("created") == d_iso],
-        "followups": [c for c in non_t if c.get("next_date") == d_iso],
-        "cash_queue": [c for c in clients
-                       if is_cash_offer(c)
-                       and str(c.get("history", [{"ts": ""}])[-1]
-                               .get("ts", "")).startswith(d_iso)],
+        "followups": [c for c in act if c.get("next_date") == d_iso],
         "moves": moves_on(clients, d_iso),
         "outcomes": outcomes,
         "daily": ctx["sales_daily"].get(d_iso),
@@ -715,6 +715,8 @@ def day_pulse(d_iso, ctx):
                         if w.get("date") == d_iso), None),
         "tasks_done": [t for t in ctx["tasks"]
                        if t.get("done_date") == d_iso],
+        "cash_offers": [e for e in events
+                        if e.get("type") == "credit_cash_offer"],
         "events": events,
         "spiritual": spiritual_energy(se) if se is not None else None,
     }
