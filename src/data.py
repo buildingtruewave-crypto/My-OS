@@ -1166,20 +1166,23 @@ def touch_client(cid, note, now_str):
                      "client", cid, ["truetwave"])
 
 
-def mark_called(cid, now_str, next_date_iso, note=""):
-    """Tick that a client was called: log the touch, auto-reschedule the
-    next call, and drop them off today's Call Sheet."""
+def mark_called(cid, now_str, next_date_iso, outcome="Reached", note=""):
+    """Tick that a client was called: log the touch with the outcome,
+    auto-reschedule the next call, and drop them off today's Call Sheet."""
     c = _find_client(cid)
     if c:
+        label = str(outcome or "Reached").strip()
         c["next_date"] = next_date_iso
         c["next_action"] = "Follow-up call"
         c.setdefault("history", []).append(
             {"ts": now_str,
-             "note": note or ("Called - next call " + next_date_iso),
+             "note": note or ("Called - " + label + " - next call "
+                              + next_date_iso),
              "stage": c.get("stage", "")})
         save_clients(st.session_state["clients"])
         record_event("client_called", "Called & rescheduled",
-                     str(c.get("name", "?")) + " -> " + next_date_iso,
+                     str(c.get("name", "?")) + " · " + label
+                     + " -> " + next_date_iso,
                      "client", cid, ["truetwave", "callsheet"])
 
 
