@@ -3,12 +3,10 @@ The trading app SENDS each Deriv trade (profit/loss) into Supabase. PULSE
 RECEIVES it, stores it in the deriv_trades table, and continuously scans it
 across 7d / 30d / 90d / all-time windows to answer one question:
 "is this a good venture, and how much can we risk?"
-
-Everything is deterministic and measurable - real expectancy, profit factor,
-drawdown and fractional-Kelly sizing. The council returns WAIT until the
-sample is large enough; it never gambles on a handful of trades. The LLM
-router only narrates the findings; the verdict is pure math. Fails open: if
-Supabase is offline the panel shows a clean OFFLINE state, never an error.
+Everything is deterministic and measurable. The council returns WAIT until
+the sample is large enough. The LLM router only narrates; the verdict is
+pure math. Fails open: if Supabase is offline the panel shows the real
+reason, never an error.
 """
 from __future__ import annotations
 
@@ -30,8 +28,8 @@ except Exception:
     _R = None
     _HAS_ROUTER = False
 
-MIN_SAMPLE = 20          # trades needed before a real verdict
-CACHE_TTL = 60           # seconds between Supabase pulls
+MIN_SAMPLE = 20
+CACHE_TTL = 60
 _PNL_KEYS = ("pnl", "profit", "profit_loss", "pl", "net",
              "result", "amount", "pips_amount")
 _TS_KEYS = ("ts", "timestamp", "time", "created_at", "date",
@@ -95,76 +93,43 @@ def _money(x):
 
 
 # ---------------------------------------------------------------------------
-# Supabase table + fetch
+# Supabase fetch
 # ---------------------------------------------------------------------------
-def _create_table(conn):
-    with conn.cursor() as cur:
-        cur.execute(
-            "CREATE TABLE IF NOT EXISTS deriv_trades ("
-            " id BIGSERIAL PRIMARY KEY,"
-            " ts TIMESTAMPTZ DEFAULT now(),"
-            " pnl DOUBLE PRECISION,"
-            " stake DOUBLE PRECISION,"
-            " market TEXT,"
-            " strategy TEXT,"
-            " note TEXT"
-            ");")
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS deriv_trades_ts_idx "
-            "ON deriv_trades (ts);")
-    conn.commit()
-
-
-def _columns(conn, table="deriv_trades"):
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = %s ORDER BY ordinal_position;",
-            (table,))
-        return [r[0] for r in cur.fetchall()]
-
-
-def _normalize(rows, cols):
-    lower = [c.lower() for c in cols]
-    ts_col = next((cols[i] for i, c in enumerate(lower)
-                   if c in _TS_KEYS), None)
-    pnl_col = next((cols[i] for i, c in enumerate(lower)
-                    if c in _PNL_KEYS), None)
-    if pnl_col is None:
-        return None
-    out = []
-    for r in rows:
-        d = dict(r)
-        pnl = _to_float(d.get(pnl_col))
-        if pnl is None:
-            continue
-        ts = _to_dt(d.get(ts_col)) if ts_col else None
-        out.append({
-            "ts": ts,
-            "pnl": pnl,
-            "stake": _to_float(d.get("stake")),
-            "market": d.get("market") or d.get("symbol") or "",
-            "note": d.get("note") or d.get("strategy") or "",
-        })
-    out.sort(key=lambda x: _naive(x["ts"]))
-    return out
-
-
 def fetch_trades(limit=4000):
     """Return (trades, message). trades is None on failure, [] if empty."""
     if not _HAS_SB:
-        return None, "supabase module not loaded"
+        return None, "supabase_db module not loaded"
     conn = SB.get_connection()
     if conn is None:
-        return None, "cannot reach Supabase"
+        _ok, why = SB.diagnose()
+        return None, why or "cannot reach Supabase"
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('public.deriv_trades');")
             exists = cur.fetchone()[0]
         if not exists:
-            _create_table(conn)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "CREATE TABLE IF NOT EXISTS deriv_trades ("
+                    " id BIGSERIAL PRIMARY KEY,"
+                    " ts TIMESTAMPTZ DEFAULT now(),"
+                    " pnl DOUBLE PRECISION,"
+                    " stake DOUBLE PRECISION,"
+                    " market TEXT,"
+                    " strategy TEXT,"
+                    " note TEXT"
+                    ");")
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS deriv_trades_ts_idx "
+                    "ON deriv_trades (ts);")
+            conn.commit()
             return [], "table ready - waiting for the trading app"
-        cols = _columns(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'deriv_trades' "
+                "ORDER BY ordinal_position;")
+            cols = [r[0] for r in cur.fetchall()]
         if not cols:
             return [], "table ready - waiting for the trading app"
         lower = [c.lower() for c in cols]
@@ -172,17 +137,15 @@ def fetch_trades(limit=4000):
         if pnl_col is None:
             return None, ("no pnl column found - expected one of: "
                           + ", ".join(_PNL_KEYS))
-        ts_col = next((c for c in lower if c in _TS_KEYS), "id")
-        try:
-            import psycopg2.extras as _pe
-            _cf = _pe.RealDictCursor
-        except Exception:
-            _cf = None
-        with conn.cursor(cursor_factory=_cf) as cur:
+        ts_col = next((c for c in lower if c in _TS_KEYS), None)
+        order = ts_col if ts_col else "id"
+        with conn.cursor() as cur:
             cur.execute("SELECT * FROM deriv_trades ORDER BY "
-                        + ts_col + " DESC LIMIT %s;", (int(limit),))
+                        + order + " DESC LIMIT %s;", (int(limit),))
             rows = cur.fetchall()
-        norm = _normalize(rows, cols)
+            desc = [d[0] for d in cur.description] \
+                if cur.description else []
+        norm = _normalize([dict(zip(desc, r)) for r in rows])
         if norm is None:
             return None, "could not read a pnl column"
         return norm, "ok"
@@ -193,6 +156,36 @@ def fetch_trades(limit=4000):
             conn.close()
         except Exception:
             pass
+
+
+def _normalize(rows):
+    out = []
+    for d in rows:
+        if not isinstance(d, dict):
+            continue
+        pnl = None
+        for k in _PNL_KEYS:
+            if k in d and d[k] is not None:
+                pnl = _to_float(d[k])
+                if pnl is not None:
+                    break
+        if pnl is None:
+            continue
+        ts = None
+        for k in _TS_KEYS:
+            if k in d and d[k] is not None:
+                ts = _to_dt(d[k])
+                if ts is not None:
+                    break
+        out.append({
+            "ts": ts,
+            "pnl": pnl,
+            "stake": _to_float(d.get("stake")),
+            "market": d.get("market") or d.get("symbol") or "",
+            "note": d.get("note") or d.get("strategy") or "",
+        })
+    out.sort(key=lambda x: _naive(x["ts"]))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +202,10 @@ def _window(trades, days, now):
 def _stats(rows):
     pnls = [t["pnl"] for t in rows if t.get("pnl") is not None]
     n = len(pnls)
-    base = {"n": n, "net": 0.0, "win_rate": 0.0, "wins": 0, "losses": 0,
-            "avg_win": 0.0, "avg_loss": 0.0, "expectancy": 0.0,
-            "profit_factor": 0.0, "gross_profit": 0.0, "gross_loss": 0.0,
+    base = {"n": n, "net": 0.0, "win_rate": 0.0, "wins": 0,
+            "losses": 0, "avg_win": 0.0, "avg_loss": 0.0,
+            "expectancy": 0.0, "profit_factor": 0.0,
+            "gross_profit": 0.0, "gross_loss": 0.0,
             "max_drawdown": 0.0, "max_cons_loss": 0, "sharpe": 0.0}
     if n == 0:
         return base
@@ -249,11 +243,11 @@ def _stats(rows):
     std = var ** 0.5
     sharpe = (mean / std) if std > 0 else 0.0
     base.update({"net": net, "win_rate": wr, "wins": len(wins),
-                 "losses": len(losses), "avg_win": aw, "avg_loss": al,
-                 "expectancy": exp, "profit_factor": pf,
-                 "gross_profit": gp, "gross_loss": gl,
-                 "max_drawdown": mdd, "max_cons_loss": mcl,
-                 "sharpe": sharpe})
+                 "losses": len(losses), "avg_win": aw,
+                 "avg_loss": al, "expectancy": exp,
+                 "profit_factor": pf, "gross_profit": gp,
+                 "gross_loss": gl, "max_drawdown": mdd,
+                 "max_cons_loss": mcl, "sharpe": sharpe})
     return base
 
 
@@ -269,7 +263,8 @@ def _kelly(win_rate, avg_win, avg_loss):
 def _risk_pct(all_s):
     if all_s["expectancy"] <= 0:
         return 0.0
-    k = _kelly(all_s["win_rate"], all_s["avg_win"], all_s["avg_loss"])
+    k = _kelly(all_s["win_rate"], all_s["avg_win"],
+               all_s["avg_loss"])
     quarter = k * 0.25
     return round(min(quarter, 0.05) * 100.0, 2)
 
@@ -330,34 +325,36 @@ def _verdict(all_s, recent_s, score):
     if n < MIN_SAMPLE:
         return {"action": "WAIT", "score": score, "risk_pct": 0.0,
                 "confidence": "low",
-                "summary": ("Only %d trades logged. The council won't call "
-                            "a venture on a sample this small - keep the bot "
-                            "logging; the verdict sharpens at %d+ trades."
-                            % (n, MIN_SAMPLE))}
+                "summary": ("Only %d trades logged. The council won't "
+                            "call a venture on a sample this small - "
+                            "keep the bot logging; the verdict sharpens "
+                            "at %d+ trades." % (n, MIN_SAMPLE))}
     risk = _risk_pct(all_s)
     if score >= 70 and all_s["expectancy"] > 0:
-        return {"action": "ENTER", "score": score, "risk_pct": risk,
-                "confidence": _conf(n),
-                "summary": ("Positive expectancy with controlled drawdown. "
-                            "The council says take it - size each trade at "
-                            "~%.2f%% of bankroll (quarter-Kelly, capped at "
-                            "5%%)." % risk)}
+        return {"action": "ENTER", "score": score,
+                "risk_pct": risk, "confidence": _conf(n),
+                "summary": ("Positive expectancy with controlled "
+                            "drawdown. The council says take it - size "
+                            "each trade at ~%.2f%% of bankroll "
+                            "(quarter-Kelly, capped at 5%%)." % risk)}
     if score >= 55 and all_s["expectancy"] > 0:
         risk = min(risk, 2.0)
-        return {"action": "ENTER SMALL", "score": score, "risk_pct": risk,
-                "confidence": _conf(n),
-                "summary": ("A real but modest edge. Enter at pilot size "
-                            "(~%.2f%% per trade) and scale only if the next "
-                            "%d trades hold up." % (risk, MIN_SAMPLE))}
+        return {"action": "ENTER SMALL", "score": score,
+                "risk_pct": risk, "confidence": _conf(n),
+                "summary": ("A real but modest edge. Enter at pilot "
+                            "size (~%.2f%% per trade) and scale only "
+                            "if the next %d trades hold up."
+                            % (risk, MIN_SAMPLE))}
     if score >= 40:
         return {"action": "WAIT", "score": score, "risk_pct": 0.0,
                 "confidence": _conf(n),
-                "summary": ("Borderline - the edge isn't proven yet. Keep "
-                            "logging; don't commit real risk." )}
+                "summary": ("Borderline - the edge isn't proven yet. "
+                            "Keep logging; don't commit real risk.")}
     return {"action": "AVOID", "score": score, "risk_pct": 0.0,
             "confidence": _conf(n),
-            "summary": ("Negative or unproven edge with risky drawdown "
-                        "behaviour. Stay out until the numbers improve.")}
+            "summary": ("Negative or unproven edge with risky "
+                        "drawdown behaviour. Stay out until the "
+                        "numbers improve.")}
 
 
 # ---------------------------------------------------------------------------
@@ -372,19 +369,19 @@ def _council(a, r):
         pf = min(a["profit_factor"], 99.0)
         if a["expectancy"] > 0 and pf >= 1.5:
             out.append({"name": "Edge Analyst", "stance": "bullish",
-                        "point": ("Expectancy %+.2f/trade with a %.2f profit "
-                                  "factor - a genuine edge."
+                        "point": ("Expectancy %+.2f/trade with a %.2f "
+                                  "profit factor - a genuine edge."
                                   % (a["expectancy"], pf))})
         elif a["expectancy"] > 0:
             out.append({"name": "Edge Analyst", "stance": "cautious",
-                        "point": ("Expectancy is positive (%+.2f) but the "
-                                  "%.2f profit factor is thin."
+                        "point": ("Expectancy is positive (%+.2f) but "
+                                  "the %.2f profit factor is thin."
                                   % (a["expectancy"], pf))})
         else:
             out.append({"name": "Edge Analyst", "stance": "bearish",
-                        "point": ("Expectancy is negative (%+.2f/trade) - the "
-                                  "system loses on average."
-                                  % a["expectancy"])})
+                        "point": ("Expectancy is negative (%+.2f/"
+                                  "trade) - the system loses on "
+                                  "average." % a["expectancy"])})
     if a["n"] == 0:
         out.append({"name": "Risk Analyst", "stance": "cautious",
                     "point": "No exposure yet."})
@@ -393,49 +390,56 @@ def _council(a, r):
         gp = a["gross_profit"]
         ratio = (dd / gp) if gp > 0 else (9.9 if dd > 0 else 0.0)
         if a["max_cons_loss"] >= 8 or ratio >= 1.0:
-            tail = (" (%.0f%% of gross profit)" % (ratio * 100)) if gp > 0 else ""
+            tail = (" (%.0f%% of gross profit)" % (ratio * 100)) \
+                if gp > 0 else ""
             out.append({"name": "Risk Analyst", "stance": "bearish",
-                        "point": ("Max drawdown %.2f%s and %d straight losses "
-                                  "- the downside is violent."
+                        "point": ("Max drawdown %.2f%s and %d straight "
+                                  "losses - the downside is violent."
                                   % (dd, tail, a["max_cons_loss"]))})
         elif a["max_cons_loss"] >= 5 or ratio >= 0.5:
             out.append({"name": "Risk Analyst", "stance": "cautious",
-                        "point": ("Drawdown %.2f and a %d-loss streak - "
-                                  "manageable, but watch sizing."
+                        "point": ("Drawdown %.2f and a %d-loss streak "
+                                  "- manageable, but watch sizing."
                                   % (dd, a["max_cons_loss"]))})
         else:
             out.append({"name": "Risk Analyst", "stance": "bullish",
-                        "point": ("Drawdown is contained (%.2f) and losing "
-                                  "streaks stay short (%d)."
+                        "point": ("Drawdown is contained (%.2f) and "
+                                  "losing streaks stay short (%d)."
                                   % (dd, a["max_cons_loss"]))})
     n = a["n"]
     if n >= 100:
         out.append({"name": "Sample Analyst", "stance": "bullish",
-                    "point": "%d trades - the statistics are trustworthy." % n})
+                    "point": ("%d trades - the statistics are "
+                              "trustworthy." % n)})
     elif n >= MIN_SAMPLE:
         out.append({"name": "Sample Analyst", "stance": "cautious",
-                    "point": "%d trades - enough for a first read, keep logging." % n})
+                    "point": ("%d trades - enough for a first read, "
+                              "keep logging." % n)})
     else:
         out.append({"name": "Sample Analyst", "stance": "bearish",
-                    "point": "Only %d trades - far too early to call this." % n})
+                    "point": ("Only %d trades - far too early to "
+                              "call this." % n)})
     if r.get("n", 0) < 5:
         out.append({"name": "Form Analyst", "stance": "cautious",
                     "point": "Not enough recent trades to judge form."})
     else:
         if r["expectancy"] > a["expectancy"]:
             out.append({"name": "Form Analyst", "stance": "bullish",
-                        "point": ("Last 30d expectancy (%+.2f) beats the "
-                                  "all-time (%+.2f) - improving."
-                                  % (r["expectancy"], a["expectancy"]))})
+                        "point": ("Last 30d expectancy (%+.2f) beats "
+                                  "the all-time (%+.2f) - improving."
+                                  % (r["expectancy"],
+                                     a["expectancy"]))})
         elif r["expectancy"] < 0 and a["expectancy"] > 0:
             out.append({"name": "Form Analyst", "stance": "bearish",
-                        "point": ("The last 30d turned negative (%+.2f) while "
-                                  "the all-time edge is positive - the edge "
-                                  "may be fading." % r["expectancy"])})
+                        "point": ("The last 30d turned negative "
+                                  "(%+.2f) while the all-time edge is "
+                                  "positive - the edge may be fading."
+                                  % r["expectancy"])})
         else:
             out.append({"name": "Form Analyst", "stance": "cautious",
-                        "point": ("Recent form (%+.2f/trade) is holding near "
-                                  "the long-term level." % r["expectancy"])})
+                        "point": ("Recent form (%+.2f/trade) is "
+                                  "holding near the long-term level."
+                                  % r["expectancy"])})
     return out
 
 
@@ -448,32 +452,38 @@ def _build_prompt(rep):
     v = rep["verdict"]
     pf = min(a["profit_factor"], 99.0)
     lines = []
-    lines.append("You are a four-analyst trading council reviewing a Deriv "
-                 "bot's live results for one operator. Speak plainly, weigh "
-                 "risk honestly, and reference only the numbers given.")
+    lines.append("You are a four-analyst trading council reviewing a "
+                 "Deriv bot's live results for one operator. Speak "
+                 "plainly, weigh risk honestly, reference only the "
+                 "numbers given.")
     lines.append("")
     lines.append("All-time: %d trades | net %s | win rate %.1f%% | "
-                 "expectancy %s/trade | profit factor %.2f | max drawdown "
-                 "%s | longest losing streak %d."
+                 "expectancy %s/trade | profit factor %.2f | max "
+                 "drawdown %s | longest losing streak %d."
                  % (a["n"], _money(a["net"]), a["win_rate"] * 100,
                     _money(a["expectancy"]), pf,
                     _money(a["max_drawdown"]), a["max_cons_loss"]))
     lines.append("Last 30d: %d trades | net %s | expectancy %s/trade."
-                 % (r["n"], _money(r["net"]), _money(r["expectancy"])))
+                 % (r["n"], _money(r["net"]),
+                    _money(r["expectancy"])))
     lines.append("")
     lines.append("Council findings:")
     for c in rep["council"]:
-        lines.append("- %s (%s): %s" % (c["name"], c["stance"], c["point"]))
+        lines.append("- %s (%s): %s"
+                     % (c["name"], c["stance"], c["point"]))
     lines.append("")
-    lines.append("Deterministic verdict: %s | score %d/100 | suggested risk "
-                 "%.2f%% of bankroll per trade | confidence %s."
-                 % (v["action"], v["score"], v["risk_pct"], v["confidence"]))
+    lines.append("Deterministic verdict: %s | score %d/100 | "
+                 "suggested risk %.2f%% of bankroll per trade | "
+                 "confidence %s."
+                 % (v["action"], v["score"], v["risk_pct"],
+                    v["confidence"]))
     lines.append("")
-    lines.append("Write the council's final discussion in at most 5 short "
-                 "sentences. Cover the edge, then the risk, then whether the "
-                 "sample is trustworthy, then end with a clear verdict on "
-                 "whether to enter this venture and at what size. Do not "
-                 "invent numbers. Plain text only, no headings, no emojis.")
+    lines.append("Write the council's final discussion in at most 5 "
+                 "short sentences. Cover the edge, then the risk, then "
+                 "whether the sample is trustworthy, then end with a "
+                 "clear verdict on whether to enter this venture and at "
+                 "what size. Do not invent numbers. Plain text only, no "
+                 "headings, no emojis.")
     return "\n".join(lines)
 
 
@@ -492,7 +502,8 @@ def _discussion(rep):
         try:
             if _R.has_providers():
                 text, _prov = _R.chat(
-                    [{"role": "user", "content": _build_prompt(rep)}],
+                    [{"role": "user",
+                      "content": _build_prompt(rep)}],
                     temperature=0.6, max_tokens=320)
                 if text:
                     return text
@@ -515,14 +526,16 @@ def _build():
                 "recent": [], "last_sync": now.isoformat(),
                 "span_days": 0, "earliest": "", "latest": ""}
     windows = {}
-    for label, days in (("7d", 7), ("30d", 30), ("90d", 90), ("all", None)):
+    for label, days in (("7d", 7), ("30d", 30), ("90d", 90),
+                        ("all", None)):
         windows[label] = _stats(_window(trades, days, now))
     all_s = windows["all"]
     recent_s = windows["30d"]
     score = _venture_score(all_s, recent_s)
     council = _council(all_s, recent_s)
     verdict = _verdict(all_s, recent_s, score)
-    ts_list = [_naive(t["ts"]) for t in trades if t["ts"] is not None]
+    ts_list = [_naive(t["ts"]) for t in trades
+               if t["ts"] is not None]
     span = 0
     earliest = ""
     latest = ""
@@ -530,12 +543,13 @@ def _build():
         span = (max(ts_list) - min(ts_list)).days
         earliest = min(ts_list).strftime("%b %d, %Y")
         latest = max(ts_list).strftime("%b %d, %Y")
-    rep = {"windows": windows, "council": council, "verdict": verdict,
-           "n_total": len(trades)}
+    rep = {"windows": windows, "council": council,
+           "verdict": verdict, "n_total": len(trades)}
     discussion = _discussion(rep)
     recent = list(reversed(trades))[:12]
-    return {"connected": True, "message": msg, "n_total": len(trades),
-            "windows": windows, "council": council, "verdict": verdict,
+    return {"connected": True, "message": msg,
+            "n_total": len(trades), "windows": windows,
+            "council": council, "verdict": verdict,
             "discussion": discussion, "recent": recent,
             "last_sync": now.isoformat(), "span_days": span,
             "earliest": earliest, "latest": latest}
@@ -547,7 +561,8 @@ def get_signal(force=False):
         import time as _time
         now = _time.time()
         cache = st.session_state.get("_ti_cache")
-        if cache and not force and (now - cache.get("at", 0) < CACHE_TTL):
+        if cache and not force \
+                and (now - cache.get("at", 0) < CACHE_TTL):
             return cache.get("data")
         data = _build()
         st.session_state["_ti_cache"] = {"at": now, "data": data}
