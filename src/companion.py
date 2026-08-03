@@ -1,39 +1,11 @@
 """PULSE companion - the voice that has read your life.
-
-The card feels spoken, not displayed: a slow breathing halo whose rhythm and
-saturation are per-page, a caught-light sheen that sweeps on hover, a nudge
-arrow that nudges on a loop, a fine linen grain, a left rail in the voice's
-own colour, and the voice line set large and italic with a hanging drop-cap
-quotation glyph. The companion speaks in nine distinct registers (one per
-page) so TrueWave never sounds like the Vault and Spirit never carries a
-number. Each register references live page state, so editing anything on a
-page changes the spoken line within one rerun.
-
-The companion speaks in five non-overlapping layers (moment / voice / notice /
-pulse / nudge), each computed from a different angle of the LIVE state, so no
-page reads the same and no layer repeats another. The moment eyebrow always
-carries the real HH:MM so liveness is verifiable against the phone clock.
-
-A single delicate provenance line sits in the margin like a citation; the
-machinery (grounding facts, the ask-box, the tuning, the free-tier provider
-that answered, a one-shot flash on tune) lives in one collapsed, whisper-
-quiet drawer beneath the card, framed as tuning an instrument, never grading
-a student. There is NO like/dislike on the card - PULSE learns from what the
-operator does after it speaks (brain.reconcile_implicit).
-
-Three layers over one context packet:
-  * build_packet() reads recent journal / spirit / sales / mood / clients /
-    tasks / habits / weight, and - ONLY when allow_money is True (inside the
-    locked Archive) - pantry / runway / emergency / bills / commissions.
-  * A deterministic feel-only voice per page (nine registers), augmented by
-    the brain with a remembered verse or memory, plus the live timeline
-    (moment / notice / pulse / nudge).
-  * If the free-tier router (src.llm_router) has any provider configured, a
-    strictly-grounded model writes the voice line, fed all layers as
-    constraints so its voice is page-personalised too.
-
-Every public function fails open. The whole panel is wrapped so a failure
-never breaks the host page. No f-strings are used anywhere in this file.
+The companion accompanies; it does not manage. It celebrates what is going
+well, sits with you in the current moment, and never lists what is undone.
+Nine distinct registers (one per page), each reactive to live state, with
+deterministic variety so the voice shifts through the day without flickering
+on a rerun. A proximity gate means blocks hours away are never announced
+early. Everything fails open - a snag never breaks the host page.
+No f-strings are used anywhere in this file.
 """
 from __future__ import annotations
 
@@ -71,7 +43,6 @@ _MEM = Path(__file__).resolve().parent.parent / "data" / "companion.json"
 LOW = set(("drained", "flat"))
 _MOOD_SCORE = {"drained": 0, "flat": 1, "steady": 2, "sharp": 3,
                "on fire": 4}
-
 VOICE_META = {
     "morning": ("Morning", "#4C8DFF"),
     "sales": ("TrueWave", "#2DD4BF"),
@@ -83,13 +54,12 @@ VOICE_META = {
     "money": ("Vault", "#34D399"),
     "quiet": ("Companion", "#8893AB"),
 }
-
 _TUNE_CHIPS = [
     "softer", "more direct", "shorter", "skip scripture here",
     "cite scripture", "cite a past win", "more practical",
-    "calmer / less pep",
+    "calmer / less pep", "more playful / lighter",
+    "just flow - no reminders",
 ]
-
 _SRC_LABEL = {
     "spirit": "your spirit log", "journal": "your journal",
     "sale": "a past sale", "income": "an income entry",
@@ -97,7 +67,6 @@ _SRC_LABEL = {
     "bill": "your money log", "emergency": "your money log",
     "fund": "your money log", "money": "your money log",
 }
-
 _STYLE = (
     "<style>"
     "@keyframes plcBreathe{0%,100%{transform:scale(1);opacity:.10}"
@@ -219,49 +188,52 @@ _STYLE = (
     ".plc-health{grid-template-columns:1fr}}"
     "</style>"
 )
-
 _AUTO = {
-    "morning": "Speak to them for this moment of the day, grounded.",
-    "sales": "Encourage their sales work right now, grounded in their numbers.",
-    "spirit": "Speak to them about their time with God right now, grounded.",
-    "journal": "Invite reflection on their day, grounded in what they logged.",
-    "body": "Speak to them about their body and movement, grounded.",
-    "focus": "Help them focus on what matters right now, grounded.",
-    "review": "Give a brief grounded review of how the week is shaping.",
-    "money": "Give grounded, practical money guidance for right now.",
-    "quiet": "Offer a calm, grounded word.",
+    "morning": "Be present with them in this moment of the day; no advice unless it is truly needed.",
+    "sales": "Keep them company in their sales work; steady and light, never pushing.",
+    "spirit": "Sit with them in their time with God; quiet and warm.",
+    "journal": "Keep them company as the day lands; reflection without pressure.",
+    "body": "Be with them in their body and movement; kind, never demanding.",
+    "focus": "Sit beside them while they focus; calm company.",
+    "review": "Enjoy the view of the week with them; no grading.",
+    "money": "Walk beside them through the money; practical and unhurried.",
+    "quiet": "Offer a calm, easy word - company, nothing more.",
 }
-
 _SYS = (
-    "You are PULSE, a grounded companion for one person. You receive a "
+    "You are PULSE, a warm companion for one person - a friend walking "
+    "beside them, never a coach, manager or taskmaster. You receive a "
     "CONTEXT block of verified facts, a RETRIEVED block of the person's own "
     "past words most relevant to now, a PATTERNS block of what you have "
     "learned about them over time, a THREAD block of a feeling they have "
     "felt on multiple days, a PAGE MOMENT block of where and when they are, "
     "a PAGE NOTICE block of what you observe on this exact page, a PAGE "
     "RHYTHM block of how they show up to this part of their life, a NEXT "
-    "MOVE block of the single most useful concrete action right now, and a "
-    "CONSTRAINTS block of how they have tuned you. Rules: (1) Use ONLY "
-    "facts present in CONTEXT and RETRIEVED; never invent sales, feelings, "
-    "verses, dates, clients or events. (2) Speak in second person, warmly "
-    "and specifically, in the register of the PAGE VOICE named below. (3) "
-    "When you cite a number, quote or feeling, use the exact one given. "
-    "(4) Match their current mood. (5) Obey every line in CONSTRAINTS "
-    "without mentioning that you were told. (6) Weave the PAGE NOTICE and "
-    "PAGE RHYTHM naturally so the line could only be spoken on this page, "
-    "right now. (7) If a NEXT MOVE is given and it fits, weave it in as "
-    "one concrete step. (8) If the question touches money, balances, "
-    "pantry or the emergency fund but CONTEXT has no money facts, reply "
-    "that you keep finances private and they should ask inside the "
-    "Archive. (9) Do not ask a question back unless it is a single gentle "
-    "offer. (10) No lists, no headers, no emojis."
+    "MOVE block of one possible concrete action, and a CONSTRAINTS block of "
+    "how they have tuned you. Rules: (1) Use ONLY facts present in CONTEXT "
+    "and RETRIEVED; never invent sales, feelings, verses, dates, clients or "
+    "events. (2) Speak in second person, warmly and specifically, in the "
+    "register of the PAGE VOICE named below. (3) When you cite a number, "
+    "quote or feeling, use the exact one given. (4) Match their current "
+    "mood. (5) Obey every line in CONSTRAINTS without mentioning that you "
+    "were told. (6) Weave the PAGE NOTICE and PAGE RHYTHM naturally so the "
+    "line could only be spoken on this page, right now. (7) If a NEXT MOVE "
+    "is given you may echo it only as a soft, optional invitation - never as "
+    "a task, never with urgency; skip it entirely if it would sound like "
+    "pressure. (8) If the question touches money, balances, pantry or the "
+    "emergency fund but CONTEXT has no money facts, reply that you keep "
+    "finances private and they should ask inside the Archive. (9) Do not ask "
+    "a question back unless it is a single gentle offer. (10) No lists, no "
+    "headers, no emojis. (11) Never tell them to fill, log, tick, chase or "
+    "complete anything; never enumerate what is undone; the day belongs to "
+    "them - your job is to enjoy it with them, notice what is going well, "
+    "and keep the tone light, flowing and unhurried. (12) Prefer presence "
+    "over advice: it is perfectly fine to simply be with them."
 )
 
 
 # ---------------------------------------------------------------------------
 # tiny helpers
 # ---------------------------------------------------------------------------
-
 def _e(s):
     return html.escape(str(s if s is not None else ""))
 
@@ -313,7 +285,6 @@ def set_anchor(text):
 # ---------------------------------------------------------------------------
 # derived helpers
 # ---------------------------------------------------------------------------
-
 def _energy(e):
     if not e:
         return 0
@@ -400,7 +371,6 @@ def _consistency(habits, log, n):
 # ---------------------------------------------------------------------------
 # brain access (all guarded)
 # ---------------------------------------------------------------------------
-
 def _stores(ctx, allow_money):
     s = {
         "journal": _g("journal", {}) or {},
@@ -478,7 +448,6 @@ def _have_llm():
 # ---------------------------------------------------------------------------
 # live timeline view (anchors perception to the clock)
 # ---------------------------------------------------------------------------
-
 def _wt(s):
     out = []
     cur = ""
@@ -554,6 +523,13 @@ def _compute_live(ctx, habits, log, today_iso):
                 break
     passed_n = aidx if aidx > 0 else 0
     ahead = max(0, len(blocks) - passed_n - (1 if cur_label else 0))
+    nxt_in = None
+    if nxt is not None and now_dt is not None:
+        try:
+            nxt_in = max(0, int(nxt.get("min", 0))
+                         - (now_dt.hour * 60 + now_dt.minute))
+        except Exception:
+            nxt_in = None
     return {
         "now_hm": now_hm,
         "cur_label": cur_label, "cur_time": cur_time,
@@ -568,13 +544,13 @@ def _compute_live(ctx, habits, log, today_iso):
                          if isinstance(passed, dict) else ""),
         "has_blocks": bool(blocks),
         "passed_n": passed_n, "ahead": ahead,
+        "nxt_in": nxt_in,
     }
 
 
 # ---------------------------------------------------------------------------
 # per-page stats (built from session data, handed to perceive.py)
 # ---------------------------------------------------------------------------
-
 def _page_stats(ctx, voice, allow_money):
     ps = {}
     try:
@@ -614,9 +590,11 @@ def _page_stats(ctx, voice, allow_money):
         term = set(D.terminal_ids())
         due_clients = [c for c in clients
                        if c.get("stage") not in term
+                       and not c.get("ended")
                        and c.get("next_date") == today.isoformat()]
         over_clients = [c for c in clients
                         if c.get("stage") not in term
+                        and not c.get("ended")
                         and c.get("next_date")
                         and c["next_date"] < today.isoformat()]
         hottest = ""
@@ -730,7 +708,6 @@ def _page_stats(ctx, voice, allow_money):
 # ---------------------------------------------------------------------------
 # context packet
 # ---------------------------------------------------------------------------
-
 def _money_fields(vault, today):
     cash = sum(float(p.get("balance", 0)) for p in vault.get("positions", []))
     pan = vault.get("pantry") or {}
@@ -805,7 +782,6 @@ def build_packet(ctx, voice, allow_money):
     tasks = _g("tasks", []) or []
     habits = _g("habits", []) or []
     log = _g("habit_log", {}) or {}
-
     mood_today = (journal.get(ti) or {}).get("mood", "")
     moods = []
     for o in range(6, -1, -1):
@@ -814,7 +790,6 @@ def build_packet(ctx, voice, allow_money):
              or {}).get("mood", "")
         if m:
             moods.append(m)
-
     rj = []
     for o in range(1, 8):
         e = journal.get((today - __import__("datetime").timedelta(days=o)).isoformat())
@@ -828,7 +803,6 @@ def build_packet(ctx, voice, allow_money):
         prev_journal = rj[2]
     elif rj:
         prev_journal = rj[-1]
-
     rs = []
     for o in range(0, 8):
         e = spirit.get((today - __import__("datetime").timedelta(days=o)).isoformat())
@@ -846,7 +820,6 @@ def build_packet(ctx, voice, allow_money):
     st_today = spirit.get(ti) or {}
     st_has = bool(st_today and (st_today.get("minutes") or st_today.get("word")
                                 or st_today.get("felt")))
-
     yest = (today - __import__("datetime").timedelta(days=1)).isoformat()
     sales_yest = int((sd.get(yest) or {}).get("sold", 0) or 0)
     best = None
@@ -863,13 +836,12 @@ def build_packet(ctx, voice, allow_money):
         sales_week += int((sd.get(
             (today - __import__("datetime").timedelta(days=o)).isoformat())
             or {}).get("sold", 0) or 0)
-
     term = set(D.terminal_ids())
     due = [c for c in clients if c.get("stage") not in term
-           and c.get("next_date") == ti]
+           and not c.get("ended") and c.get("next_date") == ti]
     over = [c for c in clients if c.get("stage") not in term
+            and not c.get("ended")
             and c.get("next_date") and c["next_date"] < ti]
-
     t_over = 0
     t_due = 0
     for t in tasks:
@@ -879,7 +851,6 @@ def build_packet(ctx, voice, allow_money):
             t_over += 1
         if t.get("due") == ti:
             t_due += 1
-
     hdone = 0
     for h in habits:
         if (log.get(h["id"], {}) or {}).get(ti):
@@ -897,14 +868,12 @@ def build_packet(ctx, voice, allow_money):
                 wstreak += 1
             else:
                 break
-
     weights = _g("weights", []) or []
     wdelta = None
     if len(weights) >= 2:
         ws = sorted(weights, key=lambda w: w["date"])
         d = float(ws[-1]["kg"]) - float(ws[0]["kg"])
         wdelta = ("+" if d >= 0 else "") + format(d, ".1f") + " kg since first weigh-in"
-
     mb = _B.mood_band(mood_today) if _HAS_BRAIN else "none"
     pkt = dict(
         today=ti, hour=hour, dow=today.weekday(),
@@ -935,7 +904,6 @@ def build_packet(ctx, voice, allow_money):
 # ---------------------------------------------------------------------------
 # retrieval weaving + augmentation (felt memory for the voice line)
 # ---------------------------------------------------------------------------
-
 def _weave_memory(mem, voice):
     src = mem.get("src", "")
     date = mem.get("date", "")
@@ -950,7 +918,7 @@ def _weave_memory(mem, voice):
     if src == "client":
         nm = (mem.get("meta") or {}).get("name", "a client")
         return ("Remember " + nm + " on " + date + ": '" + text
-                + "'. That thread is still yours to pull.",
+                + "'. That thread is still there.",
                 "quoted_memory")
     if src in ("sale", "income"):
         return ("On " + date + " the log shows '" + text
@@ -1040,9 +1008,20 @@ def _augment(pkt, tagged, base_facts, idx, fb, refl, state, allow_money):
 # ---------------------------------------------------------------------------
 # deterministic voices - nine distinct registers, each reactive to live state
 # ---------------------------------------------------------------------------
-
 def _cap_tagged(tagged, n):
     return tagged[:n]
+
+
+def _pick(options, seed):
+    """Deterministic variety - the same seed gets the same line, so a
+    rerun never flickers, but the voice shifts with the hour."""
+    try:
+        import hashlib
+        h = int(hashlib.md5(str(seed).encode("utf-8")).hexdigest()[:8],
+                16)
+        return options[h % len(options)]
+    except Exception:
+        return options[0]
 
 
 def _v_morning(p):
@@ -1050,20 +1029,39 @@ def _v_morning(p):
     live = p.get("_live", {}) or {}
     ps = p.get("_ps", {}) or {}
     cur = live.get("cur_label", "")
-    fu = ps.get("first_undone", "")
+    done = p.get("habits_done", 0) or 0
     due = ps.get("due", 0) or p.get("clients_due_n", 0)
+    seed = "m|" + str(p.get("today", "")) + "|" + str(p.get("hour", ""))
     if cur:
-        t.append(["You're in " + cur + " right now - let it be the "
-                  "whole hour; the rest can wait outside.", None])
-    elif fu:
-        t.append([fu + " is the first open thread on the wall - do "
-                  "it and the wall answers.", None])
+        t.append([_pick([
+            "You're in " + cur + " right now - settle into it; the rest "
+            "of the day can wait outside.",
+            cur + " is where you are - no rush, you're right on time.",
+            "This is the " + cur + " stretch - let it be easy; the day "
+            "is unfolding with you.",
+            "Right now it's " + cur + " - give it your full, easy "
+            "attention; that's enough.",
+        ], seed), None])
+    elif done > 0:
+        t.append([_pick([
+            str(done) + " habit(s) already ticked - that's real "
+            "momentum; keep flowing.",
+            "You've already moved " + str(done)
+            + " thing(s) today - quiet, steady rhythm.",
+            "The wall's already glowing a little - " + str(done)
+            + " done, and the day is still young.",
+        ], seed), None])
     elif due > 0:
-        t.append([str(due) + " call(s) sit in the pipe; the morning "
-                  "belongs to you until they wake.", None])
+        t.append([_pick([
+            "The morning is still yours - the calls will keep.",
+            "Start slow; the pipe can wait for your pace.",
+        ], seed), None])
     else:
-        t.append(["Clean hour. One true move and the day takes "
-                  "shape.", None])
+        t.append([_pick([
+            "A clean stretch of day - move at your own pace.",
+            "Nothing pressing; the day is open, and so are you.",
+            "Easy now - the day will take shape on its own.",
+        ], seed), None])
     return t, []
 
 
@@ -1074,21 +1072,33 @@ def _v_sales(p):
     over = ps.get("over", 0) or p.get("clients_overdue_n", 0)
     hot = ps.get("hottest", "")
     yest = ps.get("yest", 0)
-    if over > 0 and hot:
-        t.append([str(over) + " gone quiet - dial " + hot + " first, "
-                  "then chase the rest.", "pep_talk"])
-    elif due > 0 and hot:
-        t.append([str(due) + " waiting - " + hot + " is the one to "
-                  "move; one call, log it, next.", "pep_talk"])
+    seed = "s|" + str(p.get("today", "")) + "|" + str(p.get("hour", ""))
+    if yest > 0:
+        t.append([_pick([
+            "You closed " + str(yest) + " yesterday - that's still "
+            "humming under today.",
+            str(yest) + " closed yesterday; today gets to ride the "
+            "wave, no forcing needed.",
+            "Yesterday you won " + str(yest)
+            + " - that's your edge showing up again.",
+        ], seed), "pep_talk"])
+    elif over > 0 and hot:
+        t.append([str(over) + " went quiet - " + hot
+                  + " is still out there, whenever a hello feels right.",
+                  "pep_talk"])
     elif due > 0:
-        t.append([str(due) + " in the pipe - that's revenue sitting "
-                  "in your phone; pick it up.", "pep_talk"])
-    elif yest > 0:
-        t.append(["You closed " + str(yest) + " yesterday - stack "
-                  "today on top; queue the next draft.", "pep_talk"])
+        t.append([_pick([
+            str(due) + " waiting in the pipe - they aren't going "
+            "anywhere; call when you're ready.",
+            str(due) + " thread(s) open - one conversation at a time "
+            "is plenty.",
+        ], seed), "pep_talk"])
     else:
-        t.append(["Quiet pipe - log the next call the second it "
-                  "ends; speed feeds the queue.", "pep_talk"])
+        t.append([_pick([
+            "Quiet pipe - a good moment to simply talk to people.",
+            "Nothing urgent out there; the next call can come when it "
+            "comes.",
+        ], seed), "pep_talk"])
     return t, []
 
 
@@ -1097,15 +1107,24 @@ def _v_spirit(p):
     ps = p.get("_ps", {}) or {}
     sat = ps.get("sat_today", False)
     lw = ps.get("last_word", "") or p.get("spirit_today_word", "")
-    if not sat and lw:
-        t.append(["Not yet still - '" + lw + "' is still warm; sit "
-                  "with it a minute.", "quoted_verse"])
-    elif not sat:
-        t.append(["Five silent minutes before the phone wakes - "
-                  "that's the whole ask.", None])
+    seed = "sp|" + str(p.get("today", ""))
+    if sat:
+        t.append([_pick([
+            "You're in the quiet now - be still; the rest of the day "
+            "can wait outside.",
+            "This is the good part - stay as long as it holds.",
+            "You showed up for the quiet - that's the whole gift.",
+        ], seed), None])
+    elif lw:
+        t.append(["'" + lw + "' is still warm from the other day - "
+                  "the quiet is here whenever you are.",
+                  "quoted_verse"])
     else:
-        t.append(["You're in the quiet now - be still; the rest of "
-                  "the day can wait outside.", None])
+        t.append([_pick([
+            "The quiet is open; five minutes if they come, no pressure "
+            "either way.",
+            "God isn't counting minutes - sit when it feels right.",
+        ], seed), None])
     return t, []
 
 
@@ -1114,38 +1133,50 @@ def _v_journal(p):
     ps = p.get("_ps", {}) or {}
     jt = ps.get("j_today", False)
     ll = ps.get("last_lesson", "")
-    if not jt and ll:
-        t.append(["Blank page - the thread you keep writing is '"
-                  + ll + "'; give it today's line.", "quoted_memory"])
-    elif not jt:
-        t.append(["No line yet - one sentence is enough: what "
-                  "happened, what you learned.", None])
+    if jt:
+        t.append(["Today's already on the page - it stays with you now.",
+                  None])
+    elif ll:
+        t.append(["Yesterday left you '" + ll + "' - today can simply "
+                  "unfold; the page keeps whatever you give it.",
+                  "quoted_memory"])
     else:
-        t.append(["Today's page is open - close it with the lesson "
-                  "before it fades.", None])
+        t.append(["The day is happening; whenever you want to keep a "
+                  "line of it, the page is here.", None])
     return t, []
 
 
 def _v_body(p):
     t = []
     live = p.get("_live", {}) or {}
-    ps = p.get("_ps", {}) or {}
     ws = p.get("workout_streak", 0)
     cur = (live.get("cur_label", "") or "").lower()
     nxtl = (live.get("nxt_label", "") or "").lower()
     nht = live.get("nxt_time", "")
+    nxt_in = live.get("nxt_in")
+    seed = "b|" + str(p.get("today", ""))
     if "workout" in cur:
-        t.append(["In the movement block now - give it the full "
-                  "forty-five; the body trusts you.", None])
-    elif "workout" in nxtl:
-        t.append(["Movement is next at " + (nht or "--:--")
-                  + " - protect it like a meeting.", None])
+        t.append([_pick([
+            "In the movement block now - enjoy it; the body loves this.",
+            "You're in it - let the workout be good to you.",
+        ], seed), None])
+    elif ("workout" in nxtl and nxt_in is not None and nxt_in <= 90):
+        t.append(["Movement is coming up at " + (nht or "--:--")
+                  + " - whenever you're ready, no rush.", None])
     elif ws > 0:
-        t.append(["A " + str(ws) + "-day streak - the body trusts "
-                  "you; keep it small and consistent.", None])
+        t.append([_pick([
+            "A " + str(ws) + "-day streak humming along - the body "
+            "trusts you.",
+            str(ws) + " days of showing up; it adds up even when it "
+            "feels small.",
+        ], seed), None])
     else:
-        t.append(["No streak running - twenty minutes tonight "
-                  "resets it; small beats heroic.", None])
+        t.append([_pick([
+            "The body appreciates whatever you give it - even a short "
+            "walk counts.",
+            "No streak on the board; that's fine - move when it feels "
+            "good.",
+        ], seed), None])
     return t, []
 
 
@@ -1154,15 +1185,18 @@ def _v_focus(p):
     ps = p.get("_ps", {}) or {}
     over = ps.get("overdue", 0)
     due = ps.get("due_t", 0)
+    seed = "f|" + str(p.get("today", ""))
     if over > 0:
-        t.append([str(over) + " overdue - the smallest one first "
-                  "breaks the logjam; then one deep block.", None])
+        t.append([str(over) + " overdue - they'll keep; the smallest "
+                  "one untangles the rest, whenever.", None])
     elif due > 0:
-        t.append([str(due) + " due today - protect one "
-                  "twenty-five-minute block for the hardest.", None])
+        t.append([str(due) + " due today - one short block with the "
+                  "hardest, if today allows.", None])
     else:
-        t.append(["Nothing overdue - phones down, one tab; the quiet "
-                  "is for building, not clearing.", None])
+        t.append([_pick([
+            "Nothing overdue - the quiet is for building, slowly.",
+            "A clear list; enjoy the room to think.",
+        ], seed), None])
     return t, []
 
 
@@ -1171,9 +1205,10 @@ def _v_review(p):
     c = p.get("consistency7", 0)
     sw = p.get("sales_week", 0)
     sh = p.get("spirit_health", 0)
-    t.append(["The shape this week: consistency " + str(c) + "%, "
-              + str(sw) + " closed, spirit " + str(sh) + "% - feed "
-              "the lowest one.", None])
+    t.append(["The shape of the week: consistency " + str(c)
+              + "%, " + str(sw) + " closed, spirit " + str(sh)
+              + "% - whatever's lowest just wants a little love.",
+              None])
     return t, []
 
 
@@ -1188,18 +1223,20 @@ def _v_money(p):
     bo = ps.get("bo", 0)
     name = ps.get("name", "") or "the staple"
     if days <= 3 and bo > 0:
-        t.append([name + " at " + str(days) + "d and " + str(bo)
-                  + " bill(s) overdue - shop today, hold the fun "
-                  "top-up; basics first.", "money_advice"])
+        t.append([name + " is at " + str(days) + "d and " + str(bo)
+                  + " bill(s) overdue - worth slipping onto the shop "
+                  "list; basics first, fun later.",
+                  "money_advice"])
     elif days <= 3:
-        t.append([name + " at " + str(days) + "d - on the shop list "
-                  "today; the rest can wait.", "money_advice"])
+        t.append([name + " at " + str(days) + "d - worth adding to the "
+                  "shop list; the rest can breathe.",
+                  "money_advice"])
     elif bo > 0:
-        t.append([str(bo) + " bill(s) overdue - clear the oldest "
-                  "first; calm after.", "money_advice"])
+        t.append([str(bo) + " bill(s) overdue - the oldest one first "
+                  "buys the most calm.", "money_advice"])
     else:
-        t.append(["Books are calm - move a little into the "
-                  "ring-fence while it's quiet; protect the floor.",
+        t.append(["Books are calm - a good moment to let a little drift "
+                  "into the ring-fence, at your pace.",
                   "money_advice"])
     return t, []
 
@@ -1211,8 +1248,8 @@ def _v_quiet(p):
         t.append(["The companion is listening - your anchor holds: '"
                   + anc + "'.", None])
     else:
-        t.append(["The companion is listening - set an anchor below "
-                  "and I'll lean on it on the hard days.", None])
+        t.append(["The companion is listening - set an anchor below if "
+                  "you like, and I'll lean on it on the hard days.", None])
     bf = []
     if anc:
         bf.append("anchor set")
@@ -1229,7 +1266,6 @@ _VOICES = {
 # ---------------------------------------------------------------------------
 # compose (deterministic feel voice + optional free-tier LLM voice)
 # ---------------------------------------------------------------------------
-
 def _compose(pkt, voice, idx, fb, refl, state, allow_money, extra):
     fn = _VOICES.get(voice, _v_morning)
     tagged, base_facts = fn(pkt)
@@ -1244,12 +1280,22 @@ def _compose(pkt, voice, idx, fb, refl, state, allow_money, extra):
     else:
         cap = 3
     sents = sents[:max(1, cap)]
-    msg = " ".join(sents)
+    msg = "  ".join(sents)
     style = (_B.taste_style(state, voice, mb) if _HAS_BRAIN else "") or ""
     cite = ("— " + " · ".join(prov)) if prov else ""
     used = False
     provider = None
     perc = (extra or {}).get("perc") or {}
+    if _HAS_BRAIN:
+        try:
+            if _B.taste_nudge_off(state, voice,
+                                  pkt.get("mood_band", "none")):
+                perc = dict(perc)
+                perc["nudge"] = ""
+                extra = dict(extra or {})
+                extra["perc"] = perc
+        except Exception:
+            pass
     if _have_llm():
         lm, pn = _llm_message(pkt, voice, idx, fb, refl, state,
                               allow_money, style, brev, extra)
@@ -1272,7 +1318,6 @@ def _compose(pkt, voice, idx, fb, refl, state, allow_money, extra):
 # ---------------------------------------------------------------------------
 # free-tier LLM layer
 # ---------------------------------------------------------------------------
-
 def _retrieved_block(idx, fb, pkt, allow_money, refl, state, k=4):
     if not _HAS_BRAIN or idx is None:
         return ""
@@ -1423,7 +1468,7 @@ def _llm_message(pkt, voice, idx, fb, refl, state, allow_money,
         parts.append(perc["pulse"])
     if perc.get("nudge"):
         parts.append("")
-        parts.append("NEXT MOVE (the single most useful concrete step):")
+        parts.append("NEXT MOVE (one possible concrete step, optional):")
         parts.append(perc["nudge"])
     cb = _constraints_block(fb, pkt.get("mood_band", "none"), voice, state)
     if cb:
@@ -1518,7 +1563,6 @@ def _offline_answer(pkt, question, idx, fb, allow_money, refl, state):
 # ---------------------------------------------------------------------------
 # render
 # ---------------------------------------------------------------------------
-
 def _card_html(voice, message, cite_line, used_llm, provider, moment,
                perceive, pulse, nudge, breath, sat, pulse_once):
     label, color = VOICE_META.get(voice, ("Companion", "#8893AB"))
@@ -1562,9 +1606,10 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
     with st.expander("·  tune this voice  ·"):
         st.caption(
             "PULSE learns quietly from what you do after it speaks - you "
-            "rarely need to touch this. Open it to teach a preference, or "
-            "to ask anything. There is no like or dislike here on purpose: "
-            "rating a presence trains you to stand outside it.")
+            "rarely need to touch this. 'more playful / lighter' warms the "
+            "tone; 'just flow - no reminders' turns every nudge off. There "
+            "is no like or dislike here on purpose: rating a presence "
+            "trains you to stand outside it.")
         g = meta.get("grounds") or []
         if g:
             st.markdown(
@@ -1578,13 +1623,13 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
                 st.markdown(
                     '<div class="plc-taste">what PULSE has learned here: '
                     + _e(summ) + '</div>', unsafe_allow_html=True)
-        with st.form("plc_tune_" + voice):
+        with st.form("plc_tune" + voice):
             chips = st.multiselect(
                 "lean the next one toward", _TUNE_CHIPS,
-                key="plc_tc_" + voice)
+                key="plc_tc" + voice)
             note = st.text_input(
                 "or in your own words - what should it have leaned toward?",
-                key="plc_tn_" + voice)
+                key="plc_tn" + voice)
             ok = st.form_submit_button("save tune")
             if ok and (chips or (note or "").strip()):
                 rec = {
@@ -1601,9 +1646,9 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
                 st.success("Tuned. PULSE will lean that way next time.")
                 st.rerun()
         q = st.text_input(
-            "ask PULSE anything", key="plc_ask_" + voice,
+            "ask PULSE anything", key="plc_ask" + voice,
             placeholder="e.g. should I top up fun this week?")
-        if st.button("ask", key="plc_go_" + voice):
+        if st.button("ask", key="plc_go" + voice):
             qq = (q or "").strip()
             if qq:
                 ans, _pn = _llm_answer(pkt, voice, qq, idx, fb, refl,
@@ -1632,91 +1677,91 @@ def _companion_settings(ctx):
             st.success("Anchor saved.")
             st.rerun()
         st.markdown(
-            "**Make PULSE speak with a real model (optional, free tiers).** "
+            "Make PULSE speak with a real model (optional, free tiers). "
             "Add a [llm] table to Streamlit Cloud → Settings → Secrets with "
             "any of: groq_key, gemini_key, openrouter_key, cerebras_key, "
             "github_key, openai_key (see README for the full template). "
             "Without any key, PULSE still talks, grounded in your log and "
             "its own memory, and the ask-box answers offline.")
-    with st.expander("Memory & training (the brain)"):
-        if not _HAS_BRAIN:
-            st.caption("The brain module is not loaded; the companion is "
-                       "running on its built-in voice only.")
-        else:
-            idx = _get_index(ctx, True)
-            fb = _get_feedback()
-            refl = _get_reflection(ctx)
-            state = _get_state()
-            health = _B.memory_health(idx, state, fb, refl)
-            provs = []
-            if _HAS_ROUTER:
-                try:
-                    hs = _R.health_summary()
-                    for name, info in hs.items():
-                        ms = info.get("last_ms", 0)
-                        mdl = info.get("model", "")
-                        cooled = info.get("cooled", False)
-                        line = name + " · " + str(ms) + "ms · " + mdl
-                        if cooled:
-                            line = line + " · cooling"
-                        provs.append(line)
-                except Exception:
-                    pass
-            lf = int(st.session_state.get("_plc_lf", 0) or 0)
-            cells = (
-                '<div class="plc-health">'
-                + '<div><div class="k">memories indexed</div><div class="v">'
-                + str(health.get("memories", 0)) + '</div></div>'
-                + '<div><div class="k">semantic coverage</div><div class="v">'
-                + str(health.get("semantic_pct", 0)) + '%</div></div>'
-                + '<div><div class="k">threads detected</div><div class="v">'
-                + str(health.get("threads", 0)) + '</div></div>'
-                + '<div><div class="k">taste convergence</div><div class="v">'
-                + str(health.get("taste_convergence_pct", 0)) + '%</div></div>'
-                + '<div><div class="k">tunes recorded</div><div class="v">'
-                + str(health.get("tunes", 0)) + '</div></div>'
-                + '<div><div class="k">live facts this render</div><div class="v">'
-                + str(lf) + '</div></div>'
-                + '<div><div class="k">providers live</div><div class="v">'
-                + str(len(provs)) + '</div></div>'
-                + '<div><div class="k">page registers</div><div class="v">9</div></div>'
-                + '</div>'
-            )
-            st.markdown(cells, unsafe_allow_html=True)
-            if provs:
-                st.caption("last response latency: " + " | ".join(provs))
-            st.caption("Nine pages, nine voices - each speaks only in its "
-                       "own register, recomputed on every edit.")
-            sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
-            if sups:
-                st.caption("PULSE has learned to hold back these moves:")
-                for s in sups:
-                    st.markdown('- in **' + _e(s["page"]) + '** when **'
-                                + _e(s["mood_band"]) + '**: '
-                                + _e(s["feature"]),
-                                unsafe_allow_html=True)
+        with st.expander("Memory & training (the brain)"):
+            if not _HAS_BRAIN:
+                st.caption("The brain module is not loaded; the companion is "
+                           "running on its built-in voice only.")
             else:
-                st.caption("No learned suppressions yet. Use the tune "
-                           "drawer under any message to teach a taste.")
-            ca, cb, cc = st.columns(3)
-            with ca:
-                if st.button("Rebuild memory index", key="plc_rebuild"):
-                    _B.rebuild(_stores(ctx, True))
-                    st.success("Memory rebuilt.")
-                    st.rerun()
-            with cb:
-                if st.button("Reset learned taste", key="plc_resetfb"):
-                    _B.reset_feedback()
-                    st.success("Taste and tunes cleared.")
-                    st.rerun()
-            with cc:
-                st.download_button(
-                    "Export brain (.json)",
-                    json.dumps({"index": idx, "feedback": fb,
-                                "reflection": refl, "state": state},
-                               default=str),
-                    file_name="pulse_brain.json",
-                    mime="application/json", key="plc_expbrain")
+                idx = _get_index(ctx, True)
+                fb = _get_feedback()
+                refl = _get_reflection(ctx)
+                state = _get_state()
+                health = _B.memory_health(idx, state, fb, refl)
+                provs = []
+                if _HAS_ROUTER:
+                    try:
+                        hs = _R.health_summary()
+                        for name, info in hs.items():
+                            ms = info.get("last_ms", 0)
+                            mdl = info.get("model", "")
+                            cooled = info.get("cooled", False)
+                            line = name + " · " + str(ms) + "ms · " + mdl
+                            if cooled:
+                                line = line + " · cooling"
+                            provs.append(line)
+                    except Exception:
+                        pass
+                lf = int(st.session_state.get("_plc_lf", 0) or 0)
+                cells = (
+                    '<div class="plc-health">'
+                    + '<div><div class="k">memories indexed</div><div class="v">'
+                    + str(health.get("memories", 0)) + '</div></div>'
+                    + '<div><div class="k">semantic coverage</div><div class="v">'
+                    + str(health.get("semantic_pct", 0)) + '%</div></div>'
+                    + '<div><div class="k">threads detected</div><div class="v">'
+                    + str(health.get("threads", 0)) + '</div></div>'
+                    + '<div><div class="k">taste convergence</div><div class="v">'
+                    + str(health.get("taste_convergence_pct", 0)) + '%</div></div>'
+                    + '<div><div class="k">tunes recorded</div><div class="v">'
+                    + str(health.get("tunes", 0)) + '</div></div>'
+                    + '<div><div class="k">live facts this render</div><div class="v">'
+                    + str(lf) + '</div></div>'
+                    + '<div><div class="k">providers live</div><div class="v">'
+                    + str(len(provs)) + '</div></div>'
+                    + '<div><div class="k">page registers</div><div class="v">9</div></div>'
+                    + '</div>'
+                )
+                st.markdown(cells, unsafe_allow_html=True)
+                if provs:
+                    st.caption("last response latency: " + " | ".join(provs))
+                st.caption("Nine pages, nine voices - each speaks only in its "
+                           "own register, recomputed on every edit.")
+                sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
+                if sups:
+                    st.caption("PULSE has learned to hold back these moves:")
+                    for s in sups:
+                        st.markdown('- in ' + _e(s["page"]) + ' when '
+                                    + _e(s["mood_band"]) + ': '
+                                    + _e(s["feature"]),
+                                    unsafe_allow_html=True)
+                else:
+                    st.caption("No learned suppressions yet. Use the tune "
+                               "drawer under any message to teach a taste.")
+                ca, cb, cc = st.columns(3)
+                with ca:
+                    if st.button("Rebuild memory index", key="plc_rebuild"):
+                        _B.rebuild(_stores(ctx, True))
+                        st.success("Memory rebuilt.")
+                        st.rerun()
+                with cb:
+                    if st.button("Reset learned taste", key="plc_resetfb"):
+                        _B.reset_feedback()
+                        st.success("Taste and tunes cleared.")
+                        st.rerun()
+                with cc:
+                    st.download_button(
+                        "Export brain (.json)",
+                        json.dumps({"index": idx, "feedback": fb,
+                                    "reflection": refl, "state": state},
+                                   default=str),
+                        file_name="pulse_brain.json",
+                        mime="application/json", key="plc_expbrain")
 
 
 def panel(ctx, voice="morning", allow_money=False, ask_box=True):
@@ -1763,8 +1808,8 @@ def panel(ctx, voice="morning", allow_money=False, ask_box=True):
             pick = cand[0]
         if isinstance(pr, dict):
             pr[voice] = [pick] if pick else []
-            if isinstance(state, dict):
-                state["page_recent"] = pr
+        if isinstance(state, dict):
+            state["page_recent"] = pr
         if _HAS_BRAIN and isinstance(state, dict):
             try:
                 _B.save_state(state)
