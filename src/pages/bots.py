@@ -1,7 +1,8 @@
-"""Deriv + Alpaca bots and any other venture, plus the Deriv CONNECTED
-INTELLIGENCE panel: the trading app's AI council verdict (from
-deriv_venture_advice) as the primary read, its research patterns, and
-PULSE's own deterministic math as a cross-check.
+"""Deriv + Alpaca bots and any other venture: risk taken, what it gave
+back, and the demo-to-real transition - plus the Deriv CONNECTED
+INTELLIGENCE panel that receives live trade results, research and the
+council verdict from the trading app via Supabase, with PULSE's own
+deterministic math as a cross-check.
 """
 from __future__ import annotations
 
@@ -82,6 +83,9 @@ def _deriv_intelligence():
                 if data["connected"]
                 else UI.badge("● OFFLINE", "#F0556B"))
         bits = [chip]
+        if data.get("new_trades"):
+            bits.insert(0, UI.badge("+" + str(data["new_trades"])
+                                    + " new trade(s)", "#34D399"))
         if data.get("n_total"):
             bits.append(UI.badge(str(data["n_total"]) + " trades",
                                  "#4C8DFF"))
