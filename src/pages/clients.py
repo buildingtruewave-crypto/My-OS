@@ -1,9 +1,8 @@
 """TrueWave - the clean, read-only follow-up cockpit.
-Top of the page is the FOLLOW-BACK CLOCK: every client who asked for a
-call-back at a specific time appears with the exact time; once the time
-arrives it says FOLLOW NOW, and if it passes without a touch it flags
-MISSED until you mark it followed. Everything else is view + search; all
-filling happens on Sales.
+Shows the follow-back clock, today's call sheet, search and ALL clients
+(cash-offer clients simply appear in All Clients - no separate queue).
+Each client's journey is a neat dot-track with only the current + next
+stage named - no wall of stage labels. All filling happens on Sales.
 """
 from __future__ import annotations
 
@@ -26,6 +25,46 @@ def _fmt_when(fa):
         return d.strftime("%a %b %d · %H:%M")
     except Exception:
         return str(fa)
+
+
+def _journey_bar(c):
+    """A neat journey: a thin dot-track plus ONLY the current stage chip
+    and the next stage name. No wall of labels."""
+    cur = c.get("stage", "new")
+    journey = D.journey_ids()
+    idx = journey.index(cur) if cur in journey else -1
+    dots = []
+    for i, sid in enumerate(journey):
+        if idx >= 0 and i < idx:
+            col = "#34D399"
+            glow = ""
+        elif i == idx:
+            col = "#4C8DFF"
+            glow = "box-shadow:0 0 8px #4C8DFF;"
+        else:
+            col = "#1C2740"
+            glow = ""
+        dots.append('<span style="width:9px;height:9px;border-radius:50%;'
+                    'background:' + col + ';display:inline-block;'
+                    'flex:0 0 auto;' + glow + '"></span>')
+    bar = ('<div style="display:flex;align-items:center;gap:5px;'
+           'margin:2px 0 9px;flex-wrap:wrap">'
+           + "".join(dots) + '</div>')
+    if idx >= 0:
+        nxt_txt = ""
+        if idx + 1 < len(journey):
+            nxt_txt = ('<span class="tw-sub">next · '
+                       + html.escape(D.stage_label(journey[idx + 1],
+                                                   journey[idx + 1]))
+                       + '</span>')
+        cur_html = ('<div style="display:flex;align-items:center;gap:8px;'
+                    'flex-wrap:wrap">' + UI.stage_chip(cur)
+                    + nxt_txt + '</div>')
+    else:
+        cur_html = ('<div style="display:flex;align-items:center;gap:8px;'
+                    'flex-wrap:wrap">' + UI.stage_chip(cur)
+                    + '<span class="tw-sub">off the main path</span></div>')
+    return bar + cur_html
 
 
 def _follow_clock(ctx):
@@ -63,7 +102,6 @@ def _follow_clock(ctx):
         "Follow-Back Clock - be in the app at the time",
         "".join(rows), right=str(len(fbs)) + " scheduled"),
         unsafe_allow_html=True)
-    # quick mark-followed (completes a follow-up, not a detail entry)
     opts = {str(c.get("name", "?")) + "  ·  " + _fmt_when(fa): c
             for c, fa, _d in fbs}
     pick = st.selectbox("mark a follow-back done", list(opts.keys()),
@@ -79,6 +117,7 @@ def _follow_clock(ctx):
 def _card_html(c, today):
     stg = c.get("stage", "new")
     heat = c.get("heat", "Warm")
+    ended = bool(c.get("ended"))
     loc = str(c.get("location", "") or "").strip() or "—"
     phone = str(c.get("phone", "") or "").strip()
     try:
@@ -93,12 +132,10 @@ def _card_html(c, today):
         '<span class="tw-mute">no number</span>'
     chips = UI.stage_chip(stg) + " " + UI.badge(heat,
                                                 _HEAT.get(heat, "#7C8AA5"))
-    if c.get("ended"):
+    if ended:
         chips += " " + UI.badge("ENDED", "#7C8AA5")
     if M.is_cash_offer(c):
         chips += " " + UI.badge("CASH OFFER", "#F5B544")
-    if c.get("hold_reason"):
-        chips += " " + UI.badge(c["hold_reason"].upper(), "#FB923C")
     return ('<div class="tw-cp-top"><span class="tw-cp-name">'
             + html.escape(str(c.get("name", "?"))) + '</span>'
             '<span class="tw-cp-chips">' + chips + '</span></div>'
@@ -160,7 +197,7 @@ def _client_view(c, ctx, k):
                 + _card_html(c, today) + '</div>',
                 unsafe_allow_html=True)
     with st.expander("view full journey + thread"):
-        st.markdown(UI.stepper_html(c), unsafe_allow_html=True)
+        st.markdown(_journey_bar(c), unsafe_allow_html=True)
         kv = _journey_kv(c)
         if kv:
             st.markdown(UI.kv(kv), unsafe_allow_html=True)
@@ -179,22 +216,17 @@ def render(ctx):
     clients, today = ctx["clients"], ctx["today"]
     cc = M.client_counts(clients, today)
     sheet = M.call_sheet(clients, today)
-    cashq = M.cash_queue(clients) if hasattr(M, "cash_queue") else \
-        [c for c in clients if M.is_cash_offer(c)]
     window = M.clients_in_window(clients, today)
-    missed = M.follow_missed_count(clients, ctx["now_dt"])
     row = [
-        UI.tile("Follow Now", str(missed), "call-backs due / missed",
-                "loss" if missed else "win",
-                "loss" if missed else "ink", "clock",
-                "loss" if missed else "win", 0),
         UI.tile("Call Sheet", str(len(sheet)), "due today",
                 "win" if sheet else "mute",
-                "win" if sheet else "ink", "phone", "win", 40),
+                "win" if sheet else "ink", "phone", "win", 0),
         UI.tile("Active Pipeline", str(cc["active"]), "in journey",
-                "mute", "ink", "users", "accent", 80),
-        UI.tile("Cash-Offer Queue", str(cc["cashq"]), "rejected",
-                "mute", "ink", "cash", "out", 120),
+                "mute", "ink", "users", "accent", 40),
+        UI.tile("New This Week", str(cc["new7"]), "ads + live",
+                "mute", "ink", "bolt", "accent", 80),
+        UI.tile("Return Windows", str(len(window)), "7-day open",
+                "mute", "ink", "cal", "jewel", 120),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
                 "win" if cc["sold"] else "mute",
                 "win" if cc["sold"] else "ink", "check", "win", 160),
@@ -213,13 +245,6 @@ def render(ctx):
                     unsafe_allow_html=True)
         for c in sheet[:10]:
             _client_view(c, ctx, "sh" + c["id"])
-
-    if cashq:
-        st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
-                    'CASH-OFFER QUEUE - rejected to cash</div>',
-                    unsafe_allow_html=True)
-        for c in cashq[:8]:
-            _client_view(c, ctx, "cq" + c["id"])
 
     s1, s2 = st.columns([3, 2])
     with s1:
