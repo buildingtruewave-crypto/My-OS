@@ -87,8 +87,8 @@ def _lead_form(ctx):
 
 
 def _journey_map(c, ctx, k):
-    """Magic-tile journey map. Each stage is a glowing card. Clicking
-    a non-current tile moves the client there (with confirm)."""
+    """Magic-tile journey map. Each stage is a glowing card. Clicking a
+    non-current tile moves the client there."""
     cur = c.get("stage", "new")
     stages = D.get_stages()
     journey = D.journey_ids()
@@ -122,7 +122,6 @@ def _journey_map(c, ctx, k):
     tiles_html += '</div>'
     st.markdown(tiles_html, unsafe_allow_html=True)
 
-    # Clickable move buttons (compact row under the tiles)
     cols = st.columns(min(len(stages), 7))
     for i, s in enumerate(stages):
         sid = s["id"]
@@ -512,7 +511,6 @@ def _journey_desk(ctx):
         name_map[c["id"]] = (str(c.get("name", "?")) + "  ·  "
                              + D.stage_label(c.get("stage", "new"), "?"))
 
-    # Persist selection across reruns via session_state
     if "jd_sel_id" not in st.session_state:
         st.session_state["jd_sel_id"] = id_list[0] if id_list else ""
     sel_id = st.session_state["jd_sel_id"]
