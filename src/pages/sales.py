@@ -1,9 +1,8 @@
-"""Sales - the back office and the ONLY data-entry point for TrueWave.
-Log leads (with location), calls, stages, the two-phase credit review,
-plan selection / plan change, delivery, paid, returned / returned & exchanged,
-phone-issue service logs, hold reasons for never-started clients, and
-reopen & reschedule for ended clients - plus tally / sale / commissions /
-income and the pipeline editor.
+"""Sales - the single data-entry point. Log leads (with location), log calls
+with the exact follow-back date+time a client asks for, mark followed, move
+stages, set plans / credit / delivery / returns / exchanges, hold reasons for
+never-started clients, phone-issue logs, plus tally / sale / commissions /
+income and the pipeline editor. TrueWave stays read-only.
 """
 from __future__ import annotations
 
@@ -22,8 +21,16 @@ from .. import util as U
 _CALL_RESULTS = ["Reached - good talk", "Reached - callback asked",
                  "No answer", "Postponed", "Declined / cooling",
                  "Ended journey after call"]
-_NEXT_OPTS = [("keep today", 0), ("tomorrow", 1), ("in 2 days", 2),
-              ("in 3 days", 3), ("next week", 7)]
+_HOLD_REASONS = ["", "Cash offer given", "Under another partner",
+                 "Name mismatch", "No details", "Needs name change",
+                 "Not reached", "Not ready"]
+_PRE_CREDIT = ["pending", "PRE-APPROVED LOAN",
+               "PRE-APPROVED NOT REACHED / NOT READY",
+               "CASH OFFER - CREDIT"]
+_CREDIT = ["pending", "APPROVED - DEPOSIT & DELIVERY",
+           "CASH OFFER - CREDIT", "PLAN CHANGE - HIGHER DEPOSIT",
+           "PLAN CHANGE - SAVER PLAN", "DECLINED"]
+_RETURNS = ["RETURNED", "RETURNED & EXCHANGED"]
 
 
 def _pocket_options(vault):
@@ -58,37 +65,12 @@ def _add_lead(ctx):
                      key="cl_add") and name.strip():
             D.add_client(name.strip(), phone.strip(), source, heat,
                          want.strip(), budget.strip(), note.strip(),
-                         ctx["today_iso"], ctx["now_str"],
-                         location=loc.strip())
+                         ctx["today_iso"], ctx["now_str"])
+            newc = st.session_state["clients"][0]
+            if loc.strip():
+                D.update_client(newc["id"], {"location": loc.strip()},
+                                ctx["now_str"])
             st.rerun()
-
-
-def _bulk_import(ctx):
-    with st.expander("⤓  Bulk import clients from CSV"):
-        st.caption("Headers: name, phone, location, source, want, "
-                   "budget, heat, note (missing columns are fine).")
-        up = st.file_uploader("CSV file", type=["csv"], key="ci_csv")
-        if up is not None:
-            if st.button("Import rows", type="primary", key="ci_go"):
-                txt = up.getvalue().decode("utf-8-sig")
-                reader = csv.DictReader(io.StringIO(txt))
-                n = 0
-                for r in reader:
-                    nm = (r.get("name") or "").strip()
-                    if not nm:
-                        continue
-                    D.add_client(
-                        nm, (r.get("phone") or "").strip(),
-                        (r.get("source") or "Walk-in").strip(),
-                        (r.get("heat") or "Warm").strip(),
-                        (r.get("want") or "").strip(),
-                        (r.get("budget") or "").strip(),
-                        (r.get("note") or "bulk CSV import").strip(),
-                        ctx["today_iso"], ctx["now_str"],
-                        location=(r.get("location") or "").strip())
-                    n += 1
-                st.success("Imported " + str(n) + " clients.")
-                st.rerun()
 
 
 def _client_desk(ctx):
@@ -98,8 +80,8 @@ def _client_desk(ctx):
         st.caption("No clients yet - log a lead above.")
         return
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'CLIENT DESK - log calls / stages / credit / delivery / '
-                'returns / phone issues</div>', unsafe_allow_html=True)
+                'CLIENT DESK - log calls / follow-backs / stages / '
+                'verification</div>', unsafe_allow_html=True)
     names = [str(c.get("name", "?")) + "  ·  "
              + D.stage_label(c.get("stage", "new"), "?")
              for c in clients]
@@ -109,42 +91,63 @@ def _client_desk(ctx):
     ids = D.all_stage_ids()
 
     st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
-                'LOG A CALL / NOTE</div>', unsafe_allow_html=True)
-    r1, r2, r3 = st.columns([1.3, 1.1, 1.9])
+                'LOG A CALL / SCHEDULE FOLLOW-BACK</div>',
+                unsafe_allow_html=True)
+    r1, r2, r3 = st.columns([1.3, 1.2, 1.8])
     with r1:
         result = st.selectbox("call result", _CALL_RESULTS,
                               key="cfg_res")
     with r2:
-        nxt = st.selectbox("next call", [o[0] for o in _NEXT_OPTS],
-                           key="cfg_nxt")
+        fb_on = st.checkbox("client wants a follow-back",
+                            key="cfg_fbon")
+        fb_date = st.date_input("follow-back date", value=today,
+                                key="cfg_fbd")
     with r3:
+        fb_time = st.time_input("follow-back time",
+                                value=dt.time(14, 0), key="cfg_fbt")
         note = st.text_input("what was said", key="cfg_note")
     a1, a2 = st.columns([1, 4])
     with a1:
         if st.button("Log call", type="primary", key="cfg_log"):
-            if result == "Ended journey after call":
-                D.end_journey(c["id"], now_str,
-                              note=("Call logged - " + note.strip())
-                              if note.strip() else
-                              "Ended journey after call")
+            patch = {}
+            if fb_on:
+                fa = dt.datetime.combine(fb_date, fb_time)
+                patch["follow_at"] = fa.isoformat(timespec="minutes")
+                patch["follow_done"] = False
             else:
-                off = dict(_NEXT_OPTS)[nxt]
-                nd = ((today + dt.timedelta(days=off)).isoformat()
-                      if off > 0 else
-                      (c.get("next_date") or today.isoformat()))
-                full = result + ((" - " + note.strip())
-                                 if note.strip() else "")
-                D.update_client(c["id"],
-                                {"next_date": nd,
-                                 "next_action": "Follow-up call"},
-                                now_str, log_note=full)
+                patch["follow_at"] = ""
+            if result == "Ended journey after call":
+                D.update_client(c["id"], patch, now_str,
+                                log_note=("Call logged - " + note.strip())
+                                if note.strip() else
+                                "Ended journey after call")
+                D.end_journey if hasattr(D, "end_journey") else None
+                c2 = next((x for x in st.session_state["clients"]
+                           if x["id"] == c["id"]), None)
+                if c2 is not None:
+                    c2["ended"] = True
+                    c2["ended_date"] = today.isoformat()
+                    D.save_clients(st.session_state["clients"])
+            else:
+                D.update_client(c["id"], patch, now_str,
+                                log_note=(result + (" - " + note.strip())
+                                          if note.strip() else result))
             st.rerun()
     with a2:
-        tnote = st.text_input("quick note (no reschedule)",
-                              key="cfg_tn")
-        if st.button("Add note", key="cfg_tnb") and tnote.strip():
-            D.touch_client(c["id"], tnote.strip(), now_str)
-            st.rerun()
+        if c.get("follow_at") and not c.get("follow_done"):
+            st.caption("Follow-back scheduled: "
+                       + str(c["follow_at"]).replace("T", " · "))
+            if st.button("Mark followed", key="cfg_done"):
+                D.update_client(c["id"],
+                                {"follow_done": True, "follow_at": ""},
+                                now_str, log_note="Followed back")
+                st.rerun()
+        else:
+            tnote = st.text_input("quick note (no reschedule)",
+                                  key="cfg_tn")
+            if st.button("Add note", key="cfg_tnb") and tnote.strip():
+                D.touch_client(c["id"], tnote.strip(), now_str)
+                st.rerun()
 
     if c.get("ended"):
         e1, e2 = st.columns([1.4, 2])
@@ -156,7 +159,16 @@ def _client_desk(ctx):
                         unsafe_allow_html=True)
             if st.button("Reopen & reschedule (they reached out)",
                          type="primary", key="cfg_reopen"):
-                D.reopen_reschedule(c["id"], rd.isoformat(), now_str)
+                c["ended"] = False
+                c["ended_date"] = ""
+                c["next_date"] = rd.isoformat()
+                c["next_action"] = "Follow-up call"
+                c.setdefault("history", []).append(
+                    {"ts": now_str,
+                     "note": "Reached out - reopened, call "
+                     + rd.isoformat(),
+                     "stage": c.get("stage", "")})
+                D.save_clients(st.session_state["clients"])
                 st.rerun()
 
     g1, g2 = st.columns(2, gap="medium")
@@ -180,10 +192,9 @@ def _client_desk(ctx):
                             "Plan -> " + (plan or "none"))
             st.rerun()
         hold = st.selectbox(
-            "Never started - reason (if applicable)",
-            D.HOLD_REASONS,
-            index=D.HOLD_REASONS.index(c.get("hold_reason", ""))
-            if c.get("hold_reason", "") in D.HOLD_REASONS else 0,
+            "Never started - reason (if applicable)", _HOLD_REASONS,
+            index=_HOLD_REASONS.index(c.get("hold_reason", ""))
+            if c.get("hold_reason", "") in _HOLD_REASONS else 0,
             key="cfg_hold")
         if hold != (c.get("hold_reason") or ""):
             D.update_client(c["id"], {"hold_reason": hold}, now_str,
@@ -204,19 +215,16 @@ def _client_desk(ctx):
                             now_str, "Numbers updated")
             st.rerun()
     with g2:
-        pc = st.selectbox(
-            "Pre-approval (before credit review call)",
-            D.PRE_CREDIT_OUTCOMES,
-            index=D.PRE_CREDIT_OUTCOMES.index(c.get("pre_credit",
-                                                    "pending"))
-            if c.get("pre_credit", "pending")
-            in D.PRE_CREDIT_OUTCOMES else 0, key="cfg_pc")
-        cr = st.selectbox(
-            "Credit outcome (after credit review call)",
-            D.CREDIT_OUTCOMES,
-            index=D.CREDIT_OUTCOMES.index(c.get("credit", "pending"))
-            if c.get("credit", "pending") in D.CREDIT_OUTCOMES else 0,
-            key="cfg_cr")
+        pc = st.selectbox("Pre-approval (before credit call)",
+                          _PRE_CREDIT,
+                          index=_PRE_CREDIT.index(
+                              c.get("pre_credit", "pending"))
+                          if c.get("pre_credit", "pending")
+                          in _PRE_CREDIT else 0, key="cfg_pc")
+        cr = st.selectbox("Credit outcome (after credit call)", _CREDIT,
+                          index=_CREDIT.index(c.get("credit", "pending"))
+                          if c.get("credit", "pending") in _CREDIT
+                          else 0, key="cfg_cr")
         if st.button("Save credit", key="cfg_cs"):
             patch = {"pre_credit": pc, "credit": cr}
             if cr == "PLAN CHANGE - SAVER PLAN":
@@ -224,7 +232,7 @@ def _client_desk(ctx):
                               if p["id"] == "saver"), "")
                 if saver:
                     patch["plan"] = saver
-            if cr == D.CASH_CREDIT:
+            if cr == "CASH OFFER - CREDIT":
                 cand = D.role_id("cash")
                 if cand:
                     patch["stage"] = cand
@@ -235,7 +243,6 @@ def _client_desk(ctx):
         dr = D.role_id("delivered")
         wr = D.role_id("won")
         rr = D.role_id("returned")
-        ex = D.role_id("returned") and "exchanged"
         with b1:
             dd = st.date_input("delivered", value=today, key="cfg_dd")
             if st.button("Set delivered", key="cfg_ds",
@@ -258,8 +265,7 @@ def _client_desk(ctx):
         with b3:
             w = M.window_info(c, today)
             open_w = bool(w) and not w["closed"]
-            ro = st.selectbox("return outcome", D.RETURN_OUTCOMES,
-                              key="cfg_ro")
+            ro = st.selectbox("return outcome", _RETURNS, key="cfg_ro")
             if st.button("Mark returned", key="cfg_rt",
                          disabled=(rr is None)
                          or bool(c.get("returned")) or not open_w):
@@ -288,8 +294,13 @@ def _client_desk(ctx):
         st.markdown("<div style='height:26px'></div>",
                     unsafe_allow_html=True)
         if st.button("Add", key="cfg_padd") and issue.strip():
-            D.add_service(c["id"], issue.strip(), action.strip(),
-                          pnote.strip(), now_str)
+            c.setdefault("service", []).append(
+                {"ts": now_str, "issue": issue.strip(),
+                 "action": action.strip(), "note": pnote.strip()})
+            c.setdefault("history", []).append(
+                {"ts": now_str, "note": "Phone issue: " + issue.strip(),
+                 "stage": c.get("stage", "")})
+            D.save_clients(st.session_state["clients"])
             st.rerun()
 
 
@@ -402,7 +413,6 @@ def render(ctx):
     pnames, pids = _pocket_options(vault)
 
     _add_lead(ctx)
-    _bulk_import(ctx)
     _client_desk(ctx)
     _pipeline_editor()
 
@@ -479,12 +489,10 @@ def render(ctx):
         i1, i2 = st.columns(2)
         with i1:
             a1 = st.number_input("1st commission (KSh)", 0.0,
-                                 1000000.0, 0.0, step=50.0,
-                                 key="sl_a1")
+                                 1000000.0, 0.0, step=50.0, key="sl_a1")
         with i2:
             a2 = st.number_input("2nd commission (KSh)", 0.0,
-                                 1000000.0, 0.0, step=50.0,
-                                 key="sl_a2")
+                                 1000000.0, 0.0, step=50.0, key="sl_a2")
         if st.button("Add sale", type="primary", key="sl_add"):
             inst = []
             if a1 > 0:
@@ -495,8 +503,7 @@ def render(ctx):
                              "window": D.COMM_WINDOWS[2]})
             if inst:
                 D.add_sale({"date": sd.isoformat(),
-                            "client": cl.strip(),
-                            "phone": ph.strip(),
+                            "client": cl.strip(), "phone": ph.strip(),
                             "delivered_date": dv.isoformat(),
                             "commission": float(a1) + float(a2),
                             "inst": inst})
@@ -547,16 +554,16 @@ def render(ctx):
                         + '</div>', unsafe_allow_html=True)
         with c4:
             if editable:
-                reason = st.text_input(
-                    "reason unpaid", value=i.get("reason", ""),
-                    key="cr" + i["id"])
+                reason = st.text_input("reason unpaid",
+                                       value=i.get("reason", ""),
+                                       key="cr" + i["id"])
             else:
                 st.caption("locked - "
                            + (i.get("reason") or "no reason recorded"))
         with c5:
             if editable and not was_paid:
-                psel = st.selectbox("drop into pocket on pay",
-                                    pnames, key="cpk" + i["id"])
+                psel = st.selectbox("drop into pocket on pay", pnames,
+                                    key="cpk" + i["id"])
             elif was_paid:
                 st.caption("paid " + str(i.get("paid_date", ""))
                            + (" → " + str(i.get("paid_pocket", ""))
@@ -572,11 +579,12 @@ def render(ctx):
                         i["paid_date"] = t_iso
                         if pnames and psel != "— none —":
                             pid = pids[pnames.index(psel)]
-                            D.move_money(
-                                pid, float(i.get("amount", 0)), "in",
-                                note="commission: "
-                                + str(s.get("client", "")),
-                                time_str=now_time, txid="")
+                            D.move_money(pid,
+                                         float(i.get("amount", 0)),
+                                         "in",
+                                         note="commission: "
+                                         + str(s.get("client", "")),
+                                         time_str=now_time, txid="")
                         i["paid_pocket"] = psel
                     i["paid"] = bool(paid)
                     i["reason"] = reason.strip() if editable else \
@@ -624,10 +632,10 @@ def render(ctx):
         items = [(k, v, "#34D399") for k, v in
                  sorted(ibt.items(), key=lambda x: x[1],
                        reverse=True)]
-        st.markdown(UI.panel(
-            "By Source - since Aug 1", UI.hbars(items),
-            right=U.fmt_kes(M.income_total(income))),
-            unsafe_allow_html=True)
+        st.markdown(UI.panel("By Source - since Aug 1",
+                             UI.hbars(items),
+                             right=U.fmt_kes(M.income_total(income))),
+                    unsafe_allow_html=True)
 
     st.markdown("<div style='height:10px'></div>",
                 unsafe_allow_html=True)
