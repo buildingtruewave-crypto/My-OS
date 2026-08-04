@@ -127,7 +127,8 @@ HABITS_SEED = [
 ]
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
-    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit", "testing"),
+    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
+     "testing"),
 ]
 POSITION_SEED = [("wallet", "Cash Wallet"), ("mpesa", "M-Pesa"),
                  ("bank", "Bank Account")]
@@ -590,13 +591,22 @@ def save_spiritual(x):
     _write("spiritual.json", x)
 
 
+# ---------- events (the Signals feed) ----------
 def save_events(x):
     st.session_state["events"] = x
     _write("events.json", x)
 
 
+def get_events():
+    """Read the events ledger (Signals feed). Never crashes."""
+    v = st.session_state.get("events")
+    if isinstance(v, list):
+        return v
+    return []
+
+
 def add_event(date_iso, time_str, title, note=""):
-    ev = list(st.session_state.get("events") or [])
+    ev = list(get_events())
     ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
                   "title": title, "note": note, "done": False})
     save_events(ev)
@@ -617,7 +627,8 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
     rec = {"id": _uid(), "date": d, "time": time_str or "",
-           "txid": txid or "", "kind": kind, "amount": eff, "note": note}
+           "txid": txid or "", "kind": kind, "amount": eff,
+           "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -1182,7 +1193,7 @@ def export_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in RESTORE_KEYS:
             z.writestr(k + ".json", json.dumps(
-                st.session_state.get(k), default=str))
+                st.session_state.get(k, []), default=str))
         z.writestr("prefs.json", json.dumps({
             "name": st.session_state.get("name"),
             "accent": st.session_state.get("accent"),
