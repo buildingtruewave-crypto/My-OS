@@ -1,7 +1,8 @@
-"""Derived stats for the life OS + TrueWave pipeline. Pure read-side.
-Self-contained: defines its own pipeline helpers so it only imports names
-that exist in the original data.py. Adds the follow-back clock helpers so
-the app never lets a scheduled client call-back slip.
+"""Derived stats for the life OS, the TrueWave pipeline, the money OS, the
+pantry / runway / emergency model and the spiritual energy model. Pure
+read-side: never mutates, never auto-deducts. Also provides the
+effective-habit merge (auto-tick habits from real data) and the follow-back
+clock so the shell and TrueWave never miss a scheduled call-back.
 """
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ import calendar as _cal
 import datetime as dt
 
 from .data import (role_id, stage_color, stage_label, stage_role,
-                   terminal_ids, START_DATE)
+                   terminal_ids)
 
 CASH_CREDIT = "CASH OFFER - CREDIT"
 
@@ -17,57 +18,6 @@ CASH_CREDIT = "CASH OFFER - CREDIT"
 def _mins(t):
     h, m = str(t).split(":")
     return int(h) * 60 + int(m)
-
-
-# ---------- pipeline helpers (self-contained) ----------
-def is_cash_offer(c):
-    if not isinstance(c, dict):
-        return False
-    if c.get("stage", "") in terminal_ids():
-        return False
-    if stage_role(c.get("stage", "")) == "cash":
-        return True
-    if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
-        return True
-    if str(c.get("pre_credit", "") or "").upper() == CASH_CREDIT:
-        return True
-    return False
-
-
-def is_active_pipeline(c):
-    if not isinstance(c, dict):
-        return False
-    if c.get("ended"):
-        return False
-    if c.get("stage", "") in terminal_ids():
-        return False
-    if is_cash_offer(c):
-        return False
-    return True
-
-
-# ---------- follow-back clock ----------
-def follow_backs(clients, now_dt):
-    """Return [(client, follow_at_iso, is_due_or_missed)] sorted by time.
-    is_due_or_missed is True when the wanted time has arrived/passed and the
-    follow-back hasn't been marked done."""
-    now_iso = now_dt.isoformat()
-    out = []
-    for c in clients or []:
-        if not isinstance(c, dict):
-            continue
-        if c.get("ended") or c.get("follow_done"):
-            continue
-        fa = str(c.get("follow_at") or "")
-        if not fa:
-            continue
-        out.append((c, fa, fa <= now_iso))
-    out.sort(key=lambda x: x[1])
-    return out
-
-
-def follow_missed_count(clients, now_dt):
-    return sum(1 for _c, _fa, due in follow_backs(clients, now_dt) if due)
 
 
 # ---------- routine ----------
@@ -185,6 +135,50 @@ def consistency_by_weekday(habits, log, days=60):
             for w, v in acc.items()}
 
 
+def effective_habit_log(habits, log, journal, sales_daily, clients,
+                        weights, today):
+    """Merge manual ticks with auto-ticks derived from REAL data, so the
+    consistency wall reflects what actually happened. Never mutates the
+    stored log; only adds True where real evidence exists. The weigh-in
+    stays optional - it auto-ticks only on days a weigh-in was logged."""
+    eff = {}
+    for hid, d in (log or {}).items():
+        eff[hid] = dict(d or {})
+    journal_dates = set(str(d)[:10] for d in (journal or {}).keys())
+    sales_dates = set(str(d)[:10] for d in (sales_daily or {}).keys())
+    client_dates = set()
+    for c in (clients or []):
+        if not isinstance(c, dict):
+            continue
+        for h in (c.get("history") or []):
+            d = str((h or {}).get("ts", "") or "")[:10]
+            if d:
+                client_dates.add(d)
+    weight_dates = set(str((w or {}).get("date", "") or "")[:10]
+                       for w in (weights or []))
+    t_iso = today.isoformat() if hasattr(today, "isoformat") \
+        else str(today)[:10]
+    for h in (habits or []):
+        hid = h.get("id")
+        nm = str(h.get("name", "") or "").lower()
+        src = None
+        if "journal" in nm:
+            src = journal_dates
+        elif "sales" in nm or "rejection" in nm:
+            src = sales_dates
+        elif "client" in nm or "follow" in nm:
+            src = client_dates
+        elif "weigh" in nm:
+            src = weight_dates
+        if src is None:
+            continue
+        cur = eff.setdefault(hid, {})
+        for d in src:
+            if d and d <= t_iso and not cur.get(d):
+                cur[d] = True
+    return eff
+
+
 # ---------- goals / journal ----------
 def goal_pct(g):
     try:
@@ -231,6 +225,7 @@ def journal_completion(journal, n=30):
 
 # ---------- sales ----------
 def sales_rate(daily, today, n=30):
+    from .data import START_DATE
     start = max(START_DATE, today - dt.timedelta(days=n - 1))
     days = (today - start).days + 1
     if days <= 0:
@@ -272,6 +267,54 @@ def rejects_30d(daily, today):
 
 
 # ---------- TrueWave pipeline ----------
+def is_cash_offer(c):
+    if not isinstance(c, dict):
+        return False
+    if c.get("stage", "") in terminal_ids():
+        return False
+    if stage_role(c.get("stage", "")) == "cash":
+        return True
+    if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
+        return True
+    if str(c.get("pre_credit", "") or "").upper() == CASH_CREDIT:
+        return True
+    return False
+
+
+def is_active_pipeline(c):
+    if not isinstance(c, dict):
+        return False
+    if c.get("ended"):
+        return False
+    if c.get("stage", "") in terminal_ids():
+        return False
+    if is_cash_offer(c):
+        return False
+    return True
+
+
+def follow_backs(clients, now_dt):
+    """[(client, follow_at_iso, due_or_missed)] sorted by time."""
+    now_iso = now_dt.isoformat()
+    out = []
+    for c in (clients or []):
+        if not isinstance(c, dict):
+            continue
+        if c.get("ended") or c.get("follow_done"):
+            continue
+        fa = str(c.get("follow_at") or "")
+        if not fa:
+            continue
+        out.append((c, fa, fa <= now_iso))
+    out.sort(key=lambda x: x[1])
+    return out
+
+
+def follow_missed_count(clients, now_dt):
+    return sum(1 for _c, _fa, due in follow_backs(clients, now_dt)
+               if due)
+
+
 def client_counts(clients, today):
     t = today.isoformat()
     wk = (today + dt.timedelta(days=7)).isoformat()
@@ -279,7 +322,6 @@ def client_counts(clients, today):
     won = role_id("won")
     ret = role_id("returned")
     lost = role_id("lost")
-    live = [c for c in clients if not c.get("ended")]
     act = [c for c in clients if is_active_pipeline(c)]
     return dict(
         active=len(act),
@@ -290,10 +332,11 @@ def client_counts(clients, today):
             and t < c["next_date"] <= wk],
         new7=sum(1 for c in clients if c.get("created", "") >=
                  (today - dt.timedelta(days=6)).isoformat()),
-        sold=sum(1 for c in live if won and c.get("stage") == won),
+        sold=sum(1 for c in clients if won and c.get("stage") == won),
         cashq=sum(1 for c in clients if is_cash_offer(c)),
-        returned=sum(1 for c in live if ret and c.get("stage") == ret),
-        lost=sum(1 for c in live if lost and c.get("stage") == lost),
+        returned=sum(1 for c in clients if ret
+                     and c.get("stage") == ret),
+        lost=sum(1 for c in clients if lost and c.get("stage") == lost),
     )
 
 
@@ -578,7 +621,7 @@ def emergency_progress(vault):
     return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
 
 
-# ---------- spiritual ----------
+# ---------- spiritual energy ----------
 def _spirit_present(e):
     if not e:
         return False
@@ -693,7 +736,8 @@ def task_counts(tasks, today):
     t = today.isoformat()
     return dict(
         open=sum(1 for x in tasks if not x.get("done")),
-        done_today=sum(1 for x in tasks if x.get("done_date") == t),
+        done_today=sum(1 for x in tasks
+                       if x.get("done_date") == t),
         overdue=sum(1 for x in tasks if not x.get("done")
                     and x.get("due") and x["due"] < t),
         total=len(tasks),
@@ -708,7 +752,8 @@ def life_score(cons, jcomp, srate, goal_avg):
 
 def day_pulse(d_iso, ctx):
     clients = ctx["clients"]
-    non_t = [c for c in clients if is_active_pipeline(c)]
+    term = terminal_ids()
+    non_t = [c for c in clients if c.get("stage") not in term]
     outcomes = [c for c in clients
                 if c.get("paid_date") == d_iso
                 or c.get("returned_date") == d_iso]
@@ -718,11 +763,13 @@ def day_pulse(d_iso, ctx):
     return {
         "new_clients": [c for c in clients
                         if c.get("created") == d_iso],
-        "followups": [c for c in non_t if c.get("next_date") == d_iso],
+        "followups": [c for c in non_t
+                      if c.get("next_date") == d_iso],
         "moves": moves_on(clients, d_iso),
         "outcomes": outcomes,
         "daily": ctx["sales_daily"].get(d_iso),
-        "sales": [s for s in ctx["sales"] if s.get("date") == d_iso],
+        "sales": [s for s in ctx["sales"]
+                  if s.get("date") == d_iso],
         "inst_due": [(s, i) for s in ctx["sales"]
                      for i in s.get("inst", [])
                      if i.get("due") == d_iso],
