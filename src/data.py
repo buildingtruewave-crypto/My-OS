@@ -1,13 +1,9 @@
 """Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
-TrueWave journey model (connected, each step can end or continue):
-lead -> follow-up calls -> agreed (ID + plan + device) -> pre-screen (M-Pesa)
--> docs (ID front/back + selfie + next of kin) -> Convert Prospect ->
-System Decision (PRE-APPROVED LOAN / ID FAIL / NEXT OF KIN - CASH OFFER /
-CASH OFFER - CREDIT) -> Credit Team Call (human review:
-DEPOSIT AND DELIVERY LOCATION / CASH OFFER - CREDIT / PRE-APPROVED NOT READY /
-PRE-APPROVED NOT REACHED) -> deposit & delivery / pick-up -> ready / assigned
-/ out / delivered -> paid / declined / returned / exchanged.
+TrueWave journey model: lead -> follow-up calls -> agreed (ID + plan + device)
+-> pre-screen (M-Pesa) -> docs -> Convert Prospect -> System Decision ->
+Credit Team Call -> deposit & delivery / pick-up -> ready / assigned / out /
+delivered -> paid / declined / returned / exchanged. Each step can end.
 """
 from __future__ import annotations
 
@@ -256,6 +252,26 @@ def parse_habits_text(text):
 
 def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
+
+
+# ---------------------------------------------------------------------------
+# habit auto-fill model (also defined locally in metrics.py as a fallback)
+# ---------------------------------------------------------------------------
+def habit_source(habit):
+    name = str((habit or {}).get("name", "") or "").lower()
+    if "journal" in name:
+        return "journal"
+    if "sales" in name or "rejection" in name:
+        return "sales"
+    if "client" in name or "follow" in name:
+        return "clients"
+    if "weigh" in name or "weight" in name:
+        return "weigh"
+    return None
+
+
+def habit_optional(habit):
+    return habit_source(habit) == "weigh"
 
 
 def _seed_routine():
@@ -959,9 +975,9 @@ def add_client(name, phone, source, heat, want, budget, note,
         "deposit": 0.0, "weekly": 0.0,
         "docs": {"id_front": "pending", "id_back": "pending",
                  "selfie": "pending", "next_of_kin": "pending"},
-        "mpesa_statement": "", "prescreen": "",
-        "brief_agreed": False, "sys_decision": "", "credit_review": "",
-        "credit": "", "delivery": "", "delivery_mode": "",
+        "mpesa_statement": "", "prescreen": "", "brief_agreed": False,
+        "sys_decision": "", "credit_review": "", "credit": "",
+        "delivery": "", "delivery_mode": "",
         "delivered_date": "", "paid": False, "paid_date": "",
         "returned": False, "returned_date": "", "return_outcome": "",
         "ended": False, "ended_date": "",
@@ -1246,7 +1262,7 @@ def export_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in RESTORE_KEYS:
             z.writestr(k + ".json", json.dumps(
-                st.session_state[k], default=str))
+                st.session_state.get(k, []), default=str))
         z.writestr("prefs.json", json.dumps({
             "name": st.session_state.get("name"),
             "accent": st.session_state.get("accent"),
