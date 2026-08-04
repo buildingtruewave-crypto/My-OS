@@ -1,15 +1,14 @@
-"""Sales - the single data-entry point. Log leads (with location), log calls
-with the exact follow-back date+time a client asks for, mark followed, move
-stages, set plans / credit / delivery / returns / exchanges, hold reasons for
-never-started clients, phone-issue logs, plus tally / sale / commissions /
-income and the pipeline editor. TrueWave stays read-only.
+"""Sales - the single filling point: lead intake in the exact order
+(name, phone, source, location, wants, heat, first note), then the connected
+journey desk - call result (follow-back date+time+what was said), agreed to
+proceed (ID number + plan), pre-screen (M-Pesa), docs (ID front/back, selfie,
+next of kin), credit briefing + convert, credit outcomes, deposit & delivery
+/ pick-up, ready/assigned/out/delivered, failed with reason, paid / declined
+/ returned / exchanged. Plus tally / commissions / income.
 """
 from __future__ import annotations
 
-import csv
 import datetime as dt
-import html
-import io
 
 import streamlit as st
 
@@ -17,20 +16,6 @@ from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
-
-_CALL_RESULTS = ["Reached - good talk", "Reached - callback asked",
-                 "No answer", "Postponed", "Declined / cooling",
-                 "Ended journey after call"]
-_HOLD_REASONS = ["", "Cash offer given", "Under another partner",
-                 "Name mismatch", "No details", "Needs name change",
-                 "Not reached", "Not ready"]
-_PRE_CREDIT = ["pending", "PRE-APPROVED LOAN",
-               "PRE-APPROVED NOT REACHED / NOT READY",
-               "CASH OFFER - CREDIT"]
-_CREDIT = ["pending", "APPROVED - DEPOSIT & DELIVERY",
-           "CASH OFFER - CREDIT", "PLAN CHANGE - HIGHER DEPOSIT",
-           "PLAN CHANGE - SAVER PLAN", "DECLINED"]
-_RETURNS = ["RETURNED", "RETURNED & EXCHANGED"]
 
 
 def _pocket_options(vault):
@@ -44,8 +29,8 @@ def _plan_options():
     return [""] + [p["label"] for p in D.get_plans()]
 
 
-def _add_lead(ctx):
-    with st.expander("+  Log a new lead (a client texted / called)"):
+def _lead_form(ctx):
+    with st.expander("+  Log a new lead"):
         a, b, c3 = st.columns(3)
         with a:
             name = st.text_input("Client name", key="cl_n")
@@ -54,354 +39,339 @@ def _add_lead(ctx):
         with b:
             loc = st.text_input("Location", key="cl_loc",
                                 placeholder="e.g. Kasarani, Nairobi")
-            want = st.text_input("Wants (phone / model)", key="cl_w")
-            budget = st.text_input("Budget (KSh)", key="cl_b")
-        with c3:
+            want = st.text_input("Wants (phone model)", key="cl_w")
             heat = st.selectbox("Heat", D.HEATS, key="cl_h")
+        with c3:
             note = st.text_input(
                 "First note", key="cl_note",
                 placeholder="texted from the ad, wants an iPhone...")
         if st.button("Add lead", type="primary",
                      key="cl_add") and name.strip():
             D.add_client(name.strip(), phone.strip(), source, heat,
-                         want.strip(), budget.strip(), note.strip(),
-                         ctx["today_iso"], ctx["now_str"])
-            newc = st.session_state["clients"][0]
-            if loc.strip():
-                D.update_client(newc["id"], {"location": loc.strip()},
-                                ctx["now_str"])
+                         want.strip(), note.strip(),
+                         ctx["today_iso"], ctx["now_str"],
+                         location=loc.strip())
             st.rerun()
 
 
-def _client_desk(ctx):
-    clients = ctx["clients"]
+def _call_result(c, ctx, k):
     today, now_str = ctx["today"], ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'CALL RESULT</div>', unsafe_allow_html=True)
+    r1, r2 = st.columns([2, 1])
+    with r1:
+        result = st.selectbox("result", D.CALL_RESULTS, key=k + "res")
+    with r2:
+        fb_on = st.checkbox("follow-back", key=k + "fb")
+    if fb_on:
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            fbd = st.date_input("follow-back date", value=today,
+                                key=k + "fbd")
+        with f2:
+            fbt = st.time_input("time", key=k + "fbt")
+        with f3:
+            fbs = st.text_input("what was said", key=k + "fbs")
+    if st.button("Save call result", type="primary", key=k + "save"):
+        if result == "Agreed to proceed":
+            D.update_client(c["id"], {"stage": "agreed",
+                                      "follow_done": True},
+                            now_str, "Agreed to proceed - "
+                            "application started")
+        elif result == "Follow-back":
+            fa = dt.datetime.combine(fbd, fbt)
+            D.update_client(c["id"], {
+                "follow_at": fa.isoformat(timespec="minutes"),
+                "follow_done": False, "follow_note": fbs.strip(),
+                "stage": "followup"},
+                now_str, "Follow-back: " + (fbs or "call back"))
+        elif result == "Never started":
+            D.update_client(c["id"], {"stage": "followup",
+                                      "follow_done": False},
+                            now_str, "Never started - back to "
+                            "follow-ups")
+        elif result == "Journey ended":
+            D.end_journey(c["id"], now_str, "Journey ended")
+        else:
+            D.update_client(c["id"], {"follow_done": True},
+                            now_str, "Call: " + result)
+        st.rerun()
+
+
+def _application(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'APPLICATION - ID NUMBER + PAYMENT PLAN</div>',
+                unsafe_allow_html=True)
+    po = _plan_options()
+    a1, a2 = st.columns(2)
+    with a1:
+        idn = st.text_input("ID number", value=c.get("id_number", ""),
+                            key=k + "id")
+    with a2:
+        cur_p = c.get("plan", "") or ""
+        plan = st.selectbox("Payment plan", po,
+                            index=po.index(cur_p) if cur_p in po else 0,
+                            key=k + "pl")
+    if st.button("Save ID + plan", type="primary", key=k + "idp"):
+        D.update_client(c["id"], {"id_number": idn.strip(),
+                                  "plan": plan, "stage": "prescreen"},
+                        now_str, "ID + plan saved - to pre-screen")
+        st.rerun()
+
+
+def _prescreen(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'PRE-SCREENING (M-PESA STATEMENT)</div>',
+                unsafe_allow_html=True)
+    mp = st.text_input("M-Pesa statement ref / note",
+                       value=c.get("mpesa_statement", ""), key=k + "mp")
+    pr = st.selectbox("pre-screen result", D.PRESCREEN_RESULTS,
+                      index=D.PRESCREEN_RESULTS.index(
+                          c.get("prescreen", ""))
+                      if c.get("prescreen", "") in D.PRESCREEN_RESULTS
+                      else 0, key=k + "pr")
+    if pr == "Change payment plan":
+        agreed = st.selectbox("client agreed to new plan?",
+                              ["", "Agreed", "Undecided"], key=k + "ag")
+    if st.button("Apply pre-screen", type="primary", key=k + "go"):
+        if pr == "Qualifies":
+            D.update_client(c["id"], {"mpesa_statement": mp,
+                                      "prescreen": pr,
+                                      "stage": "docs"},
+                            now_str, "Pre-screened - qualifies")
+        elif pr == "Cash offer only":
+            D.update_client(c["id"], {"mpesa_statement": mp,
+                                      "prescreen": pr,
+                                      "stage": "cash_offer",
+                                      "ended": True,
+                                      "ended_date":
+                                      ctx["today_iso"]},
+                            now_str, "Cash offer only - journey "
+                            "ended")
+        elif pr == "Change payment plan":
+            if agreed == "Agreed":
+                D.update_client(c["id"], {"mpesa_statement": mp,
+                                          "prescreen": pr,
+                                          "plan_agreed": "yes",
+                                          "stage": "docs"},
+                                now_str, "Plan changed - agreed")
+            else:
+                D.update_client(c["id"], {"mpesa_statement": mp,
+                                          "prescreen": pr,
+                                          "plan_agreed": "no",
+                                          "stage": "undecided"},
+                                now_str, "Plan changed - undecided, "
+                                "back to calls")
+        else:
+            D.update_client(c["id"], {"mpesa_statement": mp},
+                            now_str, "M-Pesa statement logged")
+        st.rerun()
+
+
+def _docs(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'DOCS - ID FRONT/BACK + SELFIE + NEXT OF KIN</div>',
+                unsafe_allow_html=True)
+    docs = dict(c.get("docs") or {})
+    d1, d2 = st.columns(2)
+    with d1:
+        idf = st.text_input("ID front (ref)", value=docs.get(
+            "id_front", "") if docs.get("id_front") not in (
+            "pending",) else "", key=k + "idf")
+        idb = st.text_input("ID back (ref)", value=docs.get(
+            "id_back", "") if docs.get("id_back") not in (
+            "pending",) else "", key=k + "idb")
+    with d2:
+        slf = st.text_input("Clear selfie (ref)", value=docs.get(
+            "selfie", "") if docs.get("selfie") not in (
+            "pending",) else "", key=k + "sf")
+        nok = st.text_input("Next of kin", value=docs.get(
+            "next_of_kin", "") if docs.get("next_of_kin") not in (
+            "pending",) else "", key=k + "nok")
+    done_docs = idf and idb and slf and nok
+    if st.button("Save docs", type="primary", key=k + "docs",
+                 disabled=not done_docs):
+        D.update_client(c["id"], {"docs": {
+            "id_front": "received", "id_back": "received",
+            "selfie": "received", "next_of_kin": "received"},
+            "stage": "briefing"},
+            now_str, "Docs complete - to credit briefing")
+        st.rerun()
+    if not done_docs:
+        st.caption("Fill all four to move to the credit briefing.")
+
+
+def _briefing(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'CREDIT BRIEFING</div>', unsafe_allow_html=True)
+    st.caption("Brief the client so they don't mess the credit call. "
+               "Only convert once they agree.")
+    agreed = st.checkbox("client agreed to the credit call",
+                         value=bool(c.get("brief_agreed")),
+                         key=k + "ba")
+    if st.button("Convert process", type="primary", key=k + "conv",
+                 disabled=not agreed):
+        D.update_client(c["id"], {"brief_agreed": True,
+                                  "stage": "preapproved"},
+                        now_str, "Converted - PRE-APPROVED LOAN")
+        st.rerun()
+
+
+def _credit(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'CREDIT TEAM CALL OUTCOME</div>',
+                unsafe_allow_html=True)
+    co = st.selectbox("outcome", D.CREDIT_OUTCOMES,
+                      index=D.CREDIT_OUTCOMES.index(c.get("credit", ""))
+                      if c.get("credit", "") in D.CREDIT_OUTCOMES else 0,
+                      key=k + "co")
+    if st.button("Apply credit outcome", type="primary", key=k + "coa"):
+        if co == "PRE-APPROVED LOAN":
+            D.update_client(c["id"], {"credit": co, "stage": "deposit"},
+                            now_str, "Approved - deposit & delivery")
+        elif co == "CASH OFFER - CREDIT":
+            D.update_client(c["id"], {"credit": co,
+                                      "stage": "cash_offer",
+                                      "ended": True,
+                                      "ended_date": ctx["today_iso"]},
+                            now_str, "CASH OFFER - CREDIT - journey "
+                            "ended")
+        elif co == "PRE-APPROVED NOT ANSWERED":
+            D.update_client(c["id"], {"credit": co,
+                                      "stage": "pre_not_answered"},
+                            now_str, co)
+        elif co == "PRE-APPROVED NOT READY":
+            D.update_client(c["id"], {"credit": co,
+                                      "stage": "pre_not_ready"},
+                            now_str, co)
+        else:
+            D.update_client(c["id"], {"credit": co}, now_str,
+                            "Credit outcome logged")
+        st.rerun()
+
+
+def _delivery(c, ctx, k):
+    today, now_str = ctx["today"], ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'DEPOSIT &amp; DELIVERY / PICK-UP</div>',
+                unsafe_allow_html=True)
+    mode = st.selectbox("mode", D.DELIVERY_MODES,
+                        index=D.DELIVERY_MODES.index(
+                            c.get("delivery_mode", ""))
+                        if c.get("delivery_mode", "") in D.DELIVERY_MODES
+                        else 0, key=k + "mode")
+    status = st.selectbox("delivery status", D.DELIVERY_STATUSES,
+                          index=D.DELIVERY_STATUSES.index(
+                              c.get("delivery_status", ""))
+                          if c.get("delivery_status", "")
+                          in D.DELIVERY_STATUSES else 0, key=k + "st")
+    if status == "failed":
+        freason = st.text_input("failure reason", key=k + "fr")
+    if st.button("Save delivery", type="primary", key=k + "dv"):
+        patch = {"delivery_mode": mode, "delivery_status": status}
+        if status == "failed":
+            patch["failed_reason"] = freason
+            patch["stage"] = "failed_delivery"
+        elif status == "delivered":
+            patch["stage"] = "delivered"
+            patch["delivered_date"] = today.isoformat()
+        elif status in ("ready", "assigned", "out"):
+            patch["stage"] = status
+        D.update_client(c["id"], patch, now_str,
+                        "Delivery: " + (status or mode or "updated"))
+        st.rerun()
+    if c.get("stage") in ("deposit", "ready", "assigned", "out",
+                          "failed_delivery"):
+        st.caption("Client can reschedule / switch delivery vs pick-up; "
+                   "the system logs when and brings them back to calls.")
+        rd = st.date_input("bring back to calls on", value=today,
+                           key=k + "rd")
+        if st.button("Reschedule to calls", key=k + "rs"):
+            D.update_client(c["id"], {"next_date": rd.isoformat(),
+                                      "next_action": "Delivery follow-up",
+                                      "stage": "deposit"},
+                            now_str, "Rescheduled to calls on "
+                            + rd.isoformat())
+            st.rerun()
+
+
+def _outcomes(c, ctx, k):
+    today, now_str = ctx["today"], ctx["now_str"]
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        if st.button("Mark PAID", key=k + "paid",
+                     disabled=bool(c.get("paid"))):
+            D.update_client(c["id"], {"paid": True,
+                                      "paid_date": today.isoformat(),
+                                      "stage": "paid"},
+                            now_str, "Client PAID - deal closed")
+            st.rerun()
+    with t2:
+        if st.button("Declined", key=k + "dec"):
+            D.update_client(c["id"], {"stage": "declined"},
+                            now_str, "Declined at delivery")
+            st.rerun()
+    with t3:
+        if c.get("stage") == "delivered":
+            ro = st.selectbox("return outcome",
+                              ["RETURNED", "RETURNED & EXCHANGED"],
+                              key=k + "ro")
+            if st.button("Return", key=k + "ret"):
+                D.update_client(c["id"], {"returned": True,
+                                          "returned_date":
+                                          today.isoformat(),
+                                          "return_outcome": ro,
+                                          "stage": "returned"
+                                          if ro == "RETURNED"
+                                          else "exchanged"},
+                                now_str, ro)
+                st.rerun()
+
+
+def _journey_desk(ctx):
+    clients = ctx["clients"]
     if not clients:
         st.caption("No clients yet - log a lead above.")
         return
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'CLIENT DESK - log calls / follow-backs / stages / '
-                'verification</div>', unsafe_allow_html=True)
+                'CLIENT JOURNEY DESK</div>', unsafe_allow_html=True)
     names = [str(c.get("name", "?")) + "  ·  "
              + D.stage_label(c.get("stage", "new"), "?")
              for c in clients]
     sel = st.selectbox("client", range(len(clients)),
-                       format_func=lambda i: names[i], key="cfg_sel")
+                       format_func=lambda i: names[i], key="jd_sel")
     c = clients[sel]
-    ids = D.all_stage_ids()
-
-    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
-                'LOG A CALL / SCHEDULE FOLLOW-BACK</div>',
+    stg = c.get("stage", "new")
+    st.markdown(UI.badge(D.stage_label(stg, stg),
+                         D.stage_color(stg)),
                 unsafe_allow_html=True)
-    r1, r2, r3 = st.columns([1.3, 1.2, 1.8])
-    with r1:
-        result = st.selectbox("call result", _CALL_RESULTS,
-                              key="cfg_res")
-    with r2:
-        fb_on = st.checkbox("client wants a follow-back",
-                            key="cfg_fbon")
-        fb_date = st.date_input("follow-back date", value=today,
-                                key="cfg_fbd")
-    with r3:
-        fb_time = st.time_input("follow-back time",
-                                value=dt.time(14, 0), key="cfg_fbt")
-        note = st.text_input("what was said", key="cfg_note")
-    a1, a2 = st.columns([1, 4])
-    with a1:
-        if st.button("Log call", type="primary", key="cfg_log"):
-            patch = {}
-            if fb_on:
-                fa = dt.datetime.combine(fb_date, fb_time)
-                patch["follow_at"] = fa.isoformat(timespec="minutes")
-                patch["follow_done"] = False
-            else:
-                patch["follow_at"] = ""
-            if result == "Ended journey after call":
-                D.update_client(c["id"], patch, now_str,
-                                log_note=("Call logged - " + note.strip())
-                                if note.strip() else
-                                "Ended journey after call")
-                D.end_journey if hasattr(D, "end_journey") else None
-                c2 = next((x for x in st.session_state["clients"]
-                           if x["id"] == c["id"]), None)
-                if c2 is not None:
-                    c2["ended"] = True
-                    c2["ended_date"] = today.isoformat()
-                    D.save_clients(st.session_state["clients"])
-            else:
-                D.update_client(c["id"], patch, now_str,
-                                log_note=(result + (" - " + note.strip())
-                                          if note.strip() else result))
-            st.rerun()
-    with a2:
-        if c.get("follow_at") and not c.get("follow_done"):
-            st.caption("Follow-back scheduled: "
-                       + str(c["follow_at"]).replace("T", " · "))
-            if st.button("Mark followed", key="cfg_done"):
-                D.update_client(c["id"],
-                                {"follow_done": True, "follow_at": ""},
-                                now_str, log_note="Followed back")
-                st.rerun()
-        else:
-            tnote = st.text_input("quick note (no reschedule)",
-                                  key="cfg_tn")
-            if st.button("Add note", key="cfg_tnb") and tnote.strip():
-                D.touch_client(c["id"], tnote.strip(), now_str)
-                st.rerun()
-
+    kk = "jd" + c["id"]
     if c.get("ended"):
-        e1, e2 = st.columns([1.4, 2])
-        with e1:
-            rd = st.date_input("reschedule call to", value=today,
-                               key="cfg_rd")
-        with e2:
-            st.markdown("<div style='height:26px'></div>",
-                        unsafe_allow_html=True)
-            if st.button("Reopen & reschedule (they reached out)",
-                         type="primary", key="cfg_reopen"):
-                c["ended"] = False
-                c["ended_date"] = ""
-                c["next_date"] = rd.isoformat()
-                c["next_action"] = "Follow-up call"
-                c.setdefault("history", []).append(
-                    {"ts": now_str,
-                     "note": "Reached out - reopened, call "
-                     + rd.isoformat(),
-                     "stage": c.get("stage", "")})
-                D.save_clients(st.session_state["clients"])
-                st.rerun()
-
-    g1, g2 = st.columns(2, gap="medium")
-    with g1:
-        cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
-        ns = st.selectbox("Stage", ids, format_func=D.stage_label,
-                          index=cur_idx, key="cfg_st")
-        if st.button("Set stage", key="cfg_stgo"):
-            if ns != c["stage"]:
-                D.set_stage(c["id"], ns, now_str)
-                st.rerun()
-        plan_opts = _plan_options()
-        cur_p = c.get("plan", "") or ""
-        pi = plan_opts.index(cur_p) if cur_p in plan_opts else 0
-        plan = st.radio("Payment plan", plan_opts, index=pi,
-                        horizontal=True,
-                        format_func=lambda p: p or "Not chosen",
-                        key="cfg_pl")
-        if plan != cur_p:
-            D.update_client(c["id"], {"plan": plan}, now_str,
-                            "Plan -> " + (plan or "none"))
+        if st.button("Reopen journey", key=kk + "re"):
+            D.reopen_journey(c["id"], ctx["now_str"])
             st.rerun()
-        hold = st.selectbox(
-            "Never started - reason (if applicable)", _HOLD_REASONS,
-            index=_HOLD_REASONS.index(c.get("hold_reason", ""))
-            if c.get("hold_reason", "") in _HOLD_REASONS else 0,
-            key="cfg_hold")
-        if hold != (c.get("hold_reason") or ""):
-            D.update_client(c["id"], {"hold_reason": hold}, now_str,
-                            "Hold reason -> " + (hold or "none"))
-            st.rerun()
-        q1, q2 = st.columns(2)
-        with q1:
-            dep = st.number_input("Deposit (KSh)", 0.0, 1000000.0,
-                                  float(c.get("deposit", 0) or 0),
-                                  step=500.0, key="cfg_dp")
-        with q2:
-            wkly = st.number_input("Weekly (KSh)", 0.0, 1000000.0,
-                                   float(c.get("weekly", 0) or 0),
-                                   step=100.0, key="cfg_wk")
-        if st.button("Save numbers", key="cfg_sv"):
-            D.update_client(c["id"], {"deposit": float(dep),
-                                      "weekly": float(wkly)},
-                            now_str, "Numbers updated")
-            st.rerun()
-    with g2:
-        pc = st.selectbox("Pre-approval (before credit call)",
-                          _PRE_CREDIT,
-                          index=_PRE_CREDIT.index(
-                              c.get("pre_credit", "pending"))
-                          if c.get("pre_credit", "pending")
-                          in _PRE_CREDIT else 0, key="cfg_pc")
-        cr = st.selectbox("Credit outcome (after credit call)", _CREDIT,
-                          index=_CREDIT.index(c.get("credit", "pending"))
-                          if c.get("credit", "pending") in _CREDIT
-                          else 0, key="cfg_cr")
-        if st.button("Save credit", key="cfg_cs"):
-            patch = {"pre_credit": pc, "credit": cr}
-            if cr == "PLAN CHANGE - SAVER PLAN":
-                saver = next((p["label"] for p in D.get_plans()
-                              if p["id"] == "saver"), "")
-                if saver:
-                    patch["plan"] = saver
-            if cr == "CASH OFFER - CREDIT":
-                cand = D.role_id("cash")
-                if cand:
-                    patch["stage"] = cand
-            D.update_client(c["id"], patch, now_str,
-                            "Credit -> " + cr)
-            st.rerun()
-        b1, b2, b3 = st.columns(3)
-        dr = D.role_id("delivered")
-        wr = D.role_id("won")
-        rr = D.role_id("returned")
-        with b1:
-            dd = st.date_input("delivered", value=today, key="cfg_dd")
-            if st.button("Set delivered", key="cfg_ds",
-                         disabled=dr is None):
-                D.update_client(c["id"],
-                                {"delivered_date": dd.isoformat(),
-                                 "stage": dr}, now_str,
-                                "Delivered - window OPEN")
-                st.rerun()
-        with b2:
-            if st.button("Mark PAID", key="cfg_pd",
-                         disabled=(wr is None)
-                         or bool(c.get("paid"))):
-                D.update_client(c["id"],
-                                {"paid": True,
-                                 "paid_date": today.isoformat(),
-                                 "stage": wr}, now_str,
-                                "Client PAID - deal closed")
-                st.rerun()
-        with b3:
-            w = M.window_info(c, today)
-            open_w = bool(w) and not w["closed"]
-            ro = st.selectbox("return outcome", _RETURNS, key="cfg_ro")
-            if st.button("Mark returned", key="cfg_rt",
-                         disabled=(rr is None)
-                         or bool(c.get("returned")) or not open_w):
-                D.update_client(c["id"],
-                                {"returned": True,
-                                 "returned_date": today.isoformat(),
-                                 "return_outcome": ro,
-                                 "stage": "exchanged"
-                                 if ro == "RETURNED & EXCHANGED"
-                                 else rr}, now_str,
-                                "Outcome: " + ro)
-                st.rerun()
-
-    st.markdown('<div class="tw-lab" style="margin:10px 0 6px">'
-                'PHONE ISSUE LOG</div>', unsafe_allow_html=True)
-    p1, p2, p3, p4 = st.columns([1.4, 1.2, 1.4, 0.8])
-    with p1:
-        issue = st.text_input("issue", key="cfg_pi",
-                              placeholder="e.g. screen faulty")
-    with p2:
-        action = st.text_input("action", key="cfg_pa",
-                               placeholder="repair / exchange")
-    with p3:
-        pnote = st.text_input("details", key="cfg_pn")
-    with p4:
-        st.markdown("<div style='height:26px'></div>",
-                    unsafe_allow_html=True)
-        if st.button("Add", key="cfg_padd") and issue.strip():
-            c.setdefault("service", []).append(
-                {"ts": now_str, "issue": issue.strip(),
-                 "action": action.strip(), "note": pnote.strip()})
-            c.setdefault("history", []).append(
-                {"ts": now_str, "note": "Phone issue: " + issue.strip(),
-                 "stage": c.get("stage", "")})
-            D.save_clients(st.session_state["clients"])
-            st.rerun()
-
-
-def _pipeline_editor():
-    obj = D.get_pipeline_obj()
-    stages = list(obj.get("stages", []))
-    plans = list(obj.get("plans", []))
-    counts = M.stage_counts(st.session_state["clients"])
-    with st.expander("⚙  Configure my conversion pipeline & plans"):
-        st.caption("Rename, recolor, reorder or add stages; tag the "
-                   "roles the engine needs (won / lost / cash / "
-                   "delivered / returned). Edit plans too.")
-        for i, s in enumerate(stages):
-            cnt = counts.get(s["id"], 0)
-            c1, c2, c3, c4, c5, c6 = st.columns(
-                [2.6, 1.3, 1.5, 0.6, 0.6, 0.6])
-            with c1:
-                st.markdown(
-                    '<div style="padding-top:8px;font:600 13px '
-                    'var(--body);color:var(--ink-2)">'
-                    + html.escape(s.get("label", "?")) + '</div>',
-                    unsafe_allow_html=True)
-            with c2:
-                st.markdown(
-                    '<div style="padding-top:8px">'
-                    + UI.badge(D.ROLE_LABEL.get(s.get("role", ""), "—"),
-                               s.get("color", "#7C8AA5")) + '</div>',
-                    unsafe_allow_html=True)
-            with c3:
-                st.markdown(
-                    '<div style="padding-top:8px" class="tw-sub">'
-                    + ("on path" if s.get("track") else "branch")
-                    + " · " + str(cnt) + " here</div>",
-                    unsafe_allow_html=True)
-            with c4:
-                if st.button("▲", key="pu" + s["id"], disabled=i == 0):
-                    stages[i - 1], stages[i] = stages[i], stages[i - 1]
-                    obj["stages"] = stages
-                    D.save_pipeline_obj(obj)
-                    st.rerun()
-            with c5:
-                if st.button("▼", key="pd" + s["id"],
-                             disabled=i == len(stages) - 1):
-                    stages[i + 1], stages[i] = stages[i], stages[i + 1]
-                    obj["stages"] = stages
-                    D.save_pipeline_obj(obj)
-                    st.rerun()
-            with c6:
-                if st.button("✕", key="px" + s["id"],
-                             disabled=cnt > 0 or len(stages) <= 1):
-                    stages.pop(i)
-                    obj["stages"] = stages
-                    D.save_pipeline_obj(obj)
-                    st.rerun()
-        with st.form("pf"):
-            new_labels, new_colors, new_tracks, new_roles = {}, {}, {}, {}
-            for s in stages:
-                r1, r2, r3, r4 = st.columns([2.4, 1.2, 1.2, 1.8])
-                cur_role = s.get("role", "")
-                role_idx = D.ROLES.index(cur_role) \
-                    if cur_role in D.ROLES else 0
-                with r1:
-                    new_labels[s["id"]] = st.text_input(
-                        "label", value=s.get("label", ""),
-                        key="fl_" + s["id"])
-                with r2:
-                    new_colors[s["id"]] = st.color_picker(
-                        "color", value=s.get("color", "#7C8AA5"),
-                        key="fc_" + s["id"])
-                with r3:
-                    new_tracks[s["id"]] = st.checkbox(
-                        "on path", value=bool(s.get("track")),
-                        key="ft_" + s["id"])
-                with r4:
-                    new_roles[s["id"]] = st.selectbox(
-                        "role", D.ROLES, index=role_idx,
-                        format_func=lambda r: D.ROLE_LABEL.get(r, r),
-                        key="fr_" + s["id"])
-            submitted = st.form_submit_button("Save labels / roles")
-            if submitted:
-                seen, dup = {}, None
-                for sid, role in new_roles.items():
-                    if role:
-                        if role in seen:
-                            dup = role
-                            break
-                        seen[role] = sid
-                if dup:
-                    st.error("Role '" + D.ROLE_LABEL.get(dup, dup)
-                             + "' is on two stages.")
-                else:
-                    for s in stages:
-                        lab = new_labels[s["id"]].strip()
-                        s["label"] = lab or s["label"]
-                        s["color"] = new_colors[s["id"]]
-                        s["track"] = bool(new_tracks[s["id"]])
-                        s["role"] = new_roles[s["id"]]
-                    obj["stages"] = stages
-                    D.save_pipeline_obj(obj)
-                    st.success("Pipeline saved.")
-                    st.rerun()
+    if stg in ("new", "followup", "undecided"):
+        _call_result(c, ctx, kk)
+    elif stg == "agreed":
+        _application(c, ctx, kk)
+    elif stg == "prescreen":
+        _prescreen(c, ctx, kk)
+    elif stg == "docs":
+        _docs(c, ctx, kk)
+    elif stg == "briefing":
+        _briefing(c, ctx, kk)
+    elif stg in ("preapproved", "pre_not_answered", "pre_not_ready"):
+        _credit(c, ctx, kk)
+    elif stg in ("deposit", "ready", "assigned", "out",
+                 "failed_delivery"):
+        _delivery(c, ctx, kk)
+    elif stg in ("delivered",):
+        _outcomes(c, ctx, kk)
 
 
 def render(ctx):
@@ -412,9 +382,8 @@ def render(ctx):
     now_time = ctx["now_dt"].strftime("%H:%M")
     pnames, pids = _pocket_options(vault)
 
-    _add_lead(ctx)
-    _client_desk(ctx)
-    _pipeline_editor()
+    _lead_form(ctx)
+    _journey_desk(ctx)
 
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
@@ -479,8 +448,7 @@ def render(ctx):
     with f2:
         st.markdown(UI.panel(
             "Log a Sale - commissions auto-due +20 / +50 days",
-            '<div style="height:2px"></div>'),
-            unsafe_allow_html=True)
+            '<div style="height:2px"></div>'), unsafe_allow_html=True)
         sd = st.date_input("Sale date", value=today, key="sl_d")
         cl = st.text_input("Client", key="sl_c")
         ph = st.text_input("Phone / model", key="sl_p")
