@@ -1,11 +1,10 @@
-"""Empty-on-purpose, persisted life + business + money + spirit data.
+"""Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
-TrueWave journey model: a lead texts/calls -> isolated follow-up journey until
-they agree -> application -> plan selection -> docs -> credit review call
-(two phases: pre-approval before the call, final outcome after) -> deposit &
-delivery -> delivered (7-day window) -> paid / returned / returned+exchanged.
-Clients who never started carry a hold_reason. Phone issues are logged per
-client in a service log. Ended clients can always be reopened & rescheduled.
+Two locks. The outer vault (ARCHIVE_PIN) holds everyday money. Inside it, two
+sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
+heart: food security on one side, the emergency ring-fence plus any venture
+you choose to seal on the other. Sealing a venture moves it out of active
+money; the system never auto-deducts food or cash.
 """
 from __future__ import annotations
 
@@ -27,7 +26,8 @@ DEEP_PIN = "4440"
 
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "issues", "journal", "weights", "clients", "sales_daily",
-                "sales", "income", "tasks", "bots", "vault", "spiritual"]
+                "sales", "income", "tasks", "bots", "vault", "spiritual",
+                "events"]
 
 TAG_COLORS = {
     "Content": "#4C8DFF", "Sales": "#2DD4BF", "Body": "#34D399",
@@ -55,22 +55,8 @@ DOC_ITEMS = ["id_card", "selfie", "next_of_kin"]
 DOC_LABEL = {"id_card": "ID Card", "selfie": "Clear Selfie",
              "next_of_kin": "Next of Kin"}
 DOC_STATES = ["pending", "passed", "failed"]
-# Phase 1 - BEFORE the credit review call (pre-approval result).
-PRE_CREDIT_OUTCOMES = ["pending", "PRE-APPROVED LOAN",
-                       "PRE-APPROVED NOT REACHED / NOT READY",
-                       "CASH OFFER - CREDIT"]
-# Phase 2 - AFTER the credit review call (final outcome).
-CREDIT_OUTCOMES = ["pending", "APPROVED - DEPOSIT & DELIVERY",
-                   "CASH OFFER - CREDIT",
-                   "PLAN CHANGE - HIGHER DEPOSIT",
-                   "PLAN CHANGE - SAVER PLAN",
-                   "DECLINED"]
-# Why an in-system client never started (before choosing a plan).
-HOLD_REASONS = ["", "Cash offer given", "Under another partner",
-                "Name mismatch", "No details", "Needs name change",
-                "Not reached", "Not ready"]
-# Post-delivery outcomes.
-RETURN_OUTCOMES = ["RETURNED", "RETURNED & EXCHANGED"]
+CREDIT_OUTCOMES = ["pending", "APPROVED", "CASH OFFER - CREDIT",
+                   "PLAN CHANGE", "DECLINED"]
 COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
@@ -141,7 +127,8 @@ HABITS_SEED = [
 ]
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
-    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit", "testing"),
+    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
+     "testing"),
 ]
 POSITION_SEED = [("wallet", "Cash Wallet"), ("mpesa", "M-Pesa"),
                  ("bank", "Bank Account")]
@@ -313,15 +300,13 @@ def _seed_pipeline():
         ("mpesa_review", "M-Pesa Review", "#D946EF", True, ""),
         ("plan_choice", "Plan Selection", "#38BDF8", True, ""),
         ("docs", "Docs Check", "#F5B544", True, ""),
-        ("credit_call", "Credit Review Call", "#F0556B", True, ""),
+        ("credit_call", "Credit Team Call", "#F0556B", True, ""),
         ("cash_offer", "Cash Offer - Credit", "#F5B544", False, "cash"),
         ("deposit", "Deposit & Delivery", "#34D399", True, ""),
         ("delivered", "Delivered - Window Open", "#2DD4BF", True,
          "delivered"),
         ("paid", "Paid & Closed", "#34D399", True, "won"),
         ("returned", "Returned", "#F0556B", False, "returned"),
-        ("exchanged", "Returned & Exchanged", "#FB923C", False,
-         "returned"),
         ("lost", "Lost / Declined", "#7C8AA5", False, "lost"),
     ]
     plans = [
@@ -335,21 +320,6 @@ def _seed_pipeline():
                         "role": ro} for (i, l, c, tr, ro) in stages],
             "plans": [{"id": i, "label": l, "note": n}
                       for (i, l, n) in plans]}
-
-
-def _migrate_pipeline(p):
-    ids = [s["id"] for s in p.get("stages", [])]
-    if "exchanged" not in ids:
-        p["stages"].append({"id": "exchanged",
-                            "label": "Returned & Exchanged",
-                            "color": "#FB923C", "track": False,
-                            "role": "returned"})
-    for s in p.get("stages", []):
-        if s["id"] == "cash_offer":
-            s["label"] = "Cash Offer - Credit"
-        if s["id"] == "credit_call":
-            s["label"] = "Credit Review Call"
-    return p
 
 
 def get_pipeline_obj():
@@ -413,43 +383,6 @@ def journey_ids():
     return [s["id"] for s in get_stages() if s.get("track")]
 
 
-def is_terminal(c):
-    if not isinstance(c, dict):
-        return True
-    if c.get("ended"):
-        return True
-    return c.get("stage", "") in terminal_ids()
-
-
-CASH_CREDIT = "CASH OFFER - CREDIT"
-
-
-def is_cash_offer(c):
-    if not isinstance(c, dict):
-        return False
-    if c.get("stage", "") in terminal_ids():
-        return False
-    if stage_role(c.get("stage", "")) == "cash":
-        return True
-    if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
-        return True
-    if str(c.get("pre_credit", "") or "").upper() == CASH_CREDIT:
-        return True
-    return False
-
-
-def is_active_pipeline(c):
-    if not isinstance(c, dict):
-        return False
-    if c.get("ended"):
-        return False
-    if c.get("stage", "") in terminal_ids():
-        return False
-    if is_cash_offer(c):
-        return False
-    return True
-
-
 def plan_note(label):
     for p in get_plans():
         if p.get("label") == label:
@@ -502,8 +435,6 @@ def _migrate_vault(v):
 def ensure():
     prefs = _read("prefs.json") or {}
     _ensure_key("pipeline", "pipeline.json", _seed_pipeline)
-    st.session_state["pipeline"] = _migrate_pipeline(
-        st.session_state["pipeline"])
     _ensure_key("routine", "routine.json", _seed_routine)
     _ensure_key("habits", "habits.json", _seed_habits)
     _ensure_key("habit_log", "habit_log.json", dict)
@@ -519,6 +450,7 @@ def ensure():
     _ensure_key("bots", "bots.json", _seed_bots)
     _ensure_key("vault", "vault.json", _seed_vault)
     _ensure_key("spiritual", "spiritual.json", dict)
+    _ensure_key("events", "events.json", list)
     _migrate_vault(st.session_state["vault"])
     st.session_state.setdefault("name", prefs.get("name", DEFAULT_NAME))
     st.session_state.setdefault("accent",
@@ -527,14 +459,30 @@ def ensure():
                                 float(prefs.get("tz_offset", 0)))
 
 
+# get() is defensive: a newer app.py / page may ask for a store that an
+# older install hasn't created yet - return an empty shape, never crash.
+_LIST_STORES = {"goals", "issues", "weights", "clients", "sales",
+                "income", "tasks", "events"}
+_DICT_STORES = {"habit_log", "journal", "sales_daily", "vault",
+                "spiritual"}
+
+
 def get(k):
-    return st.session_state[k]
+    if k in st.session_state:
+        return st.session_state[k]
+    if k in _LIST_STORES:
+        return []
+    if k in _DICT_STORES:
+        return {}
+    return None
 
 
 def _save_prefs():
-    _write("prefs.json", {"name": st.session_state.get("name"),
-                          "accent": st.session_state.get("accent"),
-                          "tz_offset": st.session_state.get("tz_offset", 0)})
+    _write("prefs.json", {
+        "name": st.session_state.get("name"),
+        "accent": st.session_state.get("accent"),
+        "tz_offset": st.session_state.get("tz_offset", 0),
+    })
 
 
 def set_pref(key, value):
@@ -617,6 +565,18 @@ def save_spiritual(x):
     _write("spiritual.json", x)
 
 
+def save_events(x):
+    st.session_state["events"] = x
+    _write("events.json", x)
+
+
+def add_event(date_iso, time_str, title, note=""):
+    ev = list(st.session_state.get("events") or [])
+    ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
+                  "title": title, "note": note, "done": False})
+    save_events(ev)
+
+
 def move_money(pocket_id, effect, kind, note="", time_str="",
                txid="", date_iso=None):
     v = st.session_state["vault"]
@@ -631,7 +591,8 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
     rec = {"id": _uid(), "date": d, "time": time_str or "",
-           "txid": txid or "", "kind": kind, "amount": eff, "note": note}
+           "txid": txid or "", "kind": kind, "amount": eff,
+           "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -813,12 +774,12 @@ def pantry_add(name, unit, daily, category, hidden, stock=0.0):
         kk += 1
     now = U.today_local().isoformat()
     has = float(stock) > 0
-    pan["items"].append({"id": nid, "name": name.strip(),
-                         "unit": unit.strip() or "u",
-                         "stock": float(stock),
-                         "daily": max(0.0, float(daily)),
-                         "category": category, "hidden": bool(hidden),
-                         "checked": (now if has else "")})
+    pan["items"].append({
+        "id": nid, "name": name.strip(), "unit": unit.strip() or "u",
+        "stock": float(stock), "daily": max(0.0, float(daily)),
+        "category": category, "hidden": bool(hidden),
+        "checked": (now if has else ""),
+    })
     if has:
         pan["updated"] = now
     save_vault(v)
@@ -881,7 +842,8 @@ def set_runway(monthly_burn=None, emergency_months=None):
 
 
 def _cash(v):
-    return sum(float(p.get("balance", 0)) for p in v.get("positions", []))
+    return sum(float(p.get("balance", 0))
+               for p in v.get("positions", []))
 
 
 def emergency_tx(kind, amount, note=""):
@@ -896,11 +858,11 @@ def emergency_tx(kind, amount, note=""):
         applied = min(amt, float(e["balance"]))
         e["balance"] = float(e["balance"]) - applied
     if applied > 0.0001:
-        e["tx"].insert(0, {"id": _uid(),
-                           "date": U.today_local().isoformat(),
-                           "time": U.now_local().strftime("%H:%M"),
-                           "kind": kind, "amount": applied,
-                           "note": note})
+        e["tx"].insert(0, {
+            "id": _uid(), "date": U.today_local().isoformat(),
+            "time": U.now_local().strftime("%H:%M"), "kind": kind,
+            "amount": applied, "note": note,
+        })
     save_vault(v)
 
 
@@ -911,30 +873,27 @@ def emergency_ratchet():
     save_vault(v)
 
 
-# ---------- clients ----------
 def add_client(name, phone, source, heat, want, budget, note,
-               today_iso, now_str, location=""):
+               today_iso, now_str):
     clients = list(st.session_state["clients"])
     ids = all_stage_ids()
     first = ids[0] if ids else "new"
-    c = {"id": _uid(), "name": name, "phone": phone,
-         "source": source, "heat": heat, "want": want,
-         "budget": budget, "created": today_iso, "stage": first,
-         "location": location, "plan": "", "qualified": "",
-         "deposit": 0.0, "weekly": 0.0,
-         "docs": {"id_card": "pending", "selfie": "pending",
-                  "next_of_kin": "pending"},
-         "pre_credit": "pending", "credit": "pending",
-         "delivery": "pending", "hold_reason": "",
-         "delivered_date": "", "paid": False, "paid_date": "",
-         "returned": False, "returned_date": "",
-         "return_outcome": "", "service": [],
-         "next_action": "First call", "next_date": today_iso,
-         "remark": "", "why_not": "",
-         "ended": False, "ended_date": "",
-         "history": [{"ts": now_str,
-                      "note": note or ("Lead logged from " + source),
-                      "stage": first}]}
+    c = {
+        "id": _uid(), "name": name, "phone": phone,
+        "source": source, "heat": heat, "want": want,
+        "budget": budget, "created": today_iso, "stage": first,
+        "plan": "", "qualified": "", "deposit": 0.0, "weekly": 0.0,
+        "docs": {"id_card": "pending", "selfie": "pending",
+                 "next_of_kin": "pending"},
+        "credit": "pending", "delivery": "pending",
+        "delivered_date": "", "paid": False, "paid_date": "",
+        "returned": False, "returned_date": "",
+        "next_action": "First call", "next_date": today_iso,
+        "remark": "", "why_not": "",
+        "history": [{"ts": now_str,
+                     "note": note or ("Lead logged from " + source),
+                     "stage": first}],
+    }
     clients.insert(0, c)
     save_clients(clients)
 
@@ -976,57 +935,6 @@ def update_client(cid, patch, now_str, log_note=""):
         save_clients(st.session_state["clients"])
 
 
-def add_service(cid, issue, action, note, now_str):
-    c = _find_client(cid)
-    if c:
-        c.setdefault("service", []).append(
-            {"ts": now_str, "issue": issue, "action": action,
-             "note": note})
-        c.setdefault("history", []).append(
-            {"ts": now_str, "note": "Phone issue: " + issue,
-             "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
-
-
-def end_journey(cid, now_str, note=""):
-    c = _find_client(cid)
-    if c:
-        c["ended"] = True
-        c["ended_date"] = U.today_local().isoformat()
-        c.setdefault("history", []).append(
-            {"ts": now_str,
-             "note": note or "Journey ended - out of the pipeline",
-             "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
-
-
-def reopen_journey(cid, now_str, note=""):
-    c = _find_client(cid)
-    if c:
-        c["ended"] = False
-        c["ended_date"] = ""
-        c.setdefault("history", []).append(
-            {"ts": now_str, "note": note or "Journey reopened",
-             "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
-
-
-def reopen_reschedule(cid, next_date_iso, now_str, note=""):
-    c = _find_client(cid)
-    if c:
-        c["ended"] = False
-        c["ended_date"] = ""
-        c["next_date"] = next_date_iso
-        c["next_action"] = "Follow-up call"
-        c.setdefault("history", []).append(
-            {"ts": now_str,
-             "note": note or ("Reached out - reopened, call "
-                              + next_date_iso),
-             "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
-
-
-# ---------- goals / issues / weights / tasks ----------
 def add_goal(g):
     goals = list(st.session_state["goals"])
     g = dict(g)
@@ -1060,7 +968,6 @@ def add_task(t):
     save_tasks(tasks)
 
 
-# ---------- sales / income ----------
 def add_sale(s):
     sales = list(st.session_state["sales"])
     s = dict(s)
@@ -1098,7 +1005,6 @@ def add_income(date_iso, kind, amount, note):
     save_income(inc)
 
 
-# ---------- bots ----------
 def add_bot_log(date_iso, bot_id, risk, pnl, notes):
     b = st.session_state["bots"]
     b["logs"].insert(0, {"id": _uid(), "date": date_iso,
@@ -1130,20 +1036,24 @@ def _snap(v):
     cash = sum(float(p.get("balance", 0))
                for p in v.get("positions", []))
     active = sum(float(f.get("balance", 0))
-                 for f in v.get("funds", []) if not f.get("sealed"))
+                 for f in v.get("funds", [])
+                 if not f.get("sealed"))
     snaps.append({"date": today, "net": cash + active})
     snaps.sort(key=lambda s: s["date"])
     v["snapshots"] = snaps
 
 
-# ---------- backup / restore ----------
 def reset_all():
-    defaults = {"pipeline": _seed_pipeline(), "routine": _seed_routine(),
-                "habits": _seed_habits(), "habit_log": {}, "goals": [],
-                "issues": [], "journal": {}, "weights": [],
-                "clients": [], "sales_daily": {}, "sales": [],
-                "income": [], "tasks": [], "bots": _seed_bots(),
-                "vault": _seed_vault(), "spiritual": {}}
+    defaults = {
+        "pipeline": _seed_pipeline(),
+        "routine": _seed_routine(),
+        "habits": _seed_habits(),
+        "habit_log": {}, "goals": [], "issues": [],
+        "journal": {}, "weights": [], "clients": [],
+        "sales_daily": {}, "sales": [], "income": [], "tasks": [],
+        "bots": _seed_bots(), "vault": _seed_vault(),
+        "spiritual": {}, "events": [],
+    }
     for key, obj in defaults.items():
         _write(key + ".json", obj)
         st.session_state[key] = obj
@@ -1166,20 +1076,19 @@ def export_csv_zip():
     buf = io.BytesIO()
     clients = st.session_state.get("clients", [])
     c_rows = [[c.get("created", ""), c.get("name", ""),
-               c.get("phone", ""), c.get("location", ""),
-               c.get("source", ""), c.get("heat", ""),
-               c.get("want", ""), c.get("budget", ""),
-               c.get("stage", ""), c.get("plan", ""),
-               c.get("pre_credit", ""), c.get("credit", ""),
-               c.get("hold_reason", ""), c.get("next_action", ""),
+               c.get("phone", ""), c.get("source", ""),
+               c.get("heat", ""), c.get("want", ""),
+               c.get("budget", ""), c.get("stage", ""),
+               c.get("plan", ""), c.get("next_action", ""),
                c.get("next_date", ""), c.get("remark", ""),
-               c.get("paid_date", ""), c.get("returned_date", ""),
-               c.get("return_outcome", ""),
+               c.get("why_not", ""), c.get("paid_date", ""),
+               c.get("returned_date", ""),
                len(c.get("history", []))] for c in clients]
     flow = st.session_state.get("vault", {}).get("flow", [])
-    f_rows = [[x.get("date", ""), x.get("time", ""), x.get("txid", ""),
-               x.get("kind", ""), x.get("amount", ""),
-               x.get("pocket", ""), x.get("note", "")] for x in flow]
+    f_rows = [[x.get("date", ""), x.get("time", ""),
+               x.get("txid", ""), x.get("kind", ""),
+               x.get("amount", ""), x.get("pocket", ""),
+               x.get("note", "")] for x in flow]
     sales = st.session_state.get("sales", [])
     s_rows = []
     for s in sales:
@@ -1197,21 +1106,21 @@ def export_csv_zip():
                x.get("priority", ""), x.get("due", ""),
                x.get("done", "")] for x in tasks]
     pantry = st.session_state.get("vault", {}).get("pantry", {})
-    p_rows = [[x.get("name", ""), x.get("unit", ""), x.get("stock", ""),
-               x.get("daily", ""), x.get("category", ""),
-               x.get("hidden", ""), x.get("checked", "")]
+    p_rows = [[x.get("name", ""), x.get("unit", ""),
+               x.get("stock", ""), x.get("daily", ""),
+               x.get("category", ""), x.get("hidden", ""),
+               x.get("checked", "")]
               for x in pantry.get("items", [])]
     spiritual = st.session_state.get("spiritual", {})
     sp_rows = [[d, e.get("minutes", ""), e.get("depth", ""),
-                " | ".join(e.get("acts", [])), e.get("word", ""),
+                "|".join(e.get("acts", [])), e.get("word", ""),
                 e.get("felt", ""), e.get("gratitude", "")]
                for d, e in sorted(spiritual.items(), reverse=True)]
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("clients.csv", _csv_text(
-            ["created", "name", "phone", "location", "source", "heat",
-             "want", "budget", "stage", "plan", "pre_credit", "credit",
-             "hold_reason", "next_action", "next_date", "remark",
-             "paid_date", "returned_date", "return_outcome",
+            ["created", "name", "phone", "source", "heat", "want",
+             "budget", "stage", "plan", "next_action", "next_date",
+             "remark", "why_not", "paid_date", "returned_date",
              "history_count"], c_rows))
         z.writestr("flow.csv", _csv_text(
             ["date", "time", "txid", "kind", "amount", "pocket",
@@ -1239,7 +1148,7 @@ def export_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in RESTORE_KEYS:
             z.writestr(k + ".json", json.dumps(
-                st.session_state[k], default=str))
+                st.session_state.get(k), default=str))
         z.writestr("prefs.json", json.dumps({
             "name": st.session_state.get("name"),
             "accent": st.session_state.get("accent"),
@@ -1274,9 +1183,6 @@ def restore_from_zip(blob):
                         pr["tz_offset"])
         if "vault" in st.session_state:
             _migrate_vault(st.session_state["vault"])
-        if "pipeline" in st.session_state:
-            st.session_state["pipeline"] = _migrate_pipeline(
-                st.session_state["pipeline"])
     except Exception:
         pass
     return restored
