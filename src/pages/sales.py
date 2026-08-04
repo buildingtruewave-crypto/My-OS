@@ -1,12 +1,13 @@
-"""Sales - the back office. Daily tally, sale logging, commissions, income -
-plus everything moved off TrueWave: logging new leads (with location), bulk
-CSV import, the full client file / journey configuration, and the pipeline &
-plans editor. TrueWave stays a clean calling cockpit; Sales is where details
-and configuration live.
+"""Sales - the back office and the ONLY data-entry point for TrueWave.
+Log leads (with location), bulk import, log calls / notes (including
+"Ended journey after call"), move stages, docs, credit, delivery,
+paid / returned, plans & numbers, plus tally / sale / commissions / income
+and the pipeline editor. TrueWave stays a clean read-only cockpit.
 """
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import html
 import io
 
@@ -16,6 +17,17 @@ from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
 from .. import util as U
+
+_CALL_RESULTS = [
+    "Reached - good talk",
+    "Reached - callback asked",
+    "No answer",
+    "Postponed",
+    "Declined / cooling",
+    "Ended journey after call",
+]
+_NEXT_OPTS = [("keep today", 0), ("tomorrow", 1), ("in 2 days", 2),
+              ("in 3 days", 3), ("next week", 7)]
 
 
 def _pocket_options(vault):
@@ -30,7 +42,7 @@ def _plan_options():
 
 
 # ---------------------------------------------------------------------------
-# lead logging (moved from TrueWave) - location added
+# lead logging + bulk import
 # ---------------------------------------------------------------------------
 def _add_lead(ctx):
     with st.expander("+  Log a new lead (a client texted?)"):
@@ -64,9 +76,8 @@ def _add_lead(ctx):
 
 def _bulk_import(ctx):
     with st.expander("⤓  Bulk import clients from CSV"):
-        st.caption(
-            "Headers: name, phone, location, source, want, budget, heat, "
-            "note (missing columns are fine).")
+        st.caption("Headers: name, phone, location, source, want, "
+                   "budget, heat, note (missing columns are fine).")
         up = st.file_uploader("CSV file", type=["csv"], key="ci_csv")
         if up is not None:
             if st.button("Import rows", type="primary", key="ci_go"):
@@ -97,17 +108,17 @@ def _bulk_import(ctx):
 
 
 # ---------------------------------------------------------------------------
-# full client file / journey configuration (moved from TrueWave)
+# client desk - the only place calls / stages / money-on-client are logged
 # ---------------------------------------------------------------------------
-def _client_config(ctx):
+def _client_desk(ctx):
     clients = ctx["clients"]
     today, now_str = ctx["today"], ctx["now_str"]
     if not clients:
         st.caption("No clients yet - log a lead above.")
         return
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'CLIENT FILE - FULL JOURNEY &amp; CONFIGURATION</div>',
-                unsafe_allow_html=True)
+                'CLIENT DESK - LOG CALLS / NOTES / STAGES / VERIFICATION'
+                '</div>', unsafe_allow_html=True)
     names = [str(c.get("name", "?")) + "  ·  "
              + D.stage_label(c.get("stage", "new"), "?")
              for c in clients]
@@ -115,6 +126,47 @@ def _client_config(ctx):
                        format_func=lambda i: names[i], key="cfg_sel")
     c = clients[sel]
     ids = D.all_stage_ids()
+
+    st.markdown('<div class="tw-lab" style="margin:8px 0 6px">'
+                'LOG A CALL / NOTE (feeds the TrueWave thread)</div>',
+                unsafe_allow_html=True)
+    r1, r2, r3 = st.columns([1.3, 1.1, 1.9])
+    with r1:
+        result = st.selectbox("call result", _CALL_RESULTS,
+                              key="cfg_res")
+    with r2:
+        nxt = st.selectbox("next call", [o[0] for o in _NEXT_OPTS],
+                           key="cfg_nxt")
+    with r3:
+        note = st.text_input("what was said", key="cfg_note",
+                             placeholder="pick up the thread...")
+    a1, a2 = st.columns([1, 4])
+    with a1:
+        if st.button("Log call", type="primary", key="cfg_log"):
+            if result == "Ended journey after call":
+                D.end_journey(
+                    c["id"], now_str,
+                    note=("Call logged - " + note.strip())
+                    if note.strip() else "Ended journey after call")
+            else:
+                off = dict(_NEXT_OPTS)[nxt]
+                nd = ((today + dt.timedelta(days=off)).isoformat()
+                      if off > 0 else
+                      (c.get("next_date") or today.isoformat()))
+                full = result + ((" - " + note.strip())
+                                 if note.strip() else "")
+                D.update_client(c["id"],
+                                {"next_date": nd,
+                                 "next_action": "Follow-up call"},
+                                now_str, log_note=full)
+            st.rerun()
+    with a2:
+        tnote = st.text_input("quick note (no reschedule)",
+                              key="cfg_tn")
+        if st.button("Add note", key="cfg_tnb") and tnote.strip():
+            D.touch_client(c["id"], tnote.strip(), now_str)
+            st.rerun()
+
     g1, g2 = st.columns(2, gap="medium")
     with g1:
         cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
@@ -159,6 +211,18 @@ def _client_config(ctx):
                 "next_date": nd.isoformat(),
             }, now_str, "Plan / numbers / next action updated")
             st.rerun()
+        e1, e2 = st.columns(2)
+        with e1:
+            if c.get("ended"):
+                if st.button("Reopen journey", key="cfg_re"):
+                    D.reopen_journey(c["id"], now_str)
+                    st.rerun()
+            else:
+                if st.button("End journey", key="cfg_end"):
+                    D.end_journey(c["id"], now_str)
+                    st.rerun()
+        with e2:
+            st.caption("Ended clients can always be reopened.")
     with g2:
         docs = dict(c.get("docs") or {})
         dcols = st.columns(3)
@@ -248,18 +312,6 @@ def _client_config(ctx):
             D.update_client(c["id"], {"remark": rem, "why_not": why},
                             now_str)
             st.rerun()
-        e1, e2 = st.columns(2)
-        with e1:
-            if c.get("ended"):
-                if st.button("Reopen journey", key="cfg_re"):
-                    D.reopen_journey(c["id"], now_str)
-                    st.rerun()
-            else:
-                if st.button("End journey", key="cfg_end"):
-                    D.end_journey(c["id"], now_str)
-                    st.rerun()
-        with e2:
-            st.caption("Ended clients can always be reopened.")
 
 
 def _pipeline_editor():
@@ -268,10 +320,10 @@ def _pipeline_editor():
     plans = list(obj.get("plans", []))
     counts = M.stage_counts(st.session_state["clients"])
     with st.expander("⚙  Configure my conversion pipeline & plans"):
-        st.caption(
-            "Rename, recolor, reorder or add stages; mark which sit on the "
-            "linear path; tag the five roles the engine needs (won / lost / "
-            "cash / delivered / returned) - one stage each. Edit plans too.")
+        st.caption("Rename, recolor, reorder or add stages; mark which "
+                   "sit on the linear path; tag the five roles the "
+                   "engine needs (won / lost / cash / delivered / "
+                   "returned) - one stage each. Edit plans too.")
         for i, s in enumerate(stages):
             cnt = counts.get(s["id"], 0)
             c1, c2, c3, c4, c5, c6 = st.columns(
@@ -419,7 +471,7 @@ def _pipeline_editor():
 
 
 # ---------------------------------------------------------------------------
-# render - back office
+# render
 # ---------------------------------------------------------------------------
 def render(ctx):
     daily, sales = ctx["sales_daily"], ctx["sales"]
@@ -431,7 +483,7 @@ def render(ctx):
 
     _add_lead(ctx)
     _bulk_import(ctx)
-    _client_config(ctx)
+    _client_desk(ctx)
     _pipeline_editor()
 
     st.markdown("<div style='height:12px'></div>",
@@ -450,7 +502,7 @@ def render(ctx):
         UI.tile("System Rejects", str(sys30), "30 days",
                 "mute", "ink", "x", "jewel", 40),
         UI.tile("Cash-Only Rejects", str(cash30), "30 days",
-                "mute", "ink", "cash", "jewel", 80),
+                "mute", "ink", "cash", "out", 80),
         UI.tile("Commissions Pending",
                 "KSh " + U.fmt_k(com["pending"]), "expected",
                 "mute", "ink", "clock", "accent", 120),
@@ -652,7 +704,7 @@ def render(ctx):
         ibt = M.income_by_type(income)
         items = [(k, v, "#34D399") for k, v in
                  sorted(ibt.items(), key=lambda x: x[1],
-                       reverse=True)]
+                        reverse=True)]
         st.markdown(UI.panel(
             "By Source - since Aug 1", UI.hbars(items),
             right=U.fmt_kes(M.income_total(income))),
