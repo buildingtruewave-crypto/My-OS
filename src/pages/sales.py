@@ -1,16 +1,14 @@
 """Sales - lead intake + the connected journey desk + tally + commissions +
-income. The journey is a row of clickable stage cards; the current stage card
-holds that step's actions, always leaves a "continue / miracle" path forward
-and an "End journey" option, and ended clients can be reopened. Every widget
-is keyed to client + current stage so a refresh never jumps back to another
-stage or another client.
+income. The journey is a row of clickable magic-tile stage cards; the current
+stage card holds that step's actions, always leaves a "continue / miracle"
+path forward and an "End journey" option, and ended clients can be reopened.
+Every widget is keyed to client + current stage so a refresh never jumps back
+to another stage or another client. The client selector uses IDs (not indices)
+so adding a lead mid-process never shifts your selection.
 """
 from __future__ import annotations
-
 import datetime as dt
-
 import streamlit as st
-
 from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
@@ -20,6 +18,35 @@ _CALL_RESULTS = ["Follow-back", "Agreed to proceed", "No answer",
                  "Never started", "Journey ended"]
 _RESCHEDULE = [("keep today", 0), ("tomorrow", 1), ("in 2 days", 2),
                ("in 3 days", 3), ("next week", 7)]
+
+SALES_TILE_CSS = """
+<style>
+@keyframes stGlow{0%,100%{box-shadow:0 0 6px 0 var(--stc)}
+50%{box-shadow:0 0 18px 2px var(--stc)}}
+@keyframes stRise{from{opacity:0;transform:translateY(8px)}
+to{opacity:1;transform:none}}
+.st-tiles{display:flex;gap:8px;overflow-x:auto;padding:6px 0 10px;
+-webkit-overflow-scrolling:touch;}
+.st-tile{position:relative;flex:0 0 auto;min-width:110px;max-width:150px;
+padding:10px 12px;border-radius:11px;cursor:pointer;
+border:1.5px solid var(--hair);background:linear-gradient(180deg,
+var(--panel),var(--panel-2));transition:transform .18s,border-color .18s,
+box-shadow .18s;animation:stRise .4s ease both;}
+.st-tile:hover{transform:translateY(-3px);border-color:var(--stc);}
+.st-tile.st-cur{border-color:var(--stc);
+box-shadow:0 0 12px 0 var(--stc);animation:stGlow 2.2s ease-in-out infinite;}
+.st-tile.st-done{opacity:.72;}
+.st-tile.st-done::after{content:'✓';position:absolute;top:5px;right:7px;
+font:700 10px var(--mono);color:var(--win);}
+.st-tile.st-future{opacity:.45;}
+.st-tile-name{font:700 10.5px/1.25 var(--disp);color:var(--ink);
+letter-spacing:.02em;margin-bottom:4px;word-break:break-word;}
+.st-tile-bar{height:3px;border-radius:2px;background:var(--stc);
+margin-top:6px;opacity:.85;}
+.st-tile-idx{font:600 8px var(--mono);color:var(--mute);
+letter-spacing:.06em;}
+</style>
+"""
 
 
 def _pocket_options(vault):
@@ -60,31 +87,56 @@ def _lead_form(ctx):
 
 
 def _journey_map(c, ctx, k):
-    """Clickable stage cards. Clicking a card moves the client there
-    (with confirm). Current card glows."""
+    """Magic-tile journey map. Each stage is a glowing card. Clicking
+    a non-current tile moves the client there (with confirm)."""
     cur = c.get("stage", "new")
     stages = D.get_stages()
+    journey = D.journey_ids()
+    cur_idx = journey.index(cur) if cur in journey else -1
+
+    st.markdown(SALES_TILE_CSS, unsafe_allow_html=True)
+    tiles_html = '<div class="st-tiles">'
+    for i, s in enumerate(stages):
+        sid = s["id"]
+        col = s.get("color", "#7C8AA5")
+        is_cur = (sid == cur)
+        if cur_idx >= 0 and sid in journey:
+            sidx = journey.index(sid)
+            if sidx < cur_idx:
+                cls = "st-done"
+            elif sidx == cur_idx:
+                cls = "st-cur"
+            else:
+                cls = "st-future"
+        elif is_cur:
+            cls = "st-cur"
+        else:
+            cls = "st-future"
+        tiles_html += (
+            '<div class="st-tile ' + cls + '" style="--stc:' + col + '">'
+            '<div class="st-tile-idx">' + str(i + 1) + '</div>'
+            '<div class="st-tile-name">'
+            + str(s.get("label", sid)) + '</div>'
+            '<div class="st-tile-bar"></div>'
+            '</div>')
+    tiles_html += '</div>'
+    st.markdown(tiles_html, unsafe_allow_html=True)
+
+    # Clickable move buttons (compact row under the tiles)
     cols = st.columns(min(len(stages), 7))
     for i, s in enumerate(stages):
         sid = s["id"]
-        is_cur = sid == cur
+        is_cur = (sid == cur)
         with cols[i % len(cols)]:
-            col = s.get("color", "#7C8AA5")
-            glow = (";box-shadow:0 0 0 2px " + col
-                    if is_cur else "")
             if st.button(
                     ("● " if is_cur else "○ ")
-                    + s.get("label", sid),
+                    + s.get("label", sid)[:18],
                     key=k + "mv" + sid,
-                    help=("current" if is_cur
-                         else "move client here")):
+                    help=("current stage" if is_cur
+                          else "move client here")):
                 if sid != cur:
                     D.set_stage(c["id"], sid, ctx["now_str"])
                     st.rerun()
-            st.markdown(
-                '<div style="height:3px;border-radius:2px;margin:-6px '
-                '0 8px;background:' + (col if is_cur else "var(--hair)")
-                + glow + '"></div>', unsafe_allow_html=True)
 
 
 def _end_reopen(c, ctx, k):
@@ -136,7 +188,8 @@ def _stage_actions(c, ctx, k):
                     "follow_done": False,
                     "follow_note": fbs.strip() if fb_on else "",
                     "stage": "followup"},
-                    now_str, "Follow-back: " + (fbs if fb_on else "call back"))
+                    now_str, "Follow-back: "
+                    + (fbs if fb_on else "call back"))
             elif result == "Never started":
                 D.update_client(c["id"], {"stage": "followup",
                                           "follow_done": False},
@@ -193,6 +246,7 @@ def _stage_actions(c, ctx, k):
                           if c.get("prescreen", "")
                           in D.PRESCREEN_RESULTS else 0,
                           key=k + "pr" + stg)
+        agreed = ""
         if pr == "Change payment plan":
             agreed = st.selectbox("client agreed to new plan?",
                                   ["", "Agreed", "Undecided"],
@@ -302,7 +356,8 @@ def _stage_actions(c, ctx, k):
                 D.update_client(c["id"], {"sys_decision": sd,
                                           "stage": "docs"},
                                 now_str, "ID FAIL - back to docs")
-            elif sd in ("NEXT OF KIN - CASH OFFER", "CASH OFFER - CREDIT"):
+            elif sd in ("NEXT OF KIN - CASH OFFER",
+                        "CASH OFFER - CREDIT"):
                 D.update_client(c["id"], {"sys_decision": sd,
                                           "stage": "cash_offer"},
                                 now_str, sd)
@@ -358,8 +413,10 @@ def _stage_actions(c, ctx, k):
                               if c.get("delivery_status", "")
                               in D.DELIVERY_STATUSES else 0,
                               key=k + "st" + stg)
+        freason = ""
         if status == "failed":
-            freason = st.text_input("failure reason", key=k + "fr" + stg)
+            freason = st.text_input("failure reason",
+                                    key=k + "fr" + stg)
         if st.button("Save delivery", type="primary",
                      key=k + "dv" + stg):
             patch = {"delivery_mode": mode, "delivery_status": status}
@@ -442,19 +499,41 @@ def _journey_desk(ctx):
         st.caption("No clients yet - log a lead above.")
         return
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'CLIENT JOURNEY DESK - click a stage card to move the '
-                'client; every step can continue or end</div>',
+                'CLIENT JOURNEY DESK - click a stage tile to move the '
+                'client; every step saves and you can continue later'
+                '</div>',
                 unsafe_allow_html=True)
-    names = [str(c.get("name", "?")) + "  ·  "
-             + D.stage_label(c.get("stage", "new"), "?")
-             for c in clients]
-    sel = st.selectbox("client", range(len(clients)),
-                       format_func=lambda i: names[i], key="jd_sel")
-    c = clients[sel]
+
+    # ID-based selectbox: adding a lead never shifts your selection
+    id_map = {c["id"]: c for c in clients}
+    id_list = [c["id"] for c in clients]
+    name_map = {}
+    for c in clients:
+        name_map[c["id"]] = (str(c.get("name", "?")) + "  ·  "
+                             + D.stage_label(c.get("stage", "new"), "?"))
+
+    # Persist selection across reruns via session_state
+    if "jd_sel_id" not in st.session_state:
+        st.session_state["jd_sel_id"] = id_list[0] if id_list else ""
+    sel_id = st.session_state["jd_sel_id"]
+    if sel_id not in id_map and id_list:
+        sel_id = id_list[0]
+        st.session_state["jd_sel_id"] = sel_id
+
+    chosen = st.selectbox("client", id_list,
+                          format_func=lambda cid: name_map.get(cid, cid),
+                          index=id_list.index(sel_id)
+                          if sel_id in id_list else 0,
+                          key="jd_sel_id")
+    c = id_map.get(chosen)
+    if c is None:
+        st.caption("Select a client above.")
+        return
+
     k = "jd" + c["id"]
     st.markdown(UI.badge(D.stage_label(c.get("stage", "new"), "?"),
                          D.stage_color(c.get("stage", "new")))
-                + "  " + UI.badge(c.get("heat", "Warm"), "#F5B544"),
+                + "   " + UI.badge(c.get("heat", "Warm"), "#F5B544"),
                 unsafe_allow_html=True)
     _journey_map(c, ctx, k)
     _stage_actions(c, ctx, k)
@@ -473,9 +552,9 @@ def render(ctx):
 
     _lead_form(ctx)
     _journey_desk(ctx)
-
     st.markdown("<div style='height:12px'></div>",
                 unsafe_allow_html=True)
+
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     sys30, cash30 = M.rejects_30d(daily, today)
     com = M.commission_stats(sales, t_iso)
@@ -688,7 +767,7 @@ def render(ctx):
         ibt = M.income_by_type(income)
         items = [(k, v, "#34D399") for k, v in
                  sorted(ibt.items(), key=lambda x: x[1],
-                       reverse=True)]
+                        reverse=True)]
         st.markdown(UI.panel("By Source - since Aug 1", UI.hbars(items),
                              right=U.fmt_kes(M.income_total(income))),
                     unsafe_allow_html=True)
