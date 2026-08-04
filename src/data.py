@@ -91,7 +91,7 @@ ROUTINE_SEED = [
     ("15:00", "Log promised clients + remarks", "Sales", "weekdays"),
     ("15:30", "Schedule tomorrow's TikToks", "Content", "weekdays"),
     ("16:30", "Bus home", "Life", "weekdays"),
-    ("18:30", "Home - unwind", "Rest", "weekdays"),
+    ("18:30", "Home - blunt + unwind", "Rest", "weekdays"),
     ("19:00", "Music - free creative time", "Rest", "all"),
     ("20:00", "Workout - 45 min", "Body", "all"),
     ("20:45", "Shower", "Body", "all"),
@@ -127,8 +127,7 @@ HABITS_SEED = [
 ]
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
-    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
-     "testing"),
+    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit", "testing"),
 ]
 POSITION_SEED = [("wallet", "Cash Wallet"), ("mpesa", "M-Pesa"),
                  ("bank", "Bank Account")]
@@ -247,6 +246,32 @@ def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
 
 
+# ---------------------------------------------------------------------------
+# habit auto-fill model: which habits map to REAL data, and which stay
+# optional. The weigh-in is optional - it auto-ticks only on days a weigh-in
+# was logged and never counts against consistency.
+# ---------------------------------------------------------------------------
+def habit_source(habit):
+    """Return the real-data source that auto-fills this habit, or None if
+    the habit is manual (ticked by hand)."""
+    name = str(habit.get("name", "") or "").lower()
+    if "journal" in name:
+        return "journal"
+    if "sales" in name or "rejection" in name:
+        return "sales"
+    if "client" in name or "follow" in name:
+        return "clients"
+    if "weigh" in name or "weight" in name:
+        return "weigh"
+    return None
+
+
+def habit_optional(habit):
+    """Optional habits (the weigh-in) are tracked when they happen but are
+    never counted against consistency - they are not daily duties."""
+    return habit_source(habit) == "weigh"
+
+
 def _seed_routine():
     return [{"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
             for (t, l, tg, sc) in ROUTINE_SEED]
@@ -301,7 +326,7 @@ def _seed_pipeline():
         ("plan_choice", "Plan Selection", "#38BDF8", True, ""),
         ("docs", "Docs Check", "#F5B544", True, ""),
         ("credit_call", "Credit Team Call", "#F0556B", True, ""),
-        ("cash_offer", "Cash Offer - Credit", "#F5B544", False, "cash"),
+        ("cash_offer", "CASH OFFER - CREDIT", "#F5B544", False, "cash"),
         ("deposit", "Deposit & Delivery", "#34D399", True, ""),
         ("delivered", "Delivered - Window Open", "#2DD4BF", True,
          "delivered"),
@@ -459,8 +484,8 @@ def ensure():
                                 float(prefs.get("tz_offset", 0)))
 
 
-# get() is defensive: a newer app.py / page may ask for a store that an
-# older install hasn't created yet - return an empty shape, never crash.
+# get() is defensive: a newer app.py / page may ask for a store an older
+# install hasn't created yet - return an empty shape, never crash.
 _LIST_STORES = {"goals", "issues", "weights", "clients", "sales",
                 "income", "tasks", "events"}
 _DICT_STORES = {"habit_log", "journal", "sales_daily", "vault",
@@ -577,6 +602,7 @@ def add_event(date_iso, time_str, title, note=""):
     save_events(ev)
 
 
+# ---------- the single writer that moves real money ----------
 def move_money(pocket_id, effect, kind, note="", time_str="",
                txid="", date_iso=None):
     v = st.session_state["vault"]
@@ -591,8 +617,7 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
     rec = {"id": _uid(), "date": d, "time": time_str or "",
-           "txid": txid or "", "kind": kind, "amount": eff,
-           "note": note}
+           "txid": txid or "", "kind": kind, "amount": eff, "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -615,6 +640,7 @@ def add_position(name):
     save_vault(v)
 
 
+# ---------- bills / fun / items / funds ----------
 def bill_tx(bid, kind, amount):
     v = st.session_state["vault"]
     for b in v["bills"]:
@@ -760,6 +786,7 @@ def unseal_fund(fid):
     save_vault(v)
 
 
+# ---------- pantry ----------
 def _pantry(v):
     return v.setdefault("pantry", _seed_pantry())
 
@@ -831,6 +858,7 @@ def pantry_remove(vid):
     save_vault(v)
 
 
+# ---------- runway + emergency ----------
 def set_runway(monthly_burn=None, emergency_months=None):
     v = st.session_state["vault"]
     r = v.setdefault("runway", dict(RUNWAY_SEED))
@@ -873,6 +901,7 @@ def emergency_ratchet():
     save_vault(v)
 
 
+# ---------- clients ----------
 def add_client(name, phone, source, heat, want, budget, note,
                today_iso, now_str):
     clients = list(st.session_state["clients"])
@@ -935,6 +964,7 @@ def update_client(cid, patch, now_str, log_note=""):
         save_clients(st.session_state["clients"])
 
 
+# ---------- goals / issues / weights / tasks ----------
 def add_goal(g):
     goals = list(st.session_state["goals"])
     g = dict(g)
@@ -968,6 +998,7 @@ def add_task(t):
     save_tasks(tasks)
 
 
+# ---------- sales / income ----------
 def add_sale(s):
     sales = list(st.session_state["sales"])
     s = dict(s)
@@ -1005,6 +1036,7 @@ def add_income(date_iso, kind, amount, note):
     save_income(inc)
 
 
+# ---------- bots ----------
 def add_bot_log(date_iso, bot_id, risk, pnl, notes):
     b = st.session_state["bots"]
     b["logs"].insert(0, {"id": _uid(), "date": date_iso,
@@ -1030,6 +1062,7 @@ def set_bot_status(bot_id, status, date_iso):
     save_bots(b)
 
 
+# ---------- net worth snapshot (cash + active ventures) ----------
 def _snap(v):
     today = U.today_local().isoformat()
     snaps = [s for s in v.get("snapshots", []) if s["date"] != today]
@@ -1043,6 +1076,7 @@ def _snap(v):
     v["snapshots"] = snaps
 
 
+# ---------- backup / restore ----------
 def reset_all():
     defaults = {
         "pipeline": _seed_pipeline(),
