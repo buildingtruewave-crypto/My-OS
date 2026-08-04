@@ -4,11 +4,10 @@ guarded import from data, so this module can never raise ImportError no
 matter which data.py version is present.
 """
 from __future__ import annotations
-
 import calendar as _cal
 import datetime as dt
-
-from .data import (role_id, stage_color, stage_label, terminal_ids)
+from .data import (role_id, stage_color, stage_label, terminal_ids,
+                   EVENT_COLOR)
 
 try:
     from .data import habit_source as _habit_source
@@ -750,3 +749,28 @@ def day_pulse(d_iso, ctx):
         "events": events,
         "spiritual": spiritual_energy(se) if se is not None else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Signals page helpers
+# ---------------------------------------------------------------------------
+def signal_counts(events, today_iso):
+    evs = events or []
+    today_n = sum(1 for e in evs if e.get("date") == today_iso)
+    auto_n = sum(1 for e in evs if e.get("autopilot"))
+    return {"today": today_n, "autopilot": auto_n, "total": len(evs)}
+
+
+def signal_feed(events, limit=30):
+    out = []
+    for e in (events or [])[:limit]:
+        etype = e.get("type", "")
+        out.append({
+            "date": e.get("date", ""),
+            "time": e.get("time", ""),
+            "label": e.get("title", ""),
+            "detail": e.get("note", ""),
+            "autopilot": bool(e.get("autopilot")),
+            "color": EVENT_COLOR.get(etype, "#8893AB"),
+        })
+    return out
