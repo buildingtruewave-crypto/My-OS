@@ -1,15 +1,11 @@
 """TrueWave - the living, read-only view of every client journey. Each card
-carries name, tap-to-dial phone, location, ID number, heat, a phase-based
-journey map (Call System / Application / Credit / Delivery / Outcome) with
-the current stage glowing, and the conversation thread. ID number is
-searchable. All filling lives on Sales.
+carries name, tap-to-dial phone, location, ID number, heat, and the
+conversation thread. ID number is searchable. All filling lives on Sales.
 """
 from __future__ import annotations
-
+import datetime as dt
 import html
-
 import streamlit as st
-
 from .. import data as D
 from .. import metrics as M
 from .. import ui as UI
@@ -44,36 +40,6 @@ def _status(c):
     return ("IN JOURNEY", D.stage_color(c.get("stage", "new")))
 
 
-def _journey_map(c):
-    cur = c.get("stage", "new")
-    journey = D.journey_ids()
-    idx = journey.index(cur) if cur in journey else -1
-    out = []
-    for pname, ids, pcol in PHASES:
-        active_phase = cur in ids
-        chips = []
-        for sid in ids:
-            if sid == cur:
-                chips.append('<span style="background:' + pcol
-                             + ';color:#04101f;font-weight:800;'
-                             'padding:3px 8px;border-radius:999px;'
-                             'font:700 9px var(--mono);">'
-                             + html.escape(D.stage_label(sid, sid))
-                             + '</span>')
-            else:
-                chips.append('<span style="color:var(--mute);'
-                             'font:600 9px var(--mono);padding:3px 4px;">'
-                             + html.escape(D.stage_label(sid, sid))
-                             + '</span>')
-        head = ('<span style="color:' + (pcol if active_phase
-                else "var(--mute)") + ';font:700 10px var(--disp);'
-                'letter-spacing:.14em;">' + pname + '</span>')
-        out.append('<div style="margin:6px 0;">' + head
-                   + '<div style="display:flex;gap:4px;flex-wrap:wrap;'
-                   'margin-top:4px;">' + "".join(chips) + '</div></div>')
-    return '<div style="margin:6px 0 4px;">' + "".join(out) + '</div>'
-
-
 def _card(c, ctx, k):
     today = ctx["today"]
     st_label, st_color = _status(c)
@@ -98,35 +64,12 @@ def _card(c, ctx, k):
         '<span class="tw-cp-name">'
         + html.escape(str(c.get("name", "?"))) + '</span>'
         '<span class="tw-cp-chips">' + UI.badge(st_label, st_color)
-        + " " + UI.badge(heat, _HEAT.get(heat, "#7C8AA5"))
+        + "  " + UI.badge(heat, _HEAT.get(heat, "#7C8AA5"))
         + '</span></div>'
         '<div class="tw-cp-meta">' + plink + idhtml + '  ·  📍 '
         + html.escape(loc) + '  ·  ' + str(days) + 'd</div></div>',
         unsafe_allow_html=True)
-    with st.expander("view journey + thread"):
-        st.markdown(_journey_map(c), unsafe_allow_html=True)
-        kv = []
-        if c.get("follow_at") and not c.get("follow_done"):
-            kv.append(("Follow-back", html.escape(
-                str(c["follow_at"]).replace("T", " · "))))
-        if c.get("plan"):
-            kv.append(("Plan", html.escape(c["plan"])))
-        if c.get("prescreen"):
-            kv.append(("Pre-screen", html.escape(c["prescreen"])))
-        if c.get("credit"):
-            kv.append(("Credit", html.escape(c["credit"])))
-        if c.get("delivery_mode"):
-            kv.append(("Delivery", html.escape(c["delivery_mode"])))
-        if c.get("failed_reason"):
-            kv.append(("Failed", html.escape(c["failed_reason"])))
-        if c.get("delivered_date"):
-            kv.append(("Delivered", html.escape(c["delivered_date"])))
-        if c.get("paid_date"):
-            kv.append(("Paid", html.escape(c["paid_date"])))
-        if c.get("returned_date"):
-            kv.append(("Returned", html.escape(c["returned_date"])))
-        if kv:
-            st.markdown(UI.kv(kv), unsafe_allow_html=True)
+    with st.expander("view conversation thread"):
         st.markdown('<div class="tw-lab" style="margin:8px 0 4px">'
                     'CONVERSATION THREAD</div>',
                     unsafe_allow_html=True)
@@ -161,21 +104,18 @@ def render(ctx):
     ]
     st.markdown(UI.tiles_grid(row, 6), unsafe_allow_html=True)
     st.caption("Read-only. Log leads, calls and journey steps on Sales.")
-
     if sheet:
         st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
                     "TODAY'S CALL SHEET - hottest first</div>",
                     unsafe_allow_html=True)
         for c in sheet[:10]:
             _card(c, ctx, "sh" + c["id"])
-
     if cashq:
         st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
                     'CASH-OFFER QUEUE - rejected to cash</div>',
                     unsafe_allow_html=True)
         for c in cashq[:8]:
             _card(c, ctx, "cq" + c["id"])
-
     s1, s2 = st.columns([3, 2])
     with s1:
         q = st.text_input("search (name / phone / ID number)",
