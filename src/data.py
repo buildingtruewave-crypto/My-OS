@@ -258,6 +258,26 @@ def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
 
 
+def habit_source(habit):
+    """Which real-data source auto-fills this habit, or None if manual."""
+    name = str((habit or {}).get("name", "") or "").lower()
+    if "journal" in name:
+        return "journal"
+    if "sales" in name or "rejection" in name:
+        return "sales"
+    if "client" in name or "follow" in name:
+        return "clients"
+    if "weigh" in name or "weight" in name:
+        return "weigh"
+    return None
+
+
+def habit_optional(habit):
+    """Optional habits (the weigh-in) are tracked when they happen but are
+    never counted against consistency - they are not daily duties."""
+    return habit_source(habit) == "weigh"
+
+
 def _seed_routine():
     return [{"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
             for (t, l, tg, sc) in ROUTINE_SEED]
