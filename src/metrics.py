@@ -1,8 +1,10 @@
 """Derived stats for the life OS, the TrueWave pipeline, the money OS, the
 pantry / runway / emergency model and the spiritual energy model. Pure
-read-side: never mutates, never auto-deducts. Also provides the
-effective-habit merge (auto-tick habits from real data) and the follow-back
-clock so the shell and TrueWave never miss a scheduled call-back.
+read-side: never mutates, never auto-deducts. Self-contained pipeline helpers
+(is_cash_offer / is_active_pipeline), the follow-back clock, and the
+effective-habit merge (auto-tick habits from real data) are included so every
+page version is satisfied. Life score blends consistency / journal / sales /
+goals / spirit.
 """
 from __future__ import annotations
 
@@ -621,7 +623,7 @@ def emergency_progress(vault):
     return max(0.0, min(100.0, emergency_balance(vault) / t * 100))
 
 
-# ---------- spiritual energy ----------
+# ---------- spiritual energy (derived, never random) ----------
 def _spirit_present(e):
     if not e:
         return False
@@ -745,8 +747,11 @@ def task_counts(tasks, today):
     )
 
 
-def life_score(cons, jcomp, srate, goal_avg):
-    v = cons * 0.4 + jcomp * 0.2 + srate * 0.2 + goal_avg * 0.2
+def life_score(cons, jcomp, srate, goal_avg, spirit=0.0):
+    """Blend: consistency 35, journal 15, sales 15, goals 15, spirit 20.
+    The spirit input is optional so older 4-value calls still work."""
+    v = (cons * 0.35 + jcomp * 0.15 + srate * 0.15
+         + goal_avg * 0.15 + spirit * 0.20)
     return int(max(0, min(100, round(v))))
 
 
