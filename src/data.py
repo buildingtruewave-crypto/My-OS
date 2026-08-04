@@ -3,12 +3,9 @@ Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
 Two locks. The outer vault (ARCHIVE_PIN) holds everyday money. Inside it, two
 sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
 heart. Sealing a venture moves it out of active money; nothing auto-deducts.
-
-TrueWave journey model: a lead texts/calls -> isolated follow-up (call system)
-until they agree -> application (ID + plan) -> pre-screen (M-Pesa) -> docs ->
-credit briefing -> credit call outcomes -> deposit & delivery / pick-up ->
-ready / assigned / out / delivered -> paid / declined / failed -> returned /
-exchanged. Every stage can be a final one; stages never mix.
+Also carries the TrueWave journey model, the Signals engine constants
+(CONNECTIONS / EVENT_*), the events ledger, and habit auto-fill helpers.
+Adding attributes here never breaks existing pages.
 """
 from __future__ import annotations
 
@@ -149,6 +146,103 @@ BILL_SEED = [("rent", "Rent"), ("power", "Power (KPLC)"),
 FUND_SEED = [("hho", "HHO Carbon Cleaning - Nairobi",
               150000.0, 200000.0, "2027-01-31")]
 
+# ---------------------------------------------------------------------------
+# Signals engine - declarative map + labels + colours (read by signals.py)
+# ---------------------------------------------------------------------------
+CONNECTIONS = {
+    "client_added": [
+        ("pipeline", "enters the active pipeline + call sheet"),
+        ("journal", "shows in Day Pulse as a new inquiry"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "stage_moved": [
+        ("pipeline", "pipeline counts + funnel re-flow instantly"),
+        ("callsheet", "call sheet re-sorts by next action"),
+        ("journal", "client touch lands in Day Pulse"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "client_called": [
+        ("callsheet", "drops off today's Call Sheet immediately"),
+        ("pipeline", "next call auto-scheduled to the chosen day"),
+        ("journal", "logged as a client touch"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "credit_cash_offer": [
+        ("cash_queue", "auto-loads into the Cash-Offer Queue (rejected)"),
+        ("task", "auto-creates a cash-offer follow-up task"),
+        ("pipeline", "removed from the active pipeline - it is a rejection"),
+        ("signals", "highlighted on the Signals feed"),
+    ],
+    "client_delivered": [
+        ("window", "7-day return window opens"),
+        ("commission", "commission windows start (+20/+50)"),
+        ("journal", "logged as an outcome"),
+    ],
+    "client_paid": [
+        ("sold", "Paid & Closed increments everywhere"),
+        ("cash_queue", "leaves the Cash-Offer Queue - it is won"),
+        ("income", "ready to record as Commission income"),
+        ("stats", "TrueWave KPIs update"),
+    ],
+    "client_returned": [
+        ("returned", "Returned increments + window closes"),
+        ("cash_queue", "leaves the Cash-Offer Queue"),
+        ("journal", "logged as an outcome"),
+    ],
+    "journey_ended": [
+        ("pipeline", "leaves call sheet, active count, follow-ups"),
+        ("cash_queue", "STAYS in the Cash-Offer Queue - rejection list"),
+        ("journal", "removed from live Day Pulse"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "journey_reopened": [
+        ("pipeline", "re-enters the active pipeline"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "sale_logged": [
+        ("commission", "instalments auto-due +20/+50 days"),
+        ("income", "pending commission tracked"),
+        ("journal", "appears in Day Pulse"),
+        ("stats", "sales KPIs update"),
+    ],
+    "commission_paid": [
+        ("vault", "cash drops into the chosen pocket (live)"),
+        ("flow", "a Daily Flow entry is written"),
+        ("stats", "collected commissions update"),
+    ],
+    "income_added": [
+        ("vault", "optionally drops into a pocket"),
+        ("stats", "income-by-source updates"),
+    ],
+    "task_added": [
+        ("focus", "appears on Tasks + Focus voice"),
+        ("now", "counts on the Now dashboard"),
+    ],
+}
+EVENT_LABELS = {
+    "client_added": "Lead logged", "stage_moved": "Stage moved",
+    "client_called": "Called & rescheduled",
+    "credit_cash_offer": "Cash offer issued",
+    "credit_set": "Credit outcome", "client_delivered": "Delivered",
+    "client_paid": "Paid & closed", "client_returned": "Returned",
+    "journey_ended": "Journey ended",
+    "journey_reopened": "Journey reopened",
+    "sale_logged": "Sale logged",
+    "commission_paid": "Commission collected",
+    "income_added": "Income recorded", "task_added": "Task created",
+    "touch": "Client touch", "plan_set": "Plan chosen", "note": "Note",
+}
+EVENT_COLOR = {
+    "client_added": "#4C8DFF", "stage_moved": "#2DD4BF",
+    "client_called": "#38BDF8", "credit_cash_offer": "#F5B544",
+    "credit_set": "#8B7CFF", "client_delivered": "#2DD4BF",
+    "client_paid": "#34D399", "client_returned": "#F0556B",
+    "journey_ended": "#7C8AA5", "journey_reopened": "#34D399",
+    "sale_logged": "#34D399", "commission_paid": "#34D399",
+    "income_added": "#34D399", "task_added": "#8B7CFF",
+    "touch": "#2DD4BF", "plan_set": "#38BDF8", "note": "#8893AB",
+}
+
 
 def _uid():
     return str(uuid.uuid4())[:8]
@@ -258,8 +352,10 @@ def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
 
 
+# ---------------------------------------------------------------------------
+# habit auto-fill model
+# ---------------------------------------------------------------------------
 def habit_source(habit):
-    """Which real-data source auto-fills this habit, or None if manual."""
     name = str((habit or {}).get("name", "") or "").lower()
     if "journal" in name:
         return "journal"
@@ -273,8 +369,6 @@ def habit_source(habit):
 
 
 def habit_optional(habit):
-    """Optional habits (the weigh-in) are tracked when they happen but are
-    never counted against consistency - they are not daily duties."""
     return habit_source(habit) == "weigh"
 
 
@@ -323,29 +417,24 @@ def _seed_vault():
 
 def _seed_pipeline():
     stages = [
-        # CALL SYSTEM
         ("new", "New Lead", "#4C8DFF", True, ""),
         ("followup", "Follow-Up Calls", "#F5B544", True, ""),
         ("undecided", "Undecided - Plan Changed", "#8B7CFF", True, ""),
-        # APPLICATION
         ("agreed", "Agreed to Proceed", "#2DD4BF", True, ""),
         ("prescreen", "Pre-Screening (M-Pesa)", "#38BDF8", True, ""),
         ("docs", "Docs - ID / Selfie / Next of Kin", "#F5B544", True, ""),
         ("briefing", "Credit Briefing", "#2DD4BF", True, ""),
-        # CREDIT
         ("preapproved", "PRE-APPROVED LOAN", "#34D399", True, ""),
         ("pre_not_answered", "PRE-APPROVED NOT ANSWERED", "#F5B544",
          True, ""),
         ("pre_not_ready", "PRE-APPROVED NOT READY", "#F0556B", True, ""),
         ("cash_offer", "CASH OFFER - CREDIT", "#FB923C", False, "cash"),
-        # DELIVERY
         ("deposit", "Deposit & Delivery / Pick-Up", "#34D399", True, ""),
         ("ready", "Ready for Delivery", "#2DD4BF", True, ""),
         ("assigned", "Assigned", "#4C8DFF", True, ""),
         ("out", "Out for Delivery", "#38BDF8", True, ""),
         ("delivered", "Delivered", "#34D399", True, "delivered"),
         ("failed_delivery", "Failed Delivery", "#F0556B", True, ""),
-        # OUTCOMES (each can be final)
         ("paid", "Paid & Closed", "#34D399", False, "won"),
         ("declined", "Declined", "#F0556B", False, "lost"),
         ("returned", "Returned", "#F0556B", False, "returned"),
@@ -370,9 +459,10 @@ _OLD_STAGE_MAP = {
     "no_pickup": "followup", "picked": "followup",
     "declined_call": "followup", "application": "agreed",
     "mpesa_review": "prescreen", "plan_choice": "agreed",
-    "credit_call": "briefing", "cash_offer": "cash_offer",
-    "deposit": "deposit", "delivered": "delivered",
-    "paid": "paid", "returned": "returned", "lost": "lost",
+    "docs": "docs", "credit_call": "briefing",
+    "cash_offer": "cash_offer", "deposit": "deposit",
+    "delivered": "delivered", "paid": "paid",
+    "returned": "returned", "lost": "lost",
 }
 
 
@@ -562,6 +652,24 @@ def get(k):
     return None
 
 
+# ---------- events ledger (Signals feed) ----------
+def get_events():
+    v = st.session_state.get("events")
+    return v if isinstance(v, list) else []
+
+
+def save_events(x):
+    st.session_state["events"] = x
+    _write("events.json", x)
+
+
+def add_event(date_iso, time_str, title, note=""):
+    ev = list(get_events())
+    ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
+                  "title": title, "note": note, "done": False})
+    save_events(ev)
+
+
 def _save_prefs():
     _write("prefs.json", {
         "name": st.session_state.get("name"),
@@ -650,23 +758,6 @@ def save_spiritual(x):
     _write("spiritual.json", x)
 
 
-def save_events(x):
-    st.session_state["events"] = x
-    _write("events.json", x)
-
-
-def get_events():
-    v = st.session_state.get("events")
-    return v if isinstance(v, list) else []
-
-
-def add_event(date_iso, time_str, title, note=""):
-    ev = list(get_events())
-    ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
-                  "title": title, "note": note, "done": False})
-    save_events(ev)
-
-
 # ---------- the single writer that moves real money ----------
 def move_money(pocket_id, effect, kind, note="", time_str="",
                txid="", date_iso=None):
@@ -682,8 +773,7 @@ def move_money(pocket_id, effect, kind, note="", time_str="",
     p["balance"] = float(p.get("balance", 0)) + eff
     d = date_iso or U.today_local().isoformat()
     rec = {"id": _uid(), "date": d, "time": time_str or "",
-           "txid": txid or "", "kind": kind, "amount": eff,
-           "note": note}
+           "txid": txid or "", "kind": kind, "amount": eff, "note": note}
     p.setdefault("tx", []).insert(0, dict(rec))
     flow_rec = dict(rec)
     flow_rec["id"] = _uid()
@@ -965,7 +1055,7 @@ def emergency_ratchet():
 
 
 # ---------- clients ----------
-def add_client(name, phone, source, heat, want, note,
+def add_client(name, phone, source, heat, want, budget, note,
                today_iso, now_str, location=""):
     clients = list(st.session_state["clients"])
     ids = all_stage_ids()
@@ -973,21 +1063,21 @@ def add_client(name, phone, source, heat, want, note,
     c = {
         "id": _uid(), "name": name, "phone": phone,
         "source": source, "heat": heat, "want": want,
-        "location": location, "created": today_iso, "stage": first,
+        "budget": budget, "location": location,
+        "created": today_iso, "stage": first,
         "id_number": "", "plan": "", "qualified": "",
         "deposit": 0.0, "weekly": 0.0,
         "mpesa_statement": "", "prescreen": "", "plan_agreed": "",
         "docs": {"id_front": "pending", "id_back": "pending",
                  "selfie": "pending", "next_of_kin": "pending"},
         "brief_agreed": False, "credit": "",
-        "delivery_mode": "", "delivery_status": "",
-        "failed_reason": "",
+        "delivery_mode": "", "delivery_status": "", "failed_reason": "",
         "delivered_date": "", "paid": False, "paid_date": "",
         "returned": False, "returned_date": "", "return_outcome": "",
         "ended": False, "ended_date": "",
         "follow_at": "", "follow_done": False, "follow_note": "",
         "next_action": "First call", "next_date": today_iso,
-        "remark": "",
+        "remark": "", "why_not": "",
         "history": [{"ts": now_str,
                      "note": note or ("Lead logged from " + source),
                      "stage": first}],
@@ -1201,10 +1291,10 @@ def export_csv_zip():
     c_rows = [[c.get("created", ""), c.get("name", ""),
                c.get("phone", ""), c.get("source", ""),
                c.get("heat", ""), c.get("want", ""),
-               c.get("location", ""), c.get("id_number", ""),
-               c.get("stage", ""), c.get("plan", ""),
-               c.get("next_action", ""), c.get("next_date", ""),
-               c.get("remark", ""), c.get("paid_date", ""),
+               c.get("budget", ""), c.get("stage", ""),
+               c.get("plan", ""), c.get("next_action", ""),
+               c.get("next_date", ""), c.get("remark", ""),
+               c.get("why_not", ""), c.get("paid_date", ""),
                c.get("returned_date", ""),
                len(c.get("history", []))] for c in clients]
     flow = st.session_state.get("vault", {}).get("flow", [])
@@ -1242,8 +1332,8 @@ def export_csv_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("clients.csv", _csv_text(
             ["created", "name", "phone", "source", "heat", "want",
-             "location", "id_number", "stage", "plan", "next_action",
-             "next_date", "remark", "paid_date", "returned_date",
+             "budget", "stage", "plan", "next_action", "next_date",
+             "remark", "why_not", "paid_date", "returned_date",
              "history_count"], c_rows))
         z.writestr("flow.csv", _csv_text(
             ["date", "time", "txid", "kind", "amount", "pocket",
