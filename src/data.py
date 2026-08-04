@@ -6,15 +6,12 @@ Credit Team Call -> deposit & delivery / pick-up -> ready / assigned / out /
 delivered -> paid / declined / returned / exchanged. Each step can end.
 """
 from __future__ import annotations
-
 import datetime as dt
 import json
 import re
 import uuid
 from pathlib import Path
-
 import streamlit as st
-
 from . import util as U
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -23,7 +20,6 @@ DEFAULT_NAME = "Mwangi.Alex"
 ARCHIVE_PIN = "0444"
 DEEP_PIN = "4440"
 CASH_CREDIT = "CASH OFFER - CREDIT"
-
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "issues", "journal", "weights", "clients", "sales_daily",
                 "sales", "income", "tasks", "bots", "vault", "spiritual",
@@ -69,6 +65,66 @@ COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
 PANTRY_CATS = ["staple", "protein", "drink", "treat", "other"]
+
+# --- Delivery (used by sales.py deposit/delivery stages) ---
+DELIVERY_MODES = ["Delivery", "Pick-Up"]
+DELIVERY_STATUSES = ["pending", "ready", "assigned", "out",
+                     "delivered", "failed"]
+
+# --- Signals / connection map (used by signals.py + metrics.py) ---
+EVENT_LABELS = {
+    "credit_cash_offer": "Credit → Cash Offer",
+    "client_move": "Client Stage Move",
+    "sale_logged": "Sale Logged",
+    "commission_paid": "Commission Collected",
+    "followup_set": "Follow-Up Scheduled",
+    "journey_ended": "Journey Ended",
+    "journey_reopened": "Journey Reopened",
+}
+EVENT_COLOR = {
+    "credit_cash_offer": "#FB923C",
+    "client_move": "#4C8DFF",
+    "sale_logged": "#34D399",
+    "commission_paid": "#34D399",
+    "followup_set": "#F5B544",
+    "journey_ended": "#F0556B",
+    "journey_reopened": "#2DD4BF",
+}
+CONNECTIONS = {
+    "credit_cash_offer": [
+        ("Cash-Offer Queue", "client loads into rejected-to-cash bucket"),
+        ("Sales Desk", "cash-pay and bring-back actions unlock"),
+        ("Day Pulse", "the offer lands in the journal"),
+    ],
+    "client_move": [
+        ("TrueWave", "journey map updates"),
+        ("Call Sheet", "next-date surfaces on its day"),
+        ("Day Pulse", "touch recorded in the journal"),
+    ],
+    "sale_logged": [
+        ("Commission Tracker", "instalments auto-scheduled +20/+50d"),
+        ("Income Mix", "commission enters the flow"),
+        ("Day Pulse", "deal shows in the journal"),
+    ],
+    "commission_paid": [
+        ("Cash Pocket", "money drops into the chosen pocket"),
+        ("Daily Flow", "a real timed entry fires"),
+        ("Net Worth", "the climb updates"),
+    ],
+    "followup_set": [
+        ("Call Sheet", "client surfaces on the follow-back date"),
+        ("Tasks", "autopilot can spawn a reminder"),
+    ],
+    "journey_ended": [
+        ("Pipeline", "client leaves the active count"),
+        ("Stats", "lost/declined tallies update"),
+    ],
+    "journey_reopened": [
+        ("Pipeline", "client re-enters the active journey"),
+        ("Call Sheet", "next-date resumes"),
+    ],
+}
+
 PANTRY_SEED = [
     ("ugali", "Ugali (maize flour)", "g", 2000.0, 500.0, "staple", False),
     ("omena", "Omena", "g", 1000.0, 100.0, "protein", False),
@@ -203,11 +259,11 @@ def parse_routine_text(text):
         sm = re.search(r"@(\S+)", rest)
         if sm:
             scope = sm.group(1)
-            rest = rest.replace(sm.group(0), " ").strip()
+            rest = rest.replace(sm.group(0), "").strip()
         tm = re.search(r"#(\w+)", rest)
         if tm:
             tag = tm.group(1).capitalize()
-            rest = rest.replace(tm.group(0), " ").strip()
+            rest = rest.replace(tm.group(0), "").strip()
         if tag not in TAG_COLORS:
             tag = "Life"
         blocks.append({"time": str(hh).zfill(2) + ":" + str(mm).zfill(2),
@@ -227,9 +283,9 @@ def routine_to_text(blocks):
         elif b["days"] == list(range(7)):
             scope = "all"
         else:
-            scope = ", ".join(k for k, v in DAY_ABBR.items()
-                              if v in b["days"])
-        lines.append(b["time"] + "   " + b["label"] + "  #" + b["tag"]
+            scope = ",".join(k for k, v in DAY_ABBR.items()
+                             if v in b["days"])
+        lines.append(b["time"] + "    " + b["label"] + "  #" + b["tag"]
                      + "  @" + scope)
     return "\n".join(lines)
 
@@ -659,10 +715,11 @@ def get_events():
     return v if isinstance(v, list) else []
 
 
-def add_event(date_iso, time_str, title, note=""):
+def add_event(date_iso, time_str, title, note="", type="", autopilot=False):
     ev = list(get_events())
     ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
-                  "title": title, "note": note, "done": False})
+                  "title": title, "note": note, "done": False,
+                  "type": type, "autopilot": bool(autopilot)})
     save_events(ev)
 
 
@@ -881,7 +938,7 @@ def pantry_set_stock(vid, stock):
         if it["id"] == vid:
             it["stock"] = float(stock)
             it["checked"] = now
-            pan["updated"] = now
+    pan["updated"] = now
     save_vault(v)
 
 
@@ -900,7 +957,7 @@ def pantry_save_details(vid, name, unit, daily, category, hidden,
             if stock is not None:
                 it["stock"] = float(stock)
                 it["checked"] = now
-                pan["updated"] = now
+    pan["updated"] = now
     save_vault(v)
 
 
@@ -977,7 +1034,7 @@ def add_client(name, phone, source, heat, want, budget, note,
                  "selfie": "pending", "next_of_kin": "pending"},
         "mpesa_statement": "", "prescreen": "", "brief_agreed": False,
         "sys_decision": "", "credit_review": "", "credit": "",
-        "delivery": "", "delivery_mode": "",
+        "delivery": "", "delivery_mode": "", "delivery_status": "",
         "delivered_date": "", "paid": False, "paid_date": "",
         "returned": False, "returned_date": "", "return_outcome": "",
         "ended": False, "ended_date": "",
@@ -1004,7 +1061,7 @@ def touch_client(cid, note, now_str):
     if c:
         c.setdefault("history", []).append(
             {"ts": now_str, "note": note, "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
+    save_clients(st.session_state["clients"])
 
 
 def set_stage(cid, stage, now_str, note=""):
@@ -1013,9 +1070,9 @@ def set_stage(cid, stage, now_str, note=""):
         c["stage"] = stage
         label = stage_label(stage, stage)
         c.setdefault("history", []).append(
-            {"ts": now_str, "note": note or ("Stage -> " + label),
+            {"ts": now_str, "note": note or ("Stage → " + label),
              "stage": stage})
-        save_clients(st.session_state["clients"])
+    save_clients(st.session_state["clients"])
 
 
 def update_client(cid, patch, now_str, log_note=""):
@@ -1026,7 +1083,7 @@ def update_client(cid, patch, now_str, log_note=""):
             c.setdefault("history", []).append(
                 {"ts": now_str, "note": log_note,
                  "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
+    save_clients(st.session_state["clients"])
 
 
 def end_journey(cid, now_str, note=""):
@@ -1038,7 +1095,7 @@ def end_journey(cid, now_str, note=""):
             {"ts": now_str,
              "note": note or "Journey ended - out of the pipeline",
              "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
+    save_clients(st.session_state["clients"])
 
 
 def reopen_journey(cid, now_str, note=""):
@@ -1049,7 +1106,7 @@ def reopen_journey(cid, now_str, note=""):
         c.setdefault("history", []).append(
             {"ts": now_str, "note": note or "Journey reopened",
              "stage": c.get("stage", "")})
-        save_clients(st.session_state["clients"])
+    save_clients(st.session_state["clients"])
 
 
 def add_goal(g):
@@ -1295,10 +1352,10 @@ def restore_from_zip(blob):
                 if "tz_offset" in pr:
                     st.session_state["tz_offset"] = float(
                         pr["tz_offset"])
-        if "vault" in st.session_state:
-            _migrate_vault(st.session_state["vault"])
-        if "pipeline" in st.session_state:
-            _migrate_pipeline(st.session_state["pipeline"])
+            if "vault" in st.session_state:
+                _migrate_vault(st.session_state["vault"])
+            if "pipeline" in st.session_state:
+                _migrate_pipeline(st.session_state["pipeline"])
     except Exception:
         pass
     return restored
