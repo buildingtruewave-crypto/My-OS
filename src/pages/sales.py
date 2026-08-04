@@ -1,8 +1,14 @@
-"""Daily tally + commissions + income. Marking a commission PAID drops the
-cash into a chosen pocket (live). Commissions auto-due +20/+50 days, locked
-after. Income can optionally land in a pocket too.
+"""Sales - the back office. Daily tally, sale logging, commissions, income -
+plus everything moved off TrueWave: logging new leads (with location), bulk
+CSV import, the full client file / journey configuration, and the pipeline &
+plans editor. TrueWave stays a clean calling cockpit; Sales is where details
+and configuration live.
 """
 from __future__ import annotations
+
+import csv
+import html
+import io
 
 import streamlit as st
 
@@ -19,6 +25,402 @@ def _pocket_options(vault):
     return names, ids
 
 
+def _plan_options():
+    return [""] + [p["label"] for p in D.get_plans()]
+
+
+# ---------------------------------------------------------------------------
+# lead logging (moved from TrueWave) - location added
+# ---------------------------------------------------------------------------
+def _add_lead(ctx):
+    with st.expander("+  Log a new lead (a client texted?)"):
+        a, b, c3 = st.columns(3)
+        with a:
+            name = st.text_input("Client name", key="cl_n")
+            phone = st.text_input("Phone number", key="cl_p")
+            source = st.selectbox("Source", D.SOURCES, key="cl_s")
+        with b:
+            loc = st.text_input("Location", key="cl_loc",
+                                placeholder="e.g. Kasarani, Nairobi")
+            want = st.text_input("Wants (phone / model)", key="cl_w")
+            budget = st.text_input("Budget (KSh)", key="cl_b")
+        with c3:
+            heat = st.selectbox("Heat", D.HEATS, key="cl_h")
+            note = st.text_input(
+                "First note", key="cl_note",
+                placeholder="texted from the ad, wants an iPhone...")
+        if st.button("Add lead", type="primary",
+                     key="cl_add") and name.strip():
+            D.add_client(name.strip(), phone.strip(), source, heat,
+                         want.strip(), budget.strip(), note.strip(),
+                         ctx["today_iso"], ctx["now_str"])
+            newc = st.session_state["clients"][0]
+            if loc.strip():
+                D.update_client(newc["id"],
+                                {"location": loc.strip()},
+                                ctx["now_str"])
+            st.rerun()
+
+
+def _bulk_import(ctx):
+    with st.expander("⤓  Bulk import clients from CSV"):
+        st.caption(
+            "Headers: name, phone, location, source, want, budget, heat, "
+            "note (missing columns are fine).")
+        up = st.file_uploader("CSV file", type=["csv"], key="ci_csv")
+        if up is not None:
+            if st.button("Import rows", type="primary", key="ci_go"):
+                txt = up.getvalue().decode("utf-8-sig")
+                reader = csv.DictReader(io.StringIO(txt))
+                n = 0
+                for r in reader:
+                    nm = (r.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    D.add_client(
+                        nm, (r.get("phone") or "").strip(),
+                        (r.get("source") or "Walk-in").strip(),
+                        (r.get("heat") or "Warm").strip(),
+                        (r.get("want") or "").strip(),
+                        (r.get("budget") or "").strip(),
+                        (r.get("note") or "bulk CSV import").strip(),
+                        ctx["today_iso"], ctx["now_str"])
+                    newc = st.session_state["clients"][0]
+                    if (r.get("location") or "").strip():
+                        D.update_client(
+                            newc["id"],
+                            {"location": r["location"].strip()},
+                            ctx["now_str"])
+                    n += 1
+                st.success("Imported " + str(n) + " clients.")
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# full client file / journey configuration (moved from TrueWave)
+# ---------------------------------------------------------------------------
+def _client_config(ctx):
+    clients = ctx["clients"]
+    today, now_str = ctx["today"], ctx["now_str"]
+    if not clients:
+        st.caption("No clients yet - log a lead above.")
+        return
+    st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
+                'CLIENT FILE - FULL JOURNEY &amp; CONFIGURATION</div>',
+                unsafe_allow_html=True)
+    names = [str(c.get("name", "?")) + "  ·  "
+             + D.stage_label(c.get("stage", "new"), "?")
+             for c in clients]
+    sel = st.selectbox("client", range(len(clients)),
+                       format_func=lambda i: names[i], key="cfg_sel")
+    c = clients[sel]
+    ids = D.all_stage_ids()
+    g1, g2 = st.columns(2, gap="medium")
+    with g1:
+        cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
+        ns = st.selectbox("Stage", ids, format_func=D.stage_label,
+                          index=cur_idx, key="cfg_st")
+        if st.button("Set stage", key="cfg_stgo"):
+            if ns != c["stage"]:
+                D.set_stage(c["id"], ns, now_str)
+                st.rerun()
+        plan_opts = _plan_options()
+        cur_p = c.get("plan", "") or ""
+        pi = plan_opts.index(cur_p) if cur_p in plan_opts else 0
+        plan = st.radio("Payment plan", plan_opts, index=pi,
+                        horizontal=True,
+                        format_func=lambda p: p or "Not chosen",
+                        key="cfg_pl")
+        if plan != cur_p:
+            D.update_client(c["id"], {"plan": plan}, now_str,
+                            "Plan -> " + (plan or "none"))
+            st.rerun()
+        q1, q2 = st.columns(2)
+        with q1:
+            qual = st.text_input("Qualified (M-Pesa review)",
+                                 value=c.get("qualified", ""),
+                                 key="cfg_qf")
+            dep = st.number_input("Deposit (KSh)", 0.0, 1000000.0,
+                                  float(c.get("deposit", 0) or 0),
+                                  step=500.0, key="cfg_dp")
+        with q2:
+            wkly = st.number_input("Weekly (KSh)", 0.0, 1000000.0,
+                                   float(c.get("weekly", 0) or 0),
+                                   step=100.0, key="cfg_wk")
+            na = st.text_input("Next action",
+                               value=c.get("next_action", ""),
+                               key="cfg_na")
+        nd = st.date_input("Next action date", value=today,
+                           key="cfg_nd")
+        if st.button("Save plan & numbers", key="cfg_sv"):
+            D.update_client(c["id"], {
+                "qualified": qual, "deposit": float(dep),
+                "weekly": float(wkly), "next_action": na,
+                "next_date": nd.isoformat(),
+            }, now_str, "Plan / numbers / next action updated")
+            st.rerun()
+    with g2:
+        docs = dict(c.get("docs") or {})
+        dcols = st.columns(3)
+        changed = False
+        for i, key_id in enumerate(D.DOC_ITEMS):
+            curv = docs.get(key_id, "pending")
+            with dcols[i]:
+                v = st.selectbox(D.DOC_LABEL[key_id], D.DOC_STATES,
+                                 index=D.DOC_STATES.index(curv)
+                                 if curv in D.DOC_STATES else 0,
+                                 key="cfg_d" + key_id)
+            if v != curv:
+                docs[key_id] = v
+                changed = True
+        if changed:
+            D.update_client(c["id"], {"docs": docs}, now_str,
+                            "Docs updated")
+            st.rerun()
+        cur_credit = c.get("credit", "pending")
+        credit = st.selectbox("Credit team outcome",
+                              D.CREDIT_OUTCOMES,
+                              index=D.CREDIT_OUTCOMES.index(cur_credit)
+                              if cur_credit in D.CREDIT_OUTCOMES else 0,
+                              key="cfg_cr")
+        default_stage = c.get("stage", "")
+        if credit == "CASH OFFER - CREDIT":
+            cand = D.role_id("cash")
+            if cand and cand in ids:
+                default_stage = cand
+        ri = ids.index(default_stage) if default_stage in ids else 0
+        res_stage = st.selectbox("Resulting stage", ids, index=ri,
+                                 format_func=D.stage_label,
+                                 key="cfg_rs")
+        if st.button("Save credit & stage", key="cfg_cs"):
+            patch = {"credit": credit}
+            if credit != "pending":
+                patch["stage"] = res_stage
+            D.update_client(c["id"], patch, now_str,
+                            "Credit -> " + credit)
+            st.rerun()
+        dr = D.role_id("delivered")
+        wr = D.role_id("won")
+        rr = D.role_id("returned")
+        b1, b2, b3 = st.columns(3)
+        with b1:
+            dd = st.date_input("delivered date", value=today,
+                               key="cfg_dd")
+            if st.button("Set delivered", key="cfg_ds",
+                         disabled=dr is None):
+                D.update_client(c["id"],
+                                {"delivered_date": dd.isoformat(),
+                                 "stage": dr}, now_str,
+                                "Delivered - window OPEN")
+                st.rerun()
+        with b2:
+            if st.button("Mark PAID", key="cfg_pd",
+                         disabled=(wr is None)
+                         or bool(c.get("paid"))):
+                D.update_client(c["id"],
+                                {"paid": True,
+                                 "paid_date": today.isoformat(),
+                                 "stage": wr}, now_str,
+                                "Client PAID - deal closed")
+                st.rerun()
+        with b3:
+            w = M.window_info(c, today)
+            window_open = bool(w) and not w["closed"]
+            if st.button("Mark RETURNED", key="cfg_rt",
+                         disabled=(rr is None)
+                         or bool(c.get("returned"))
+                         or not window_open):
+                D.update_client(c["id"],
+                                {"returned": True,
+                                 "returned_date": today.isoformat(),
+                                 "stage": rr}, now_str,
+                                "Phone RETURNED")
+                st.rerun()
+        r1, r2 = st.columns(2)
+        with r1:
+            rem = st.text_input("Remark", value=c.get("remark", ""),
+                                key="cfg_rm")
+        with r2:
+            why = st.text_input("Why not today?",
+                                value=c.get("why_not", ""),
+                                key="cfg_wn")
+        if st.button("Save remarks", key="cfg_rs2"):
+            D.update_client(c["id"], {"remark": rem, "why_not": why},
+                            now_str)
+            st.rerun()
+        e1, e2 = st.columns(2)
+        with e1:
+            if c.get("ended"):
+                if st.button("Reopen journey", key="cfg_re"):
+                    D.reopen_journey(c["id"], now_str)
+                    st.rerun()
+            else:
+                if st.button("End journey", key="cfg_end"):
+                    D.end_journey(c["id"], now_str)
+                    st.rerun()
+        with e2:
+            st.caption("Ended clients can always be reopened.")
+
+
+def _pipeline_editor():
+    obj = D.get_pipeline_obj()
+    stages = list(obj.get("stages", []))
+    plans = list(obj.get("plans", []))
+    counts = M.stage_counts(st.session_state["clients"])
+    with st.expander("⚙  Configure my conversion pipeline & plans"):
+        st.caption(
+            "Rename, recolor, reorder or add stages; mark which sit on the "
+            "linear path; tag the five roles the engine needs (won / lost / "
+            "cash / delivered / returned) - one stage each. Edit plans too.")
+        for i, s in enumerate(stages):
+            cnt = counts.get(s["id"], 0)
+            c1, c2, c3, c4, c5, c6 = st.columns(
+                [2.6, 1.3, 1.5, 0.6, 0.6, 0.6])
+            with c1:
+                st.markdown(
+                    '<div style="padding-top:8px;font:600 13px '
+                    'var(--body);color:var(--ink-2)">'
+                    + html.escape(s.get("label", "?")) + '</div>',
+                    unsafe_allow_html=True)
+            with c2:
+                st.markdown(
+                    '<div style="padding-top:8px">'
+                    + UI.badge(D.ROLE_LABEL.get(s.get("role", ""), "—"),
+                               s.get("color", "#7C8AA5")) + '</div>',
+                    unsafe_allow_html=True)
+            with c3:
+                st.markdown(
+                    '<div style="padding-top:8px" class="tw-sub">'
+                    + ("on path" if s.get("track") else "branch")
+                    + " · " + str(cnt) + " here</div>",
+                    unsafe_allow_html=True)
+            with c4:
+                if st.button("▲", key="pu" + s["id"], disabled=i == 0):
+                    stages[i - 1], stages[i] = stages[i], stages[i - 1]
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+            with c5:
+                if st.button("▼", key="pd" + s["id"],
+                             disabled=i == len(stages) - 1):
+                    stages[i + 1], stages[i] = stages[i], stages[i + 1]
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+            with c6:
+                if st.button("✕", key="px" + s["id"],
+                             disabled=cnt > 0 or len(stages) <= 1):
+                    stages.pop(i)
+                    obj["stages"] = stages
+                    D.save_pipeline_obj(obj)
+                    st.rerun()
+        a1, a2, a3 = st.columns([3, 1.4, 1])
+        with a1:
+            nl = st.text_input("new stage label", key="ns_l")
+        with a2:
+            nc = st.color_picker("color", value="#4C8DFF", key="ns_c")
+        with a3:
+            st.markdown("<div style='height:26px'></div>",
+                        unsafe_allow_html=True)
+            if st.button("Add stage", key="ns_add") and nl.strip():
+                nid = U.slug(nl)
+                base, kk = nid, 2
+                while any(x["id"] == nid for x in stages):
+                    nid = base + str(kk)
+                    kk += 1
+                stages.append({"id": nid, "label": nl.strip(),
+                               "color": nc, "track": False, "role": ""})
+                obj["stages"] = stages
+                D.save_pipeline_obj(obj)
+                st.rerun()
+        with st.form("pf"):
+            new_labels, new_colors, new_tracks, new_roles = {}, {}, {}, {}
+            for s in stages:
+                r1, r2, r3, r4 = st.columns([2.4, 1.2, 1.2, 1.8])
+                cur_role = s.get("role", "")
+                role_idx = D.ROLES.index(cur_role) \
+                    if cur_role in D.ROLES else 0
+                with r1:
+                    new_labels[s["id"]] = st.text_input(
+                        "label", value=s.get("label", ""),
+                        key="fl_" + s["id"])
+                with r2:
+                    new_colors[s["id"]] = st.color_picker(
+                        "color", value=s.get("color", "#7C8AA5"),
+                        key="fc_" + s["id"])
+                with r3:
+                    new_tracks[s["id"]] = st.checkbox(
+                        "on path", value=bool(s.get("track")),
+                        key="ft_" + s["id"])
+                with r4:
+                    new_roles[s["id"]] = st.selectbox(
+                        "role", D.ROLES, index=role_idx,
+                        format_func=lambda r: D.ROLE_LABEL.get(r, r),
+                        key="fr_" + s["id"])
+            plan_labels, plan_notes = {}, {}
+            for p in plans:
+                q1, q2 = st.columns([2, 3])
+                with q1:
+                    plan_labels[p["id"]] = st.text_input(
+                        "plan", value=p.get("label", ""),
+                        key="pl_" + p["id"])
+                with q2:
+                    plan_notes[p["id"]] = st.text_input(
+                        "note", value=p.get("note", ""),
+                        key="pn_" + p["id"])
+            na2, nb2 = st.columns([3, 2])
+            with na2:
+                new_plan = st.text_input("new plan label", key="np_l")
+            with nb2:
+                new_plan_note = st.text_input("new plan note", key="np_n")
+            submitted = st.form_submit_button("Save labels / roles / plans")
+            add_plan = st.form_submit_button("Add plan")
+            if add_plan and new_plan.strip():
+                pid = U.slug(new_plan)
+                base, kk = pid, 2
+                while any(x["id"] == pid for x in plans):
+                    pid = base + str(kk)
+                    kk += 1
+                plans.append({"id": pid, "label": new_plan.strip(),
+                              "note": new_plan_note.strip()})
+                obj["plans"] = plans
+                D.save_pipeline_obj(obj)
+                st.rerun()
+            if submitted:
+                seen, dup = {}, None
+                for sid, role in new_roles.items():
+                    if role:
+                        if role in seen:
+                            dup = role
+                            break
+                        seen[role] = sid
+                if dup:
+                    st.error("Role '" + D.ROLE_LABEL.get(dup, dup)
+                             + "' is on two stages.")
+                else:
+                    for s in stages:
+                        lab = new_labels[s["id"]].strip()
+                        s["label"] = lab or s["label"]
+                        s["color"] = new_colors[s["id"]]
+                        s["track"] = bool(new_tracks[s["id"]])
+                        s["role"] = new_roles[s["id"]]
+                    for p in plans:
+                        lab = plan_labels[p["id"]].strip()
+                        p["label"] = lab or p["label"]
+                        p["note"] = plan_notes[p["id"]]
+                    obj["stages"] = stages
+                    obj["plans"] = plans
+                    D.save_pipeline_obj(obj)
+                    st.success("Pipeline saved.")
+                    st.rerun()
+        if st.button("Reset to phone-sales default", key="pf_reset"):
+            D.save_pipeline_obj(D._seed_pipeline())
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# render - back office
+# ---------------------------------------------------------------------------
 def render(ctx):
     daily, sales = ctx["sales_daily"], ctx["sales"]
     income = ctx["income"]
@@ -27,6 +429,13 @@ def render(ctx):
     now_time = ctx["now_dt"].strftime("%H:%M")
     pnames, pids = _pocket_options(vault)
 
+    _add_lead(ctx)
+    _bulk_import(ctx)
+    _client_config(ctx)
+    _pipeline_editor()
+
+    st.markdown("<div style='height:12px'></div>",
+                unsafe_allow_html=True)
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     sys30, cash30 = M.rejects_30d(daily, today)
     com = M.commission_stats(sales, t_iso)
@@ -34,7 +443,6 @@ def render(ctx):
               if not M.comm_editable(s, i, today)]
     month_lo = today.replace(day=1).isoformat()
     inc_month = M.income_total(income, month_lo, t_iso)
-
     row = [
         UI.tile("Sold This Week", str(sold_week), "phones",
                 "win" if sold_week else "mute",
@@ -68,8 +476,7 @@ def render(ctx):
         a, b, c = st.columns(3)
         with a:
             sold = st.number_input("Phones sold", 0, 500,
-                                   int(cur.get("sold", 0)),
-                                   key="sd_s")
+                                   int(cur.get("sold", 0)), key="sd_s")
         with b:
             sysr = st.number_input("Rejected by system", 0, 500,
                                    int(cur.get("system_rej", 0)),
@@ -90,7 +497,8 @@ def render(ctx):
     with f2:
         st.markdown(UI.panel(
             "Log a Sale - commissions auto-due +20 / +50 days",
-            '<div style="height:2px"></div>'), unsafe_allow_html=True)
+            '<div style="height:2px"></div>'),
+            unsafe_allow_html=True)
         sd = st.date_input("Sale date", value=today, key="sl_d")
         cl = st.text_input("Client", key="sl_c")
         ph = st.text_input("Phone / model", key="sl_p")
@@ -198,7 +606,7 @@ def render(ctx):
                                 note="commission: "
                                 + str(s.get("client", "")),
                                 time_str=now_time, txid="")
-                            i["paid_pocket"] = psel
+                        i["paid_pocket"] = psel
                     i["paid"] = bool(paid)
                     i["reason"] = reason.strip() if editable else \
                         i.get("reason", "")
@@ -244,7 +652,7 @@ def render(ctx):
         ibt = M.income_by_type(income)
         items = [(k, v, "#34D399") for k, v in
                  sorted(ibt.items(), key=lambda x: x[1],
-                        reverse=True)]
+                       reverse=True)]
         st.markdown(UI.panel(
             "By Source - since Aug 1", UI.hbars(items),
             right=U.fmt_kes(M.income_total(income))),
