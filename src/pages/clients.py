@@ -1,6 +1,9 @@
 """TrueWave - the living, read-only view of every client journey. Each card
 carries name, tap-to-dial phone, location, ID number, heat, and the
-conversation thread. ID number is searchable. All filling lives on Sales.
+conversation thread. ID number is searchable. Today's call sheet stays on
+top on days someone is due. Cash offers are shown only as an orange count
+tile (green is reserved for sales) - every client, including cash-offer
+ones, is outlined once in the ALL CLIENTS list. All filling lives on Sales.
 """
 from __future__ import annotations
 import datetime as dt
@@ -12,6 +15,7 @@ from .. import ui as UI
 from .. import util as U
 
 _HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
+_CASH = "#FB923C"
 PHASES = [
     ("CALL SYSTEM", ["new", "followup", "undecided"], "#4C8DFF"),
     ("APPLICATION", ["agreed", "prescreen", "docs", "briefing"],
@@ -38,6 +42,22 @@ def _status(c):
     if M.is_cash_offer(c):
         return ("CASH OFFER", "#FB923C")
     return ("IN JOURNEY", D.stage_color(c.get("stage", "new")))
+
+
+def _cash_tile(n, delay=80):
+    vc = _CASH if n else "var(--mute)"
+    return (
+        '<div class="tw-tile" style="animation-delay:' + str(delay)
+        + 'ms"><div class="tw-tile-top">'
+        '<span class="tw-lab">Cash Offers</span>'
+        '<span class="tw-chip" style="background:rgba(251,146,60,.14);'
+        'color:' + _CASH + '">' + UI.ICONS.get("cash", "")
+        + '</span></div>'
+        '<div class="tw-val" style="color:' + vc + '">' + str(n)
+        + '</div>'
+        '<div class="tw-sub" style="color:' + vc + '">'
+        'rejected to cash</div></div>'
+    )
 
 
 def _card(c, ctx, k):
@@ -82,16 +102,13 @@ def render(ctx):
     cc = M.client_counts(clients, today)
     window = M.clients_in_window(clients, today)
     sheet = M.call_sheet(clients, today)
-    cashq = M.cash_queue(clients)
     row = [
         UI.tile("Call Sheet", str(len(sheet)), "in-progress due today",
                 "win" if sheet else "mute",
                 "win" if sheet else "ink", "phone", "win", 0),
         UI.tile("Active Journey", str(cc["active"]), "in process",
                 "mute", "ink", "users", "accent", 40),
-        UI.tile("Cash Offers", str(cc["cashq"]), "rejected to cash",
-                "win" if cc["cashq"] else "mute",
-                "win" if cc["cashq"] else "ink", "cash", "out", 80),
+        _cash_tile(cc["cashq"]),
         UI.tile("Return Windows", str(len(window)), "7-day open",
                 "mute", "ink", "cal", "jewel", 120),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
@@ -110,12 +127,6 @@ def render(ctx):
                     unsafe_allow_html=True)
         for c in sheet[:10]:
             _card(c, ctx, "sh" + c["id"])
-    if cashq:
-        st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
-                    'CASH-OFFER QUEUE - rejected to cash</div>',
-                    unsafe_allow_html=True)
-        for c in cashq[:8]:
-            _card(c, ctx, "cq" + c["id"])
     s1, s2 = st.columns([3, 2])
     with s1:
         q = st.text_input("search (name / phone / ID number)",
