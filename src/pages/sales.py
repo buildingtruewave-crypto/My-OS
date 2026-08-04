@@ -1,10 +1,13 @@
-"""Sales - lead intake + daily tally + commissions + income.
-Lead form calls add_client with the exact argument order data.py expects
-(budget passed empty), then stores location via update_client, so it works
-with the current data layer. Marking a commission PAID drops the cash into a
-chosen pocket (live). Commissions auto-due +20/+50 days, locked after.
+"""Sales - lead intake + the full journey desk + tally + commissions + income.
+Add a lead, then carry it to the end on the same page: move stage, plan &
+numbers, docs, credit outcome, delivery & return window, paid / declined /
+returned, journey-end / reopen, and a touch log. Uses only long-standing
+data.py helpers so nothing breaks. Marking a commission PAID drops the cash
+into a chosen pocket (live). Commissions auto-due +20/+50 days, locked after.
 """
 from __future__ import annotations
+
+import datetime as dt
 
 import streamlit as st
 
@@ -21,6 +24,13 @@ def _pocket_options(vault):
     return names, ids
 
 
+def _plan_options():
+    return [""] + [p["label"] for p in D.get_plans()]
+
+
+# ---------------------------------------------------------------------------
+# lead intake
+# ---------------------------------------------------------------------------
 def _lead_form(ctx):
     with st.expander("+  Log a new lead"):
         a, b, c3 = st.columns(3)
@@ -44,12 +54,241 @@ def _lead_form(ctx):
                          ctx["today_iso"], ctx["now_str"])
             if loc.strip():
                 newc = st.session_state["clients"][0]
-                D.update_client(newc["id"],
-                                {"location": loc.strip()},
+                D.update_client(newc["id"], {"location": loc.strip()},
                                 ctx["now_str"])
             st.rerun()
 
 
+# ---------------------------------------------------------------------------
+# journey desk pieces (ported, universal helpers only)
+# ---------------------------------------------------------------------------
+def _journey(c, ctx, k):
+    today, now_str = ctx["today"], ctx["now_str"]
+    ids = D.all_stage_ids()
+    st.markdown(UI.stepper_html(c), unsafe_allow_html=True)
+    j1, j2 = st.columns([2, 1])
+    with j1:
+        cur_idx = ids.index(c["stage"]) if c["stage"] in ids else 0
+        ns = st.selectbox("Move to stage", ids,
+                          format_func=D.stage_label,
+                          index=cur_idx, key=k + "st")
+    with j2:
+        st.markdown("<div style='height:26px'></div>",
+                    unsafe_allow_html=True)
+        if st.button("Move stage", type="primary", key=k + "mv"):
+            if ns != c["stage"]:
+                D.set_stage(c["id"], ns, now_str)
+                st.rerun()
+    plan_opts = _plan_options()
+    cur_p = c.get("plan", "") or ""
+    pi = plan_opts.index(cur_p) if cur_p in plan_opts else 0
+    plan = st.radio("Payment plan", plan_opts, index=pi,
+                    horizontal=True,
+                    format_func=lambda p: p or "Not chosen",
+                    key=k + "pl")
+    if plan != cur_p:
+        D.update_client(c["id"], {"plan": plan}, now_str,
+                        "Plan -> " + (plan or "none"))
+        st.rerun()
+    if plan:
+        note = D.plan_note(plan)
+        if note:
+            st.caption(note)
+    q1, q2 = st.columns(2)
+    with q1:
+        qual = st.text_input("Qualified (M-Pesa review)",
+                             value=c.get("qualified", ""), key=k + "qf")
+        dep = st.number_input("Deposit (KSh)", 0.0, 1000000.0,
+                              float(c.get("deposit", 0) or 0),
+                              step=500.0, key=k + "dp")
+    with q2:
+        wkly = st.number_input("Weekly (KSh)", 0.0, 1000000.0,
+                               float(c.get("weekly", 0) or 0),
+                               step=100.0, key=k + "wk")
+        na = st.text_input("Next action",
+                           value=c.get("next_action", ""), key=k + "na")
+    nd = st.date_input("Next action date", value=today, key=k + "nd")
+    if st.button("Save plan & numbers", key=k + "sv"):
+        D.update_client(c["id"], {
+            "qualified": qual, "deposit": float(dep),
+            "weekly": float(wkly), "next_action": na,
+            "next_date": nd.isoformat(),
+        }, now_str, "Plan / numbers / next action updated")
+        st.rerun()
+
+
+def _verify(c, ctx, k):
+    today, now_str = ctx["today"], ctx["now_str"]
+    ids = D.all_stage_ids()
+    dr = D.role_id("delivered")
+    wr = D.role_id("won")
+    rr = D.role_id("returned")
+    st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
+                'DOCS &amp; VERIFICATION</div>', unsafe_allow_html=True)
+    docs = dict(c.get("docs") or {})
+    changed = False
+    dcols = st.columns(3)
+    for i, key_id in enumerate(D.DOC_ITEMS):
+        curv = docs.get(key_id, "pending")
+        with dcols[i]:
+            v = st.selectbox(D.DOC_LABEL[key_id], D.DOC_STATES,
+                             index=D.DOC_STATES.index(curv)
+                             if curv in D.DOC_STATES else 0,
+                             key=k + "d" + key_id)
+        if v != curv:
+            docs[key_id] = v
+            changed = True
+    if changed:
+        failed = [D.DOC_LABEL[i2] for i2 in D.DOC_ITEMS
+                  if docs.get(i2) == "failed"]
+        D.update_client(c["id"], {"docs": docs}, now_str,
+                        "Docs updated"
+                        + (" - FAILED: " + ", ".join(failed)
+                           if failed else ""))
+        st.rerun()
+    cur_credit = c.get("credit", "pending")
+    credit = st.selectbox("Credit team outcome", D.CREDIT_OUTCOMES,
+                          index=D.CREDIT_OUTCOMES.index(cur_credit)
+                          if cur_credit in D.CREDIT_OUTCOMES else 0,
+                          key=k + "cr")
+    default_stage = c.get("stage", "")
+    if credit == "CASH OFFER - CREDIT":
+        cand = D.role_id("cash")
+        if cand and cand in ids:
+            default_stage = cand
+    ri = ids.index(default_stage) if default_stage in ids else 0
+    res_stage = st.selectbox("Resulting stage", ids, index=ri,
+                             format_func=D.stage_label, key=k + "rs")
+    if st.button("Save credit & stage", key=k + "cs"):
+        patch = {"credit": credit}
+        if credit != "pending":
+            patch["stage"] = res_stage
+        D.update_client(c["id"], patch, now_str,
+                        "Credit -> " + credit
+                        + (" / stage -> " + D.stage_label(res_stage)
+                           if credit != "pending" else ""))
+        st.rerun()
+    st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
+                'DELIVERY &amp; RETURN WINDOW</div>',
+                unsafe_allow_html=True)
+    w = M.window_info(c, today)
+    if c.get("delivered_date"):
+        pairs = [("Delivered", c["delivered_date"])]
+        if w:
+            pairs.append(("Window closes", w["close"].isoformat()))
+            pairs.append(("Window", "CLOSED" if w["closed"]
+                          else (str(w["left"]) + " days left")))
+        if c.get("paid_date"):
+            pairs.append(("Paid", c["paid_date"]))
+        if c.get("returned_date"):
+            pairs.append(("Returned", c["returned_date"]))
+        st.markdown(UI.kv(pairs), unsafe_allow_html=True)
+    e1, e2, e3 = st.columns(3)
+    with e1:
+        dd = st.date_input("delivered date", value=today, key=k + "dd")
+        if st.button("Set delivered", key=k + "ds", disabled=dr is None):
+            D.update_client(c["id"],
+                            {"delivered_date": dd.isoformat(),
+                             "stage": dr}, now_str,
+                            "Delivered - 7-day return window OPEN")
+            st.rerun()
+        if dr is None:
+            st.caption("tag a stage 'delivered'")
+    with e2:
+        if st.button("Mark PAID", key=k + "pd",
+                     disabled=(wr is None) or bool(c.get("paid"))):
+            D.update_client(c["id"],
+                            {"paid": True,
+                             "paid_date": today.isoformat(),
+                             "stage": wr}, now_str,
+                            "Client PAID - deal closed")
+            st.rerun()
+        if wr is None:
+            st.caption("tag a stage 'won'")
+    with e3:
+        window_open = bool(w) and not w["closed"]
+        if st.button("Mark RETURNED", key=k + "rt",
+                     disabled=(rr is None) or bool(c.get("returned"))
+                     or not window_open):
+            D.update_client(c["id"],
+                            {"returned": True,
+                             "returned_date": today.isoformat(),
+                             "stage": rr}, now_str,
+                            "Phone RETURNED inside the window")
+            st.rerun()
+        if rr is None:
+            st.caption("tag a stage 'returned'")
+    r1, r2 = st.columns(2)
+    with r1:
+        rem = st.text_input("Remark", value=c.get("remark", ""),
+                            key=k + "rm")
+    with r2:
+        why = st.text_input("Why not today?",
+                            value=c.get("why_not", ""), key=k + "wn")
+    if st.button("Save remarks", key=k + "rs2"):
+        D.update_client(c["id"], {"remark": rem, "why_not": why},
+                        now_str)
+        st.rerun()
+
+
+def _memory(c, ctx, k):
+    now_str = ctx["now_str"]
+    st.markdown('<div class="tw-lab" style="margin:2px 0 8px">'
+                'CLIENT MEMORY</div>', unsafe_allow_html=True)
+    note = st.text_input("Log a touch", key=k + "tn",
+                         placeholder="called - didn't pick / picked, said Friday...")
+    if st.button("Log touch", type="primary",
+                 key=k + "tb") and note.strip():
+        D.touch_client(c["id"], note.strip(), now_str)
+        st.rerun()
+    st.markdown(UI.history_html(c.get("history", [])),
+                unsafe_allow_html=True)
+
+
+def _journey_desk(ctx):
+    clients = ctx["clients"]
+    now_str = ctx["now_str"]
+    if not clients:
+        st.caption("No clients yet - log a lead above.")
+        return
+    st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
+                'CLIENT JOURNEY DESK - finish the journey here</div>',
+                unsafe_allow_html=True)
+    names = [str(c.get("name", "?")) + "  ·  "
+             + D.stage_label(c.get("stage", "new"), "?")
+             for c in clients]
+    sel = st.selectbox("client", range(len(clients)),
+                       format_func=lambda i: names[i], key="jd_sel")
+    c = clients[sel]
+    k = "jd" + c["id"]
+    st.markdown(UI.badge(D.stage_label(c.get("stage", "new"), "?"),
+                         D.stage_color(c.get("stage", "new"))),
+                unsafe_allow_html=True)
+    if c.get("ended"):
+        if st.button("Reopen journey", key=k + "re"):
+            D.update_client(c["id"], {"ended": False, "ended_date": ""},
+                            now_str, "Journey reopened")
+            st.rerun()
+    else:
+        sure = st.checkbox("confirm end journey", key=k + "ejc")
+        if st.button("End journey", key=k + "ej", disabled=not sure):
+            D.update_client(c["id"],
+                            {"ended": True,
+                             "ended_date": ctx["today_iso"]},
+                            now_str, "Journey ended")
+            st.rerun()
+    d1, d2, d3 = st.columns([5, 4, 3], gap="medium")
+    with d1:
+        _journey(c, ctx, k)
+    with d2:
+        _verify(c, ctx, k)
+    with d3:
+        _memory(c, ctx, k)
+
+
+# ---------------------------------------------------------------------------
+# render
+# ---------------------------------------------------------------------------
 def render(ctx):
     daily, sales = ctx["sales_daily"], ctx["sales"]
     income = ctx["income"]
@@ -59,7 +298,10 @@ def render(ctx):
     pnames, pids = _pocket_options(vault)
 
     _lead_form(ctx)
+    _journey_desk(ctx)
 
+    st.markdown("<div style='height:12px'></div>",
+                unsafe_allow_html=True)
     sold_week = sum(v for _l, v in M.week_sales(daily, today, 7))
     sys30, cash30 = M.rejects_30d(daily, today)
     com = M.commission_stats(sales, t_iso)
