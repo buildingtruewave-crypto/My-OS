@@ -5,6 +5,8 @@ sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
 heart: food security on one side, the emergency ring-fence plus any venture
 you choose to seal on the other. Sealing a venture moves it out of active
 money; the system never auto-deducts food or cash.
+Also carries the Signals engine constants (CONNECTIONS / EVENT_*), the events
+ledger, habit auto-fill helpers and the TrueWave journey fields.
 """
 from __future__ import annotations
 
@@ -23,11 +25,111 @@ START_DATE = dt.date(2026, 8, 1)
 DEFAULT_NAME = "Mwangi.Alex"
 ARCHIVE_PIN = "0444"
 DEEP_PIN = "4440"
+CASH_CREDIT = "CASH OFFER - CREDIT"
 
 RESTORE_KEYS = ["pipeline", "routine", "habits", "habit_log", "goals",
                 "issues", "journal", "weights", "clients", "sales_daily",
                 "sales", "income", "tasks", "bots", "vault", "spiritual",
                 "events"]
+
+# ---------------------------------------------------------------------------
+# Signals engine - declarative map of what each event ripples into, plus the
+# labels / colours the Signals page renders. Self-contained so the page can
+# never crash on a missing constant.
+# ---------------------------------------------------------------------------
+CONNECTIONS = {
+    "client_added": [
+        ("pipeline", "enters the active pipeline + call sheet"),
+        ("journal", "shows in Day Pulse as a new inquiry"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "stage_moved": [
+        ("pipeline", "pipeline counts + funnel re-flow instantly"),
+        ("callsheet", "call sheet re-sorts by next action"),
+        ("journal", "client touch lands in Day Pulse"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "client_called": [
+        ("callsheet", "drops off today's Call Sheet immediately"),
+        ("pipeline", "next call auto-scheduled to the chosen day"),
+        ("journal", "logged as a client touch"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "credit_cash_offer": [
+        ("cash_queue", "auto-loads into the Cash-Offer Queue (rejected)"),
+        ("task", "auto-creates a cash-offer follow-up task"),
+        ("pipeline", "removed from the active pipeline - it is a rejection"),
+        ("signals", "highlighted on the Signals feed"),
+    ],
+    "client_delivered": [
+        ("window", "7-day return window opens"),
+        ("commission", "commission windows start (+20/+50)"),
+        ("journal", "logged as an outcome"),
+    ],
+    "client_paid": [
+        ("sold", "Paid & Closed increments everywhere"),
+        ("cash_queue", "leaves the Cash-Offer Queue - it is won"),
+        ("income", "ready to record as Commission income"),
+        ("stats", "TrueWave KPIs update"),
+    ],
+    "client_returned": [
+        ("returned", "Returned increments + window closes"),
+        ("cash_queue", "leaves the Cash-Offer Queue"),
+        ("journal", "logged as an outcome"),
+    ],
+    "journey_ended": [
+        ("pipeline", "leaves call sheet, active count, follow-ups"),
+        ("cash_queue", "STAYS in the Cash-Offer Queue - rejection list"),
+        ("journal", "removed from live Day Pulse"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "journey_reopened": [
+        ("pipeline", "re-enters the active pipeline"),
+        ("signals", "logged on the Signals feed"),
+    ],
+    "sale_logged": [
+        ("commission", "instalments auto-due +20/+50 days"),
+        ("income", "pending commission tracked"),
+        ("journal", "appears in Day Pulse"),
+        ("stats", "sales KPIs update"),
+    ],
+    "commission_paid": [
+        ("vault", "cash drops into the chosen pocket (live)"),
+        ("flow", "a Daily Flow entry is written"),
+        ("stats", "collected commissions update"),
+    ],
+    "income_added": [
+        ("vault", "optionally drops into a pocket"),
+        ("stats", "income-by-source updates"),
+    ],
+    "task_added": [
+        ("focus", "appears on Tasks + Focus voice"),
+        ("now", "counts on the Now dashboard"),
+    ],
+}
+EVENT_LABELS = {
+    "client_added": "Lead logged", "stage_moved": "Stage moved",
+    "client_called": "Called & rescheduled",
+    "credit_cash_offer": "Cash offer issued",
+    "credit_set": "Credit outcome", "client_delivered": "Delivered",
+    "client_paid": "Paid & closed", "client_returned": "Returned",
+    "journey_ended": "Journey ended",
+    "journey_reopened": "Journey reopened",
+    "sale_logged": "Sale logged",
+    "commission_paid": "Commission collected",
+    "income_added": "Income recorded", "task_added": "Task created",
+    "touch": "Client touch", "plan_set": "Plan chosen", "note": "Note",
+}
+EVENT_COLOR = {
+    "client_added": "#4C8DFF", "stage_moved": "#2DD4BF",
+    "client_called": "#38BDF8", "credit_cash_offer": "#F5B544",
+    "credit_set": "#8B7CFF", "client_delivered": "#2DD4BF",
+    "client_paid": "#34D399", "client_returned": "#F0556B",
+    "journey_ended": "#7C8AA5", "journey_reopened": "#34D399",
+    "sale_logged": "#34D399", "commission_paid": "#34D399",
+    "income_added": "#34D399", "task_added": "#8B7CFF",
+    "touch": "#2DD4BF", "plan_set": "#38BDF8", "note": "#8893AB",
+}
 
 TAG_COLORS = {
     "Content": "#4C8DFF", "Sales": "#2DD4BF", "Body": "#34D399",
@@ -91,7 +193,7 @@ ROUTINE_SEED = [
     ("15:00", "Log promised clients + remarks", "Sales", "weekdays"),
     ("15:30", "Schedule tomorrow's TikToks", "Content", "weekdays"),
     ("16:30", "Bus home", "Life", "weekdays"),
-    ("18:30", "Home - blunt + unwind", "Rest", "weekdays"),
+    ("18:30", "Home - unwind", "Rest", "weekdays"),
     ("19:00", "Music - free creative time", "Rest", "all"),
     ("20:00", "Workout - 45 min", "Body", "all"),
     ("20:45", "Shower", "Body", "all"),
@@ -127,8 +229,7 @@ HABITS_SEED = [
 ]
 BOT_SEED = [
     ("deriv", "Deriv Bot", "Deriv - 24/7 Streamlit", "testing"),
-    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit",
-     "testing"),
+    ("alpaca", "Alpaca Bot", "Alpaca stocks - 24/7 Streamlit", "testing"),
 ]
 POSITION_SEED = [("wallet", "Cash Wallet"), ("mpesa", "M-Pesa"),
                  ("bank", "Bank Account")]
@@ -253,9 +354,7 @@ def habits_to_text(habits):
 # was logged and never counts against consistency.
 # ---------------------------------------------------------------------------
 def habit_source(habit):
-    """Return the real-data source that auto-fills this habit, or None if
-    the habit is manual (ticked by hand)."""
-    name = str(habit.get("name", "") or "").lower()
+    name = str((habit or {}).get("name", "") or "").lower()
     if "journal" in name:
         return "journal"
     if "sales" in name or "rejection" in name:
@@ -268,8 +367,6 @@ def habit_source(habit):
 
 
 def habit_optional(habit):
-    """Optional habits (the weigh-in) are tracked when they happen but are
-    never counted against consistency - they are not daily duties."""
     return habit_source(habit) == "weigh"
 
 
@@ -326,8 +423,8 @@ def _seed_pipeline():
         ("mpesa_review", "M-Pesa Review", "#D946EF", True, ""),
         ("plan_choice", "Plan Selection", "#38BDF8", True, ""),
         ("docs", "Docs Check", "#F5B544", True, ""),
-        ("credit_call", "Credit Team Call", "#F0556B", True, ""),
-        ("cash_offer", "CASH OFFER - CREDIT", "#F5B544", False, "cash"),
+        ("credit_call", "Credit Review Call", "#F0556B", True, ""),
+        ("cash_offer", "Cash Offer - Credit", "#F5B544", False, "cash"),
         ("deposit", "Deposit & Delivery", "#34D399", True, ""),
         ("delivered", "Delivered - Window Open", "#2DD4BF", True,
          "delivered"),
@@ -409,6 +506,34 @@ def journey_ids():
     return [s["id"] for s in get_stages() if s.get("track")]
 
 
+def is_cash_offer(c):
+    """Cash-offer (rejected) clients. They are NOT in the active pipeline;
+    they live in their own queue and only leave it via a terminal stage."""
+    if not isinstance(c, dict):
+        return False
+    if c.get("stage", "") in terminal_ids():
+        return False
+    if stage_role(c.get("stage", "")) == "cash":
+        return True
+    if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
+        return True
+    if str(c.get("pre_credit", "") or "").upper() == CASH_CREDIT:
+        return True
+    return False
+
+
+def is_active_pipeline(c):
+    if not isinstance(c, dict):
+        return False
+    if c.get("ended"):
+        return False
+    if c.get("stage", "") in terminal_ids():
+        return False
+    if is_cash_offer(c):
+        return False
+    return True
+
+
 def plan_note(label):
     for p in get_plans():
         if p.get("label") == label:
@@ -485,20 +610,14 @@ def ensure():
                                 float(prefs.get("tz_offset", 0)))
 
 
-# get() is defensive: a newer app.py / page may ask for a store an older
-# install hasn't created yet - return an empty shape, never crash.
-_LIST_STORES = {"goals", "issues", "weights", "clients", "sales",
-                "income", "tasks", "events"}
-_DICT_STORES = {"habit_log", "journal", "sales_daily", "vault",
-                "spiritual"}
-
-
 def get(k):
     if k in st.session_state:
         return st.session_state[k]
-    if k in _LIST_STORES:
+    if k in ("events", "goals", "issues", "weights", "clients",
+             "sales", "income", "tasks"):
         return []
-    if k in _DICT_STORES:
+    if k in ("habit_log", "journal", "sales_daily", "vault",
+             "spiritual"):
         return {}
     return None
 
@@ -591,14 +710,13 @@ def save_spiritual(x):
     _write("spiritual.json", x)
 
 
-# ---------- events (the Signals feed) ----------
+# ---------- events ledger (Signals feed) ----------
 def save_events(x):
     st.session_state["events"] = x
     _write("events.json", x)
 
 
 def get_events():
-    """Read the events ledger (Signals feed). Never crashes."""
     v = st.session_state.get("events")
     if isinstance(v, list):
         return v
@@ -914,7 +1032,7 @@ def emergency_ratchet():
 
 # ---------- clients ----------
 def add_client(name, phone, source, heat, want, budget, note,
-               today_iso, now_str):
+               today_iso, now_str, location=""):
     clients = list(st.session_state["clients"])
     ids = all_stage_ids()
     first = ids[0] if ids else "new"
@@ -922,12 +1040,16 @@ def add_client(name, phone, source, heat, want, budget, note,
         "id": _uid(), "name": name, "phone": phone,
         "source": source, "heat": heat, "want": want,
         "budget": budget, "created": today_iso, "stage": first,
-        "plan": "", "qualified": "", "deposit": 0.0, "weekly": 0.0,
+        "location": location, "plan": "", "qualified": "",
+        "deposit": 0.0, "weekly": 0.0,
         "docs": {"id_card": "pending", "selfie": "pending",
                  "next_of_kin": "pending"},
-        "credit": "pending", "delivery": "pending",
+        "pre_credit": "pending", "credit": "pending",
+        "delivery": "pending", "hold_reason": "",
         "delivered_date": "", "paid": False, "paid_date": "",
-        "returned": False, "returned_date": "",
+        "returned": False, "returned_date": "", "return_outcome": "",
+        "ended": False, "ended_date": "",
+        "follow_at": "", "follow_done": False, "service": [],
         "next_action": "First call", "next_date": today_iso,
         "remark": "", "why_not": "",
         "history": [{"ts": now_str,
