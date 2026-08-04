@@ -1,13 +1,13 @@
 """Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
-Two locks. The outer vault (ARCHIVE_PIN) holds everyday money. Inside it, two
-sealed chambers - Pantry and Reserve - sit behind DEEP_PIN, the protected
-heart. Sealing a venture moves it out of active money; nothing auto-deducts.
-TrueWave journey model: lead -> follow-up calls -> agreed (ID + plan) ->
-pre-screen (M-Pesa) -> docs (ID front/back + selfie + next of kin) -> credit
-briefing -> credit outcomes (PRE-APPROVED LOAN / NOT ANSWERED / NOT READY /
-CASH OFFER - CREDIT) -> deposit & delivery / pick-up -> ready / assigned /
-out / delivered -> paid / declined / failed -> returned / exchanged.
+TrueWave journey model (connected, each step can end or continue):
+lead -> follow-up calls -> agreed (ID + plan + device) -> pre-screen (M-Pesa)
+-> docs (ID front/back + selfie + next of kin) -> Convert Prospect ->
+System Decision (PRE-APPROVED LOAN / ID FAIL / NEXT OF KIN - CASH OFFER /
+CASH OFFER - CREDIT) -> Credit Team Call (human review:
+DEPOSIT AND DELIVERY LOCATION / CASH OFFER - CREDIT / PRE-APPROVED NOT READY /
+PRE-APPROVED NOT REACHED) -> deposit & delivery / pick-up -> ready / assigned
+/ out / delivered -> paid / declined / returned / exchanged.
 """
 from __future__ import annotations
 
@@ -59,15 +59,16 @@ DOC_ITEMS = ["id_front", "id_back", "selfie", "next_of_kin"]
 DOC_LABEL = {"id_front": "ID Front", "id_back": "ID Back",
              "selfie": "Clear Selfie", "next_of_kin": "Next of Kin"}
 DOC_STATES = ["pending", "received", "verified", "failed"]
+SYS_DECISIONS = ["", "PRE-APPROVED LOAN", "ID FAIL",
+                 "NEXT OF KIN - CASH OFFER", "CASH OFFER - CREDIT"]
+CREDIT_REVIEWS = ["", "DEPOSIT AND DELIVERY LOCATION",
+                  "CASH OFFER - CREDIT", "PRE-APPROVED NOT READY",
+                  "PRE-APPROVED NOT REACHED"]
+CREDIT_OUTCOMES = CREDIT_REVIEWS
 CALL_RESULTS = ["Follow-back", "Agreed to proceed", "No answer",
                 "Never started", "Journey ended"]
 PRESCREEN_RESULTS = ["", "Qualifies", "Change payment plan",
                      "Cash offer only"]
-CREDIT_OUTCOMES = ["", "PRE-APPROVED LOAN", "PRE-APPROVED NOT ANSWERED",
-                   "PRE-APPROVED NOT READY", "CASH OFFER - CREDIT"]
-DELIVERY_MODES = ["", "Delivery", "Pick up at shop"]
-DELIVERY_STATUSES = ["", "ready", "assigned", "out", "delivered",
-                     "failed"]
 COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
@@ -147,33 +148,6 @@ BILL_SEED = [("rent", "Rent"), ("power", "Power (KPLC)"),
              ("food", "Food & Shopping"), ("transport", "Transport")]
 FUND_SEED = [("hho", "HHO Carbon Cleaning - Nairobi",
               150000.0, 200000.0, "2027-01-31")]
-
-CONNECTIONS = {
-    "client_added": [("pipeline", "enters the call system"),
-                     ("signals", "logged on the Signals feed")],
-    "agreed": [("application", "ID number + payment plan activated")],
-    "prescreen": [("docs", "qualifies -> docs"),
-                  ("undecided", "plan changed + not agreed -> follow-up"),
-                  ("cash", "cash offer only -> journey ends")],
-    "credit": [("deposit", "approved -> deposit & delivery"),
-               ("cash", "CASH OFFER - CREDIT -> journey ends")],
-    "delivery": [("ready", "ready -> assigned -> out -> delivered"),
-                 ("failed", "failed -> reason -> back to calls")],
-}
-EVENT_LABELS = {
-    "client_added": "Lead logged", "stage_moved": "Stage moved",
-    "client_called": "Called & rescheduled",
-    "credit_cash_offer": "Cash offer issued",
-    "client_paid": "Paid & closed", "client_returned": "Returned",
-    "journey_ended": "Journey ended",
-    "journey_reopened": "Journey reopened",
-}
-EVENT_COLOR = {
-    "client_added": "#4C8DFF", "stage_moved": "#2DD4BF",
-    "client_called": "#38BDF8", "credit_cash_offer": "#F5B544",
-    "client_paid": "#34D399", "client_returned": "#F0556B",
-    "journey_ended": "#7C8AA5", "journey_reopened": "#34D399",
-}
 
 
 def _uid():
@@ -284,23 +258,6 @@ def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
 
 
-def habit_source(habit):
-    name = str((habit or {}).get("name", "") or "").lower()
-    if "journal" in name:
-        return "journal"
-    if "sales" in name or "rejection" in name:
-        return "sales"
-    if "client" in name or "follow" in name:
-        return "clients"
-    if "weigh" in name or "weight" in name:
-        return "weigh"
-    return None
-
-
-def habit_optional(habit):
-    return habit_source(habit) == "weigh"
-
-
 def _seed_routine():
     return [{"time": t, "label": l, "tag": tg, "days": _scope_days(sc)}
             for (t, l, tg, sc) in ROUTINE_SEED]
@@ -352,11 +309,9 @@ def _seed_pipeline():
         ("agreed", "Agreed to Proceed", "#2DD4BF", True, ""),
         ("prescreen", "Pre-Screening (M-Pesa)", "#38BDF8", True, ""),
         ("docs", "Docs - ID / Selfie / Next of Kin", "#F5B544", True, ""),
-        ("briefing", "Credit Briefing", "#2DD4BF", True, ""),
-        ("preapproved", "PRE-APPROVED LOAN", "#34D399", True, ""),
-        ("pre_not_answered", "PRE-APPROVED NOT ANSWERED", "#F5B544",
-         True, ""),
-        ("pre_not_ready", "PRE-APPROVED NOT READY", "#F0556B", True, ""),
+        ("briefing", "Convert Prospect", "#2DD4BF", True, ""),
+        ("sys_decision", "System Decision", "#8B7CFF", True, ""),
+        ("credit_call", "Credit Team Call", "#F0556B", True, ""),
         ("cash_offer", "CASH OFFER - CREDIT", "#FB923C", False, "cash"),
         ("deposit", "Deposit & Delivery / Pick-Up", "#34D399", True, ""),
         ("ready", "Ready for Delivery", "#2DD4BF", True, ""),
@@ -388,10 +343,9 @@ _OLD_STAGE_MAP = {
     "no_pickup": "followup", "picked": "followup",
     "declined_call": "followup", "application": "agreed",
     "mpesa_review": "prescreen", "plan_choice": "agreed",
-    "docs": "docs", "credit_call": "briefing",
-    "cash_offer": "cash_offer", "deposit": "deposit",
-    "delivered": "delivered", "paid": "paid",
-    "returned": "returned", "lost": "lost",
+    "credit_call": "credit_call", "cash_offer": "cash_offer",
+    "deposit": "deposit", "delivered": "delivered",
+    "paid": "paid", "returned": "returned", "lost": "lost",
 }
 
 
@@ -401,6 +355,22 @@ def _migrate_pipeline(p):
         stg = c.get("stage", "new")
         if stg not in valid and stg in _OLD_STAGE_MAP:
             c["stage"] = _OLD_STAGE_MAP[stg]
+    need = [
+        ("briefing", "Convert Prospect", "#2DD4BF", True, ""),
+        ("sys_decision", "System Decision", "#8B7CFF", True, ""),
+        ("credit_call", "Credit Team Call", "#F0556B", True, ""),
+        ("ready", "Ready for Delivery", "#2DD4BF", True, ""),
+        ("assigned", "Assigned", "#4C8DFF", True, ""),
+        ("out", "Out for Delivery", "#38BDF8", True, ""),
+        ("failed_delivery", "Failed Delivery", "#F0556B", True, ""),
+        ("exchanged", "Returned & Exchanged", "#FB923C", False,
+         "returned"),
+    ]
+    ids = {s["id"] for s in p.get("stages", [])}
+    for (i, l, c, tr, ro) in need:
+        if i not in ids:
+            p["stages"].append({"id": i, "label": l, "color": c,
+                                "track": tr, "role": ro})
     return p
 
 
@@ -474,7 +444,9 @@ def is_cash_offer(c):
         return True
     if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
         return True
-    if str(c.get("prescreen", "") or "") == "Cash offer only":
+    if str(c.get("credit_review", "") or "").upper() == CASH_CREDIT:
+        return True
+    if str(c.get("sys_decision", "") or "").upper() == CASH_CREDIT:
         return True
     return False
 
@@ -570,32 +542,7 @@ def ensure():
 
 
 def get(k):
-    if k in st.session_state:
-        return st.session_state[k]
-    if k in ("events", "goals", "issues", "weights", "clients",
-             "sales", "income", "tasks"):
-        return []
-    if k in ("habit_log", "journal", "sales_daily", "vault",
-             "spiritual"):
-        return {}
-    return None
-
-
-def get_events():
-    v = st.session_state.get("events")
-    return v if isinstance(v, list) else []
-
-
-def save_events(x):
-    st.session_state["events"] = x
-    _write("events.json", x)
-
-
-def add_event(date_iso, time_str, title, note=""):
-    ev = list(get_events())
-    ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
-                  "title": title, "note": note, "done": False})
-    save_events(ev)
+    return st.session_state[k]
 
 
 def _save_prefs():
@@ -684,6 +631,23 @@ def save_vault(x):
 def save_spiritual(x):
     st.session_state["spiritual"] = x
     _write("spiritual.json", x)
+
+
+def save_events(x):
+    st.session_state["events"] = x
+    _write("events.json", x)
+
+
+def get_events():
+    v = st.session_state.get("events")
+    return v if isinstance(v, list) else []
+
+
+def add_event(date_iso, time_str, title, note=""):
+    ev = list(get_events())
+    ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
+                  "title": title, "note": note, "done": False})
+    save_events(ev)
 
 
 def move_money(pocket_id, effect, kind, note="", time_str="",
@@ -989,15 +953,15 @@ def add_client(name, phone, source, heat, want, budget, note,
     c = {
         "id": _uid(), "name": name, "phone": phone,
         "source": source, "heat": heat, "want": want,
-        "budget": budget, "location": location,
-        "created": today_iso, "stage": first,
+        "device": want, "location": location,
+        "budget": budget, "created": today_iso, "stage": first,
         "id_number": "", "plan": "", "qualified": "",
         "deposit": 0.0, "weekly": 0.0,
         "docs": {"id_front": "pending", "id_back": "pending",
                  "selfie": "pending", "next_of_kin": "pending"},
-        "mpesa_statement": "", "prescreen": "", "plan_agreed": "",
-        "brief_agreed": False, "credit": "",
-        "delivery_mode": "", "delivery_status": "", "failed_reason": "",
+        "mpesa_statement": "", "prescreen": "",
+        "brief_agreed": False, "sys_decision": "", "credit_review": "",
+        "credit": "", "delivery": "", "delivery_mode": "",
         "delivered_date": "", "paid": False, "paid_date": "",
         "returned": False, "returned_date": "", "return_outcome": "",
         "ended": False, "ended_date": "",
@@ -1010,7 +974,6 @@ def add_client(name, phone, source, heat, want, budget, note,
     }
     clients.insert(0, c)
     save_clients(clients)
-    return c
 
 
 def _find_client(cid):
@@ -1283,7 +1246,7 @@ def export_zip():
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for k in RESTORE_KEYS:
             z.writestr(k + ".json", json.dumps(
-                st.session_state.get(k, []), default=str))
+                st.session_state[k], default=str))
         z.writestr("prefs.json", json.dumps({
             "name": st.session_state.get("name"),
             "accent": st.session_state.get("accent"),
