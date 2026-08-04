@@ -8,13 +8,11 @@ early. Everything fails open - a snag never breaks the host page.
 No f-strings are used anywhere in this file.
 """
 from __future__ import annotations
-
+import datetime as _dtmod
 import html
 import json
 from pathlib import Path
-
 import streamlit as st
-
 from . import data as D
 from . import util as U
 
@@ -309,7 +307,7 @@ def _streak_j(journal):
     today = U.today_local()
     s = 0
     for o in range(0, 400):
-        if (today - __import__("datetime").timedelta(days=o)).isoformat() in journal:
+        if (today - _dtmod.timedelta(days=o)).isoformat() in journal:
             s += 1
         else:
             break
@@ -321,7 +319,7 @@ def _streak_spirit(spirit):
     s = 0
     for o in range(0, 400):
         if _spirit_present(spirit.get(
-                (today - __import__("datetime").timedelta(days=o)).isoformat())):
+                (today - _dtmod.timedelta(days=o)).isoformat())):
             s += 1
         else:
             break
@@ -332,7 +330,7 @@ def _spirit_health(spirit):
     today = U.today_local()
     tot = n = 0
     for o in range(29, -1, -1):
-        e = spirit.get((today - __import__("datetime").timedelta(days=o)).isoformat())
+        e = spirit.get((today - _dtmod.timedelta(days=o)).isoformat())
         if e is not None:
             tot += _energy(e)
             n += 1
@@ -362,7 +360,7 @@ def _consistency(habits, log, n):
         s = log.get(h["id"], {})
         done = 0
         for o in range(n):
-            if s.get((today - __import__("datetime").timedelta(days=o)).isoformat()):
+            if s.get((today - _dtmod.timedelta(days=o)).isoformat()):
                 done += 1
         tot += done / n * 100
     return int(round(tot / len(habits)))
@@ -554,7 +552,7 @@ def _compute_live(ctx, habits, log, today_iso):
 def _page_stats(ctx, voice, allow_money):
     ps = {}
     try:
-        _dt = __import__("datetime")
+        _dt = _dtmod
         today = ctx["today"]
         habits = ctx.get("habits") or []
         log = ctx.get("habit_log") or {}
@@ -724,7 +722,7 @@ def _money_fields(vault, today):
         chk = it.get("checked", "")
         if chk:
             try:
-                age = max(0, (today - __import__("datetime").date.fromisoformat(chk)).days)
+                age = max(0, (today - _dtmod.date.fromisoformat(chk)).days)
             except Exception:
                 age = 0
         aged = max(0.0, raw - age)
@@ -786,16 +784,16 @@ def build_packet(ctx, voice, allow_money):
     moods = []
     for o in range(6, -1, -1):
         m = (journal.get(
-            (today - __import__("datetime").timedelta(days=o)).isoformat())
-             or {}).get("mood", "")
+            (today - _dtmod.timedelta(days=o)).isoformat())
+            or {}).get("mood", "")
         if m:
             moods.append(m)
     rj = []
     for o in range(1, 8):
-        e = journal.get((today - __import__("datetime").timedelta(days=o)).isoformat())
+        e = journal.get((today - _dtmod.timedelta(days=o)).isoformat())
         if e:
             e2 = dict(e)
-            e2["date"] = (today - __import__("datetime").timedelta(days=o)).isoformat()
+            e2["date"] = (today - _dtmod.timedelta(days=o)).isoformat()
             rj.append(e2)
     last_journal = rj[0] if rj else None
     prev_journal = None
@@ -805,10 +803,10 @@ def build_packet(ctx, voice, allow_money):
         prev_journal = rj[-1]
     rs = []
     for o in range(0, 8):
-        e = spirit.get((today - __import__("datetime").timedelta(days=o)).isoformat())
+        e = spirit.get((today - _dtmod.timedelta(days=o)).isoformat())
         if e:
             e2 = dict(e)
-            e2["date"] = (today - __import__("datetime").timedelta(days=o)).isoformat()
+            e2["date"] = (today - _dtmod.timedelta(days=o)).isoformat()
             rs.append(e2)
     last_verse = None
     for e in rs:
@@ -820,21 +818,21 @@ def build_packet(ctx, voice, allow_money):
     st_today = spirit.get(ti) or {}
     st_has = bool(st_today and (st_today.get("minutes") or st_today.get("word")
                                 or st_today.get("felt")))
-    yest = (today - __import__("datetime").timedelta(days=1)).isoformat()
+    yest = (today - _dtmod.timedelta(days=1)).isoformat()
     sales_yest = int((sd.get(yest) or {}).get("sold", 0) or 0)
     best = None
     for o in range(0, 15):
-        n = int((sd.get((today - __import__("datetime").timedelta(days=o)).isoformat())
+        n = int((sd.get((today - _dtmod.timedelta(days=o)).isoformat())
                  or {}).get("sold", 0) or 0)
         if best is None or n > best["n"]:
-            best = {"date": (today - __import__("datetime").timedelta(days=o)).isoformat(),
+            best = {"date": (today - _dtmod.timedelta(days=o)).isoformat(),
                     "n": n}
     if best and best["n"] <= 0:
         best = None
     sales_week = 0
     for o in range(7):
         sales_week += int((sd.get(
-            (today - __import__("datetime").timedelta(days=o)).isoformat())
+            (today - _dtmod.timedelta(days=o)).isoformat())
             or {}).get("sold", 0) or 0)
     term = set(D.terminal_ids())
     due = [c for c in clients if c.get("stage") not in term
@@ -864,7 +862,7 @@ def build_packet(ctx, voice, allow_money):
     if wid:
         s = log.get(wid, {})
         for o in range(0, 400):
-            if s.get((today - __import__("datetime").timedelta(days=o)).isoformat()):
+            if s.get((today - _dtmod.timedelta(days=o)).isoformat()):
                 wstreak += 1
             else:
                 break
@@ -990,11 +988,11 @@ def _augment(pkt, tagged, base_facts, idx, fb, refl, state, allow_money):
             sent, mf = _weave_memory(d0, page)
             if not (_HAS_BRAIN and not _B.move_allowed(state, fb, page, mb, mf)):
                 out.append(sent)
-                feats.add(mf)
-                facts.append("memory " + str(d0.get("date", "")))
-                refs.append(str(d0.get("src", "")) + "|" + str(d0.get("date", "")))
-                prov.append(_SRC_LABEL.get(d0.get("src", ""), "a note")
-                            + " · " + str(d0.get("date", "")))
+            feats.add(mf)
+            facts.append("memory " + str(d0.get("date", "")))
+            refs.append(str(d0.get("src", "")) + "|" + str(d0.get("date", "")))
+            prov.append(_SRC_LABEL.get(d0.get("src", ""), "a note")
+                        + " · " + str(d0.get("date", "")))
     if _HAS_BRAIN and _B.move_allowed(state, fb, page, mb, "pattern_cited"):
         pat = _B.top_pattern(refl, page, mb)
         if pat:
@@ -1603,7 +1601,7 @@ def _card_html(voice, message, cite_line, used_llm, provider, moment,
 
 
 def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
-    with st.expander("·  tune this voice  ·"):
+    with st.expander("· tune this voice ·"):
         st.caption(
             "PULSE learns quietly from what you do after it speaks - you "
             "rarely need to touch this. 'more playful / lighter' warms the "
@@ -1645,25 +1643,25 @@ def _extras(pkt, voice, idx, fb, refl, state, allow_money, meta):
                 st.session_state["plc_pulse_once"] = True
                 st.success("Tuned. PULSE will lean that way next time.")
                 st.rerun()
-        q = st.text_input(
-            "ask PULSE anything", key="plc_ask" + voice,
-            placeholder="e.g. should I top up fun this week?")
-        if st.button("ask", key="plc_go" + voice):
-            qq = (q or "").strip()
-            if qq:
-                ans, _pn = _llm_answer(pkt, voice, qq, idx, fb, refl,
-                                       state, allow_money)
-                if ans:
-                    st.markdown(
-                        '<div class="plc-ans">'
-                        + _e(ans).replace("\n", "<br>") + '</div>',
-                        unsafe_allow_html=True)
-                else:
-                    st.markdown(
-                        '<div class="plc-ans">'
-                        + _e(_offline_answer(pkt, qq, idx, fb,
-                                             allow_money, refl, state))
-                        + '</div>', unsafe_allow_html=True)
+    q = st.text_input(
+        "ask PULSE anything", key="plc_ask" + voice,
+        placeholder="e.g. should I top up fun this week?")
+    if st.button("ask", key="plc_go" + voice):
+        qq = (q or "").strip()
+        if qq:
+            ans, _pn = _llm_answer(pkt, voice, qq, idx, fb, refl,
+                                   state, allow_money)
+            if ans:
+                st.markdown(
+                    '<div class="plc-ans">'
+                    + _e(ans).replace("\n", "<br>") + '</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="plc-ans">'
+                    + _e(_offline_answer(pkt, qq, idx, fb,
+                                         allow_money, refl, state))
+                    + '</div>', unsafe_allow_html=True)
 
 
 def _companion_settings(ctx):
@@ -1676,92 +1674,92 @@ def _companion_settings(ctx):
             set_anchor(anc)
             st.success("Anchor saved.")
             st.rerun()
-        st.markdown(
-            "Make PULSE speak with a real model (optional, free tiers). "
-            "Add a [llm] table to Streamlit Cloud → Settings → Secrets with "
-            "any of: groq_key, gemini_key, openrouter_key, cerebras_key, "
-            "github_key, openai_key (see README for the full template). "
-            "Without any key, PULSE still talks, grounded in your log and "
-            "its own memory, and the ask-box answers offline.")
-        with st.expander("Memory & training (the brain)"):
-            if not _HAS_BRAIN:
-                st.caption("The brain module is not loaded; the companion is "
-                           "running on its built-in voice only.")
+    st.markdown(
+        "Make PULSE speak with a real model (optional, free tiers). "
+        "Add a [llm] table to Streamlit Cloud → Settings → Secrets with "
+        "any of: groq_key, gemini_key, openrouter_key, cerebras_key, "
+        "github_key, openai_key (see README for the full template). "
+        "Without any key, PULSE still talks, grounded in your log and "
+        "its own memory, and the ask-box answers offline.")
+    with st.expander("Memory & training (the brain)"):
+        if not _HAS_BRAIN:
+            st.caption("The brain module is not loaded; the companion is "
+                       "running on its built-in voice only.")
+        else:
+            idx = _get_index(ctx, True)
+            fb = _get_feedback()
+            refl = _get_reflection(ctx)
+            state = _get_state()
+            health = _B.memory_health(idx, state, fb, refl)
+            provs = []
+            if _HAS_ROUTER:
+                try:
+                    hs = _R.health_summary()
+                    for name, info in hs.items():
+                        ms = info.get("last_ms", 0)
+                        mdl = info.get("model", "")
+                        cooled = info.get("cooled", False)
+                        line = name + " · " + str(ms) + "ms · " + mdl
+                        if cooled:
+                            line = line + " · cooling"
+                        provs.append(line)
+                except Exception:
+                    pass
+            lf = int(st.session_state.get("_plc_lf", 0) or 0)
+            cells = (
+                '<div class="plc-health">'
+                + '<div><div class="k">memories indexed</div><div class="v">'
+                + str(health.get("memories", 0)) + '</div></div>'
+                + '<div><div class="k">semantic coverage</div><div class="v">'
+                + str(health.get("semantic_pct", 0)) + '%</div></div>'
+                + '<div><div class="k">threads detected</div><div class="v">'
+                + str(health.get("threads", 0)) + '</div></div>'
+                + '<div><div class="k">taste convergence</div><div class="v">'
+                + str(health.get("taste_convergence_pct", 0)) + '%</div></div>'
+                + '<div><div class="k">tunes recorded</div><div class="v">'
+                + str(health.get("tunes", 0)) + '</div></div>'
+                + '<div><div class="k">live facts this render</div><div class="v">'
+                + str(lf) + '</div></div>'
+                + '<div><div class="k">providers live</div><div class="v">'
+                + str(len(provs)) + '</div></div>'
+                + '<div><div class="k">page registers</div><div class="v">9</div></div>'
+                + '</div>'
+            )
+            st.markdown(cells, unsafe_allow_html=True)
+            if provs:
+                st.caption("last response latency: " + " | ".join(provs))
+            st.caption("Nine pages, nine voices - each speaks only in its "
+                       "own register, recomputed on every edit.")
+            sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
+            if sups:
+                st.caption("PULSE has learned to hold back these moves:")
+                for s in sups:
+                    st.markdown('- in ' + _e(s["page"]) + ' when '
+                                + _e(s["mood_band"]) + ': '
+                                + _e(s["feature"]),
+                                unsafe_allow_html=True)
             else:
-                idx = _get_index(ctx, True)
-                fb = _get_feedback()
-                refl = _get_reflection(ctx)
-                state = _get_state()
-                health = _B.memory_health(idx, state, fb, refl)
-                provs = []
-                if _HAS_ROUTER:
-                    try:
-                        hs = _R.health_summary()
-                        for name, info in hs.items():
-                            ms = info.get("last_ms", 0)
-                            mdl = info.get("model", "")
-                            cooled = info.get("cooled", False)
-                            line = name + " · " + str(ms) + "ms · " + mdl
-                            if cooled:
-                                line = line + " · cooling"
-                            provs.append(line)
-                    except Exception:
-                        pass
-                lf = int(st.session_state.get("_plc_lf", 0) or 0)
-                cells = (
-                    '<div class="plc-health">'
-                    + '<div><div class="k">memories indexed</div><div class="v">'
-                    + str(health.get("memories", 0)) + '</div></div>'
-                    + '<div><div class="k">semantic coverage</div><div class="v">'
-                    + str(health.get("semantic_pct", 0)) + '%</div></div>'
-                    + '<div><div class="k">threads detected</div><div class="v">'
-                    + str(health.get("threads", 0)) + '</div></div>'
-                    + '<div><div class="k">taste convergence</div><div class="v">'
-                    + str(health.get("taste_convergence_pct", 0)) + '%</div></div>'
-                    + '<div><div class="k">tunes recorded</div><div class="v">'
-                    + str(health.get("tunes", 0)) + '</div></div>'
-                    + '<div><div class="k">live facts this render</div><div class="v">'
-                    + str(lf) + '</div></div>'
-                    + '<div><div class="k">providers live</div><div class="v">'
-                    + str(len(provs)) + '</div></div>'
-                    + '<div><div class="k">page registers</div><div class="v">9</div></div>'
-                    + '</div>'
-                )
-                st.markdown(cells, unsafe_allow_html=True)
-                if provs:
-                    st.caption("last response latency: " + " | ".join(provs))
-                st.caption("Nine pages, nine voices - each speaks only in its "
-                           "own register, recomputed on every edit.")
-                sups = _B.learned_suppressions(fb, list(VOICE_META.keys()))
-                if sups:
-                    st.caption("PULSE has learned to hold back these moves:")
-                    for s in sups:
-                        st.markdown('- in ' + _e(s["page"]) + ' when '
-                                    + _e(s["mood_band"]) + ': '
-                                    + _e(s["feature"]),
-                                    unsafe_allow_html=True)
-                else:
-                    st.caption("No learned suppressions yet. Use the tune "
-                               "drawer under any message to teach a taste.")
-                ca, cb, cc = st.columns(3)
-                with ca:
-                    if st.button("Rebuild memory index", key="plc_rebuild"):
-                        _B.rebuild(_stores(ctx, True))
-                        st.success("Memory rebuilt.")
-                        st.rerun()
-                with cb:
-                    if st.button("Reset learned taste", key="plc_resetfb"):
-                        _B.reset_feedback()
-                        st.success("Taste and tunes cleared.")
-                        st.rerun()
-                with cc:
-                    st.download_button(
-                        "Export brain (.json)",
-                        json.dumps({"index": idx, "feedback": fb,
-                                    "reflection": refl, "state": state},
-                                   default=str),
-                        file_name="pulse_brain.json",
-                        mime="application/json", key="plc_expbrain")
+                st.caption("No learned suppressions yet. Use the tune "
+                           "drawer under any message to teach a taste.")
+            ca, cb, cc = st.columns(3)
+            with ca:
+                if st.button("Rebuild memory index", key="plc_rebuild"):
+                    _B.rebuild(_stores(ctx, True))
+                    st.success("Memory rebuilt.")
+                    st.rerun()
+            with cb:
+                if st.button("Reset learned taste", key="plc_resetfb"):
+                    _B.reset_feedback()
+                    st.success("Taste and tunes cleared.")
+                    st.rerun()
+            with cc:
+                st.download_button(
+                    "Export brain (.json)",
+                    json.dumps({"index": idx, "feedback": fb,
+                                "reflection": refl, "state": state},
+                               default=str),
+                    file_name="pulse_brain.json",
+                    mime="application/json", key="plc_expbrain")
 
 
 def panel(ctx, voice="morning", allow_money=False, ask_box=True):
