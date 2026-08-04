@@ -1,12 +1,11 @@
-"""TrueWave - the living, read-only view of every client journey.
-Each client card carries name, tap-to-dial phone, location, ID number,
-heat and a phase-based journey map (Call System / Application / Credit /
-Delivery / Outcome) with the current stage glowing - lively, distinct, and
-never mixing. ID number is searchable. All filling lives on Sales.
+"""TrueWave - the living, read-only view of every client journey. Each card
+carries name, tap-to-dial phone, location, ID number, heat, a phase-based
+journey map (Call System / Application / Credit / Delivery / Outcome) with
+the current stage glowing, and the conversation thread. ID number is
+searchable. All filling lives on Sales.
 """
 from __future__ import annotations
 
-import datetime as dt
 import html
 
 import streamlit as st
@@ -30,10 +29,6 @@ PHASES = [
 ]
 
 
-def _digits(s):
-    return "".join(ch for ch in str(s or "") if ch.isdigit())
-
-
 def _status(c):
     if c.get("ended"):
         return ("ENDED", "#7C8AA5")
@@ -51,6 +46,8 @@ def _status(c):
 
 def _journey_map(c):
     cur = c.get("stage", "new")
+    journey = D.journey_ids()
+    idx = journey.index(cur) if cur in journey else -1
     out = []
     for pname, ids, pcol in PHASES:
         active_phase = cur in ids
@@ -140,21 +137,20 @@ def _card(c, ctx, k):
 def render(ctx):
     clients, today = ctx["clients"], ctx["today"]
     cc = M.client_counts(clients, today)
+    window = M.clients_in_window(clients, today)
     sheet = M.call_sheet(clients, today)
     cashq = M.cash_queue(clients)
-    missed = M.follow_missed_count(clients, ctx["now_dt"])
     row = [
-        UI.tile("Call Sheet", str(len(sheet)), "due today",
+        UI.tile("Call Sheet", str(len(sheet)), "in-progress due today",
                 "win" if sheet else "mute",
                 "win" if sheet else "ink", "phone", "win", 0),
-        UI.tile("Follow Now", str(missed), "call-backs due / missed",
-                "loss" if missed else "mute",
-                "loss" if missed else "ink", "clock", "loss", 40),
         UI.tile("Active Journey", str(cc["active"]), "in process",
-                "mute", "ink", "users", "accent", 80),
-        UI.tile("Cash Offers", str(cc["cashq"]), "journey ended",
+                "mute", "ink", "users", "accent", 40),
+        UI.tile("Cash Offers", str(cc["cashq"]), "rejected to cash",
                 "win" if cc["cashq"] else "mute",
-                "win" if cc["cashq"] else "ink", "cash", "out", 120),
+                "win" if cc["cashq"] else "ink", "cash", "out", 80),
+        UI.tile("Return Windows", str(len(window)), "7-day open",
+                "mute", "ink", "cal", "jewel", 120),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
                 "win" if cc["sold"] else "mute",
                 "win" if cc["sold"] else "ink", "check", "win", 160),
@@ -175,8 +171,8 @@ def render(ctx):
 
     if cashq:
         st.markdown('<div class="tw-lab" style="margin:14px 0 8px">'
-                    'CASH-OFFER QUEUE - journey ended, still callable'
-                    '</div>', unsafe_allow_html=True)
+                    'CASH-OFFER QUEUE - rejected to cash</div>',
+                    unsafe_allow_html=True)
         for c in cashq[:8]:
             _card(c, ctx, "cq" + c["id"])
 
@@ -190,12 +186,10 @@ def render(ctx):
                              "Credit", "Delivery", "Outcomes",
                              "Cash offers"], key="tw_f")
     ql = q.strip().lower()
-    qd = _digits(ql)
+    qd = "".join(ch for ch in ql if ch.isdigit())
     shown = []
     for c in clients:
         stg = c.get("stage", "new")
-        if filt == "Cash offers" and not M.is_cash_offer(c):
-            continue
         if filt == "Call System" and stg not in PHASES[0][1]:
             continue
         if filt == "Application" and stg not in PHASES[1][1]:
@@ -206,6 +200,8 @@ def render(ctx):
             continue
         if filt == "Outcomes" and stg not in PHASES[4][1]:
             continue
+        if filt == "Cash offers" and not M.is_cash_offer(c):
+            continue
         if ql:
             hay = " ".join([str(c.get("name", "")),
                             str(c.get("phone", "")),
@@ -213,8 +209,12 @@ def render(ctx):
                             str(c.get("location", "")),
                             str(c.get("want", ""))]).lower()
             if not ((ql in hay)
-                    or (qd and qd in _digits(c.get("phone", "")))
-                    or (qd and qd in _digits(c.get("id_number", "")))):
+                    or (qd and qd in "".join(
+                        ch for ch in str(c.get("phone", ""))
+                        if ch.isdigit()))
+                    or (qd and qd in "".join(
+                        ch for ch in str(c.get("id_number", ""))
+                        if ch.isdigit()))):
                 continue
         shown.append(c)
     shown.sort(key=lambda c: (
