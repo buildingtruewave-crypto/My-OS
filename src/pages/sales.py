@@ -1,10 +1,10 @@
 """Sales - lead intake + the connected journey desk + tally + commissions +
-income. The journey is a row of clickable magic-tile stage cards; the current
-stage card holds that step's actions, always leaves a "continue / miracle"
-path forward and an "End journey" option, and ended clients can be reopened.
-Every widget is keyed to client + current stage so a refresh never jumps back
-to another stage or another client. The client selector uses IDs (not indices)
-so adding a lead mid-process never shifts your selection.
+income. The journey is a row of magic-tile stage cards (current one glows,
+done ones ticked, future ones dimmed); moving a client is done with one clean
+"move client to stage" selector + Move button, so the page never scatters
+loose buttons. Every widget is keyed to client + current stage so a refresh
+never jumps back to another stage or another client. The client selector uses
+IDs (not indices) so adding a lead mid-process never shifts your selection.
 """
 from __future__ import annotations
 import datetime as dt
@@ -87,8 +87,9 @@ def _lead_form(ctx):
 
 
 def _journey_map(c, ctx, k):
-    """Magic-tile journey map. Each stage is a glowing card. Clicking a
-    non-current tile moves the client there."""
+    """Magic-tile journey map. The tiles are the visual map (current
+    glows, done ticked, future dimmed). Moving the client is one clean
+    selector + Move button - no scattered button column."""
     cur = c.get("stage", "new")
     stages = D.get_stages()
     journey = D.journey_ids()
@@ -122,20 +123,24 @@ def _journey_map(c, ctx, k):
     tiles_html += '</div>'
     st.markdown(tiles_html, unsafe_allow_html=True)
 
-    cols = st.columns(min(len(stages), 7))
-    for i, s in enumerate(stages):
-        sid = s["id"]
-        is_cur = (sid == cur)
-        with cols[i % len(cols)]:
-            if st.button(
-                    ("● " if is_cur else "○ ")
-                    + s.get("label", sid)[:18],
-                    key=k + "mv" + sid,
-                    help=("current stage" if is_cur
-                          else "move client here")):
-                if sid != cur:
-                    D.set_stage(c["id"], sid, ctx["now_str"])
-                    st.rerun()
+    ids = [s["id"] for s in stages]
+    lab_map = {s["id"]: s.get("label", s["id"]) for s in stages}
+    m1, m2 = st.columns([3, 1], gap="small")
+    with m1:
+        target = st.selectbox(
+            "move client to stage", ids,
+            index=ids.index(cur) if cur in ids else 0,
+            format_func=lambda sid: lab_map.get(sid, sid),
+            key=k + "mv_sel")
+    with m2:
+        st.markdown('<div style="height:26px"></div>',
+                    unsafe_allow_html=True)
+        if st.button("Move", type="primary", key=k + "mv_go",
+                     disabled=(target == cur),
+                     help=("current stage" if target == cur
+                           else "move client here")):
+            D.set_stage(c["id"], target, ctx["now_str"])
+            st.rerun()
 
 
 def _end_reopen(c, ctx, k):
@@ -503,7 +508,6 @@ def _journey_desk(ctx):
                 '</div>',
                 unsafe_allow_html=True)
 
-    # ID-based selectbox: adding a lead never shifts your selection
     id_map = {c["id"]: c for c in clients}
     id_list = [c["id"] for c in clients]
     name_map = {}
