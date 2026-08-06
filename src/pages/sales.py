@@ -1,10 +1,13 @@
 """Sales - lead intake + the connected journey desk + tally + commissions +
-income. The journey is a row of magic-tile stage cards (current one glows,
-done ones ticked, future ones dimmed); moving a client is done with one clean
-"move client to stage" selector + Move button, so the page never scatters
-loose buttons. Every widget is keyed to client + current stage so a refresh
-never jumps back to another stage or another client. The client selector uses
-IDs (not indices) so adding a lead mid-process never shifts your selection.
+income. Two journeys sit side by side as their own glowing tile rows: the
+INSTALLMENT journey and the CASH journey (a willing cash buyer - a new,
+positive path, never a tail of the installment one). The call system is
+wired to the call sheet: saving a call result always resolves the client's
+next call date, so someone you called today never shows as due again today.
+Every move fires a signal. A client who was rejected to cash and later comes
+back into the journey loses the orange badge the moment they leave the
+cash-offer stage. Widgets are keyed to client + stage; the client selector
+uses IDs so adding a lead never shifts your selection.
 """
 from __future__ import annotations
 import datetime as dt
@@ -16,8 +19,6 @@ from .. import util as U
 
 _CALL_RESULTS = ["Follow-back", "Agreed to proceed", "No answer",
                  "Never started", "Journey ended"]
-_RESCHEDULE = [("keep today", 0), ("tomorrow", 1), ("in 2 days", 2),
-               ("in 3 days", 3), ("next week", 7)]
 
 SALES_TILE_CSS = """
 <style>
@@ -28,7 +29,7 @@ to{opacity:1;transform:none}}
 .st-tiles{display:flex;gap:8px;overflow-x:auto;padding:6px 0 10px;
 -webkit-overflow-scrolling:touch;}
 .st-tile{position:relative;flex:0 0 auto;min-width:110px;max-width:150px;
-padding:10px 12px;border-radius:11px;cursor:pointer;
+padding:10px 12px;border-radius:11px;
 border:1.5px solid var(--hair);background:linear-gradient(180deg,
 var(--panel),var(--panel-2));transition:transform .18s,border-color .18s,
 box-shadow .18s;animation:stRise .4s ease both;}
@@ -86,59 +87,74 @@ def _lead_form(ctx):
             st.rerun()
 
 
-def _journey_map(c, ctx, k):
-    """Magic-tile journey map. The tiles are the visual map (current
-    glows, done ticked, future dimmed). Moving the client is one clean
-    selector + Move button - no scattered button column."""
+def _tile_row_html(title, ids, c):
     cur = c.get("stage", "new")
-    stages = D.get_stages()
-    journey = D.journey_ids()
-    cur_idx = journey.index(cur) if cur in journey else -1
-
-    st.markdown(SALES_TILE_CSS, unsafe_allow_html=True)
-    tiles_html = '<div class="st-tiles">'
-    for i, s in enumerate(stages):
+    by_id = {s["id"]: s for s in D.get_stages()}
+    ordered = [by_id[i] for i in ids if i in by_id]
+    in_row = cur in ids
+    out = ('<div class="tw-lab" style="margin:10px 0 4px;">'
+           + title + '</div><div class="st-tiles">')
+    for i, s in enumerate(ordered):
         sid = s["id"]
         col = s.get("color", "#7C8AA5")
-        is_cur = (sid == cur)
-        if cur_idx >= 0 and sid in journey:
-            sidx = journey.index(sid)
-            if sidx < cur_idx:
-                cls = "st-done"
-            elif sidx == cur_idx:
-                cls = "st-cur"
-            else:
-                cls = "st-future"
-        elif is_cur:
-            cls = "st-cur"
+        if in_row:
+            ci = ids.index(cur)
+            si = ids.index(sid)
+            cls = ("st-done" if si < ci
+                   else ("st-cur" if si == ci else "st-future"))
         else:
             cls = "st-future"
-        tiles_html += (
-            '<div class="st-tile ' + cls + '" style="--stc:' + col + '">'
-            '<div class="st-tile-idx">' + str(i + 1) + '</div>'
-            '<div class="st-tile-name">'
-            + str(s.get("label", sid)) + '</div>'
-            '<div class="st-tile-bar"></div>'
-            '</div>')
-    tiles_html += '</div>'
-    st.markdown(tiles_html, unsafe_allow_html=True)
+        out += ('<div class="st-tile ' + cls + '" style="--stc:' + col
+                + '"><div class="st-tile-idx">' + str(i + 1)
+                + '</div><div class="st-tile-name">'
+                + str(s.get("label", sid)) + '</div>'
+                '<div class="st-tile-bar"></div></div>')
+    out += '</div>'
+    return out
 
-    ids = [s["id"] for s in stages]
-    lab_map = {s["id"]: s.get("label", s["id"]) for s in stages}
+
+def _journey_map(c, ctx, k):
+    """Two magic-tile rows: installment journey + cash journey. The
+    client's current stage glows in its own row. Moving is one clean
+    grouped selector + Move button."""
+    cur = c.get("stage", "new")
+    st.markdown(SALES_TILE_CSS, unsafe_allow_html=True)
+    st.markdown(_tile_row_html("INSTALLMENT JOURNEY - pay in "
+                               "instalments", D.inst_journey_ids(), c),
+                unsafe_allow_html=True)
+    st.markdown(_tile_row_html("CASH JOURNEY - pay outright "
+                               "(willing from the start)",
+                               D.cash_journey_ids(), c),
+                unsafe_allow_html=True)
+
+    ids = D.all_stage_ids()
+    lab_map = {s["id"]: s.get("label", s["id"]) for s in D.get_stages()}
+    term = set(D.terminal_ids())
+
+    def _fmt(sid):
+        if sid in term:
+            pre = "OUTCOME · "
+        elif sid == "cash_offer":
+            pre = "HOLD · "
+        elif D.stage_path(sid) == "cash":
+            pre = "CASH · "
+        elif D.stage_path(sid) == "inst":
+            pre = "INST · "
+        else:
+            pre = "START · "
+        return pre + lab_map.get(sid, sid)
+
     m1, m2 = st.columns([3, 1], gap="small")
     with m1:
         target = st.selectbox(
             "move client to stage", ids,
             index=ids.index(cur) if cur in ids else 0,
-            format_func=lambda sid: lab_map.get(sid, sid),
-            key=k + "mv_sel")
+            format_func=_fmt, key=k + "mv_sel")
     with m2:
         st.markdown('<div style="height:26px"></div>',
                     unsafe_allow_html=True)
         if st.button("Move", type="primary", key=k + "mv_go",
-                     disabled=(target == cur),
-                     help=("current stage" if target == cur
-                           else "move client here")):
+                     disabled=(target == cur)):
             D.set_stage(c["id"], target, ctx["now_str"])
             st.rerun()
 
@@ -159,6 +175,8 @@ def _stage_actions(c, ctx, k):
     stg = c.get("stage", "new")
     now_str = ctx["now_str"]
     today = ctx["today"]
+    t_iso = ctx["today_iso"]
+    now_hm = ctx["now_dt"].strftime("%H:%M")
 
     if stg in ("new", "followup", "undecided"):
         st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
@@ -169,6 +187,9 @@ def _stage_actions(c, ctx, k):
                                   key=k + "res" + stg)
         with r2:
             fb_on = st.checkbox("follow-back", key=k + "fb" + stg)
+        fbd = today
+        fbt = dt.time(12, 0)
+        fbs = ""
         if fb_on:
             f1, f2, f3 = st.columns(3)
             with f1:
@@ -178,33 +199,55 @@ def _stage_actions(c, ctx, k):
                 fbt = st.time_input("time", key=k + "fbt" + stg)
             with f3:
                 fbs = st.text_input("what was said", key=k + "fbs" + stg)
-        if st.button("Save call result", type="primary",
-                     key=k + "save" + stg):
-            if result == "Agreed to proceed":
-                D.update_client(c["id"], {"stage": "agreed",
+        b1, b2 = st.columns(2)
+        with b1:
+            if st.button("Save call result", type="primary",
+                         key=k + "save" + stg):
+                if result == "Agreed to proceed":
+                    D.update_client(c["id"], {"stage": "agreed",
+                                              "follow_done": True},
+                                    now_str, "Agreed to proceed - "
+                                    "installment application started")
+                elif result == "Follow-back":
+                    fa = dt.datetime.combine(fbd, fbt)
+                    D.update_client(c["id"], {
+                        "follow_at": fa.isoformat(timespec="minutes"),
+                        "follow_done": False,
+                        "follow_note": fbs.strip() if fb_on else "",
+                        "stage": "followup",
+                        "next_date": fbd.isoformat(),
+                        "next_action": "Follow-back call"},
+                        now_str, "Follow-back: "
+                        + (fbs if fb_on else "call back"))
+                    D.add_event(t_iso, now_hm,
+                                str(c.get("name", "?"))
+                                + " follow-back set",
+                                type="followup_set")
+                elif result == "No answer":
+                    tom = (today + dt.timedelta(days=1)).isoformat()
+                    D.update_client(c["id"], {
+                        "stage": "followup", "follow_done": False,
+                        "next_date": tom,
+                        "next_action": "Call back - no answer"},
+                        now_str, "No answer - call back tomorrow")
+                elif result == "Never started":
+                    tom = (today + dt.timedelta(days=1)).isoformat()
+                    D.update_client(c["id"], {
+                        "stage": "followup", "follow_done": False,
+                        "next_date": tom,
+                        "next_action": "First call - never started"},
+                        now_str, "Never started - back to follow-ups")
+                elif result == "Journey ended":
+                    D.end_journey(c["id"], now_str, "Journey ended")
+                st.rerun()
+        with b2:
+            if st.button("Agreed - CASH buyer → cash journey",
+                         type="primary", key=k + "cashgo" + stg):
+                D.update_client(c["id"], {"stage": "cash_agreed",
                                           "follow_done": True},
-                                now_str, "Agreed to proceed - "
-                                "application started")
-            elif result == "Follow-back":
-                fa = dt.datetime.combine(fbd, fbt)
-                D.update_client(c["id"], {
-                    "follow_at": fa.isoformat(timespec="minutes"),
-                    "follow_done": False,
-                    "follow_note": fbs.strip() if fb_on else "",
-                    "stage": "followup"},
-                    now_str, "Follow-back: "
-                    + (fbs if fb_on else "call back"))
-            elif result == "Never started":
-                D.update_client(c["id"], {"stage": "followup",
-                                          "follow_done": False},
-                                now_str, "Never started - back to "
-                                "follow-ups")
-            elif result == "Journey ended":
-                D.end_journey(c["id"], now_str, "Journey ended")
-            else:
-                D.update_client(c["id"], {"follow_done": True},
-                                now_str, "Call: " + result)
-            st.rerun()
+                                now_str, "Cash buyer - cash journey "
+                                "started")
+                st.rerun()
 
     elif stg == "agreed":
         st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
@@ -477,15 +520,89 @@ def _stage_actions(c, ctx, k):
                                 now_str, ro)
                 st.rerun()
 
+    elif stg == "cash_agreed":
+        st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
+                    'CASH JOURNEY - INVOICE (ID + DEVICE + CASH PRICE)'
+                    '</div>', unsafe_allow_html=True)
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            idn = st.text_input("ID number",
+                                value=c.get("id_number", ""),
+                                key=k + "cid" + stg)
+        with a2:
+            dev = st.text_input("Device / model",
+                                value=c.get("device", "")
+                                or c.get("want", ""),
+                                key=k + "cdv" + stg)
+        with a3:
+            amt = st.number_input("Cash price (KSh)", 0.0,
+                                  10000000.0,
+                                  float(c.get("cash_amount", 0) or 0),
+                                  step=500.0, key=k + "cam" + stg)
+        if st.button("Save invoice → payment", type="primary",
+                     key=k + "csave" + stg):
+            D.update_client(c["id"], {"id_number": idn.strip(),
+                                      "device": dev.strip(),
+                                      "want": dev.strip(),
+                                      "cash_amount": float(amt),
+                                      "stage": "cash_paid"},
+                            now_str, "Cash invoice saved - awaiting "
+                            "payment")
+            st.rerun()
+
+    elif stg == "cash_paid":
+        st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
+                    'CASH JOURNEY - PAYMENT RECEIVED</div>',
+                    unsafe_allow_html=True)
+        st.caption("Cash price: KSh "
+                   + format(float(c.get("cash_amount", 0) or 0), ",.0f"))
+        if st.button("Payment received → delivery / pick-up",
+                     type="primary", key=k + "cpay" + stg):
+            D.update_client(c["id"], {"stage": "cash_delivery"},
+                            now_str, "Cash payment received")
+            st.rerun()
+
+    elif stg == "cash_delivery":
+        st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
+                    'CASH JOURNEY - DELIVERY / PICK-UP (OUTCOME)</div>',
+                    unsafe_allow_html=True)
+        t1, t2, t3 = st.columns(3)
+        with t1:
+            if st.button("Delivered / picked-up → PAID",
+                         key=k + "cdone" + stg):
+                D.update_client(c["id"], {"paid": True,
+                                          "paid_date": today.isoformat(),
+                                          "stage": "paid"},
+                                now_str, "Cash deal closed - PAID")
+                st.rerun()
+        with t2:
+            if st.button("Declined", key=k + "cdec" + stg):
+                D.update_client(c["id"], {"stage": "declined"},
+                                now_str, "Cash deal declined")
+                st.rerun()
+        with t3:
+            if st.button("Returned", key=k + "cret" + stg):
+                D.update_client(c["id"], {"returned": True,
+                                          "returned_date":
+                                          today.isoformat(),
+                                          "return_outcome": "RETURNED",
+                                          "stage": "returned"},
+                                now_str, "Cash deal returned")
+                st.rerun()
+
     elif stg == "cash_offer":
         st.markdown('<div class="tw-lab" style="margin:6px 0 6px">'
-                    'CASH OFFER - rejected to cash</div>',
-                    unsafe_allow_html=True)
+                    'CASH OFFER - rejected to cash (holding bucket)'
+                    '</div>', unsafe_allow_html=True)
         b1, b2 = st.columns(2)
         with b1:
             if st.button("Bring back to pipeline", key=k + "bb" + stg):
-                D.update_client(c["id"], {"stage": "followup"},
-                                now_str, "Brought back from cash offer")
+                D.update_client(c["id"], {"stage": "followup",
+                                          "credit_review": "",
+                                          "sys_decision": "",
+                                          "credit": ""},
+                                now_str, "Brought back from cash offer "
+                                "- badge cleared")
                 st.rerun()
         with b2:
             if st.button("Mark PAID (cash)", key=k + "cp" + stg,
@@ -503,8 +620,8 @@ def _journey_desk(ctx):
         st.caption("No clients yet - log a lead above.")
         return
     st.markdown('<div class="tw-lab" style="margin:4px 0 8px">'
-                'CLIENT JOURNEY DESK - click a stage tile to move the '
-                'client; every step saves and you can continue later'
+                'CLIENT JOURNEY DESK - two journeys side by side; '
+                'every step saves and you can continue later'
                 '</div>',
                 unsafe_allow_html=True)
 
@@ -724,6 +841,10 @@ def render(ctx):
                                          + str(s.get("client", "")),
                                          time_str=now_time, txid="")
                         i["paid_pocket"] = psel
+                        D.add_event(t_iso, now_time,
+                                    "Commission paid - "
+                                    + str(s.get("client", "?")),
+                                    type="commission_paid")
                     i["paid"] = bool(paid)
                     i["reason"] = reason.strip() if editable else \
                         i.get("reason", "")
