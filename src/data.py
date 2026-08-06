@@ -1,9 +1,19 @@
 """Empty-on-purpose, editable, persisted life + business + money + spirit data.
 Recording starts Friday 1 August 2026 (Nairobi). Nothing is faked.
-TrueWave journey model: lead -> follow-up calls -> agreed (ID + plan + device)
--> pre-screen (M-Pesa) -> docs -> Convert Prospect -> System Decision ->
-Credit Team Call -> deposit & delivery / pick-up -> ready / assigned / out /
-delivered -> paid / declined / returned / exchanged. Each step can end.
+TrueWave journey model - two parallel journeys:
+  INSTALLMENT: lead -> calls -> agreed (ID + plan + device) -> pre-screen
+  (M-Pesa) -> docs -> Convert Prospect -> System Decision -> Credit Team
+  Call -> deposit & delivery / pick-up -> ready / assigned / out / delivered
+  -> paid / declined / returned / exchanged.
+  CASH (willing from the start, positive path): lead -> calls -> cash agreed
+  & invoice -> payment received -> delivery / pick-up -> paid.
+Rejected-to-cash (CASH OFFER - CREDIT) is a holding bucket only: a client is
+a "cash offer" ONLY while sitting in that stage. If they come back into the
+journey and get delivered / paid, the orange badge and the orange count let
+go of them completely.
+Every stage move aligns next_action + next_date (so the Call Sheet, the Now
+page and TrueWave always agree) and fires a signal event (so Signals and the
+Journal Day Pulse fill themselves).
 """
 from __future__ import annotations
 import datetime as dt
@@ -65,13 +75,10 @@ COMM_WINDOWS = {1: 20, 2: 50}
 INCOME_TYPES = ["Commission", "Bonus", "DRV Streamlit",
                 "Stock Streamlit", "Gift", "Other"]
 PANTRY_CATS = ["staple", "protein", "drink", "treat", "other"]
-
-# --- Delivery (used by sales.py deposit/delivery stages) ---
 DELIVERY_MODES = ["Delivery", "Pick-Up"]
 DELIVERY_STATUSES = ["pending", "ready", "assigned", "out",
                      "delivered", "failed"]
 
-# --- Signals / connection map (used by signals.py + metrics.py) ---
 EVENT_LABELS = {
     "credit_cash_offer": "Credit → Cash Offer",
     "client_move": "Client Stage Move",
@@ -92,13 +99,13 @@ EVENT_COLOR = {
 }
 CONNECTIONS = {
     "credit_cash_offer": [
-        ("Cash-Offer Queue", "client loads into rejected-to-cash bucket"),
+        ("Cash-Offer Count", "rejected client loads into the orange count"),
         ("Sales Desk", "cash-pay and bring-back actions unlock"),
         ("Day Pulse", "the offer lands in the journal"),
     ],
     "client_move": [
-        ("TrueWave", "journey map updates"),
-        ("Call Sheet", "next-date surfaces on its day"),
+        ("TrueWave", "journey map + badge update"),
+        ("Call Sheet", "next-date surfaces on its day, clears when called"),
         ("Day Pulse", "touch recorded in the journal"),
     ],
     "sale_logged": [
@@ -113,7 +120,7 @@ CONNECTIONS = {
     ],
     "followup_set": [
         ("Call Sheet", "client surfaces on the follow-back date"),
-        ("Tasks", "autopilot can spawn a reminder"),
+        ("Now", "follow-ups tile counts it"),
     ],
     "journey_ended": [
         ("Pipeline", "client leaves the active count"),
@@ -123,6 +130,38 @@ CONNECTIONS = {
         ("Pipeline", "client re-enters the active journey"),
         ("Call Sheet", "next-date resumes"),
     ],
+}
+
+STAGE_PATH = {
+    "agreed": "inst", "prescreen": "inst", "docs": "inst",
+    "briefing": "inst", "sys_decision": "inst", "credit_call": "inst",
+    "cash_offer": "inst", "deposit": "inst", "ready": "inst",
+    "assigned": "inst", "out": "inst", "delivered": "inst",
+    "failed_delivery": "inst",
+    "cash_agreed": "cash", "cash_paid": "cash", "cash_delivery": "cash",
+}
+
+CALL_STAGE_ACTIONS = {
+    "new": ("First call", 0),
+    "followup": ("Follow-up call", 0),
+    "undecided": ("Call - resolve plan", 0),
+    "credit_call": ("Credit team call", 0),
+    "failed_delivery": ("Call - failed delivery", 1),
+}
+DESK_STAGE_ACTIONS = {
+    "agreed": "Collect ID + plan + device (Sales desk)",
+    "prescreen": "Review M-Pesa statement (Sales desk)",
+    "docs": "Chase missing docs",
+    "briefing": "Brief client for the credit call",
+    "sys_decision": "Apply the system decision",
+    "cash_agreed": "Prepare cash invoice (Sales desk)",
+    "cash_paid": "Confirm cash payment",
+    "cash_delivery": "Arrange delivery / pick-up",
+    "deposit": "Arrange deposit + delivery",
+    "ready": "Schedule delivery",
+    "assigned": "Delivery assigned - monitor",
+    "out": "Out for delivery - monitor",
+    "delivered": "7-day return window - check in",
 }
 
 PANTRY_SEED = [
@@ -310,9 +349,6 @@ def habits_to_text(habits):
     return "\n".join(h["icon"] + "  " + h["name"] for h in habits)
 
 
-# ---------------------------------------------------------------------------
-# habit auto-fill model (also defined locally in metrics.py as a fallback)
-# ---------------------------------------------------------------------------
 def habit_source(habit):
     name = str((habit or {}).get("name", "") or "").lower()
     if "journal" in name:
@@ -391,6 +427,10 @@ def _seed_pipeline():
         ("out", "Out for Delivery", "#38BDF8", True, ""),
         ("delivered", "Delivered", "#34D399", True, "delivered"),
         ("failed_delivery", "Failed Delivery", "#F0556B", True, ""),
+        ("cash_agreed", "Cash - Agreed & Invoice", "#2DD4BF", True, ""),
+        ("cash_paid", "Cash - Payment Received", "#34D399", True, ""),
+        ("cash_delivery", "Cash - Delivery / Pick-Up", "#2DD4BF",
+         True, ""),
         ("paid", "Paid & Closed", "#34D399", False, "won"),
         ("declined", "Declined", "#F0556B", False, "lost"),
         ("returned", "Returned", "#F0556B", False, "returned"),
@@ -415,9 +455,6 @@ _OLD_STAGE_MAP = {
     "no_pickup": "followup", "picked": "followup",
     "declined_call": "followup", "application": "agreed",
     "mpesa_review": "prescreen", "plan_choice": "agreed",
-    "credit_call": "credit_call", "cash_offer": "cash_offer",
-    "deposit": "deposit", "delivered": "delivered",
-    "paid": "paid", "returned": "returned", "lost": "lost",
 }
 
 
@@ -437,6 +474,10 @@ def _migrate_pipeline(p):
         ("failed_delivery", "Failed Delivery", "#F0556B", True, ""),
         ("exchanged", "Returned & Exchanged", "#FB923C", False,
          "returned"),
+        ("cash_agreed", "Cash - Agreed & Invoice", "#2DD4BF", True, ""),
+        ("cash_paid", "Cash - Payment Received", "#34D399", True, ""),
+        ("cash_delivery", "Cash - Delivery / Pick-Up", "#2DD4BF",
+         True, ""),
     ]
     ids = {s["id"] for s in p.get("stages", [])}
     for (i, l, c, tr, ro) in need:
@@ -507,20 +548,35 @@ def journey_ids():
     return [s["id"] for s in get_stages() if s.get("track")]
 
 
+def stage_path(sid):
+    return STAGE_PATH.get(sid, "shared")
+
+
+def inst_journey_ids():
+    return [s["id"] for s in get_stages() if s.get("track")
+            and stage_path(s["id"]) in ("shared", "inst")]
+
+
+def cash_journey_ids():
+    return [s["id"] for s in get_stages() if s.get("track")
+            and stage_path(s["id"]) in ("shared", "cash")]
+
+
+def is_cash_path(c):
+    """A willing cash buyer - the positive parallel journey (teal)."""
+    return isinstance(c, dict) and \
+        stage_path(c.get("stage", "")) == "cash"
+
+
 def is_cash_offer(c):
+    """A credit reject held for cash (orange). ONLY while they sit in the
+    cash_offer stage. The moment they re-enter the journey (follow-up,
+    deposit, delivered, paid...) they are no longer a cash offer."""
     if not isinstance(c, dict):
         return False
     if c.get("stage", "") in terminal_ids():
         return False
-    if stage_role(c.get("stage", "")) == "cash":
-        return True
-    if str(c.get("credit", "") or "").upper() == CASH_CREDIT:
-        return True
-    if str(c.get("credit_review", "") or "").upper() == CASH_CREDIT:
-        return True
-    if str(c.get("sys_decision", "") or "").upper() == CASH_CREDIT:
-        return True
-    return False
+    return stage_role(c.get("stage", "")) == "cash"
 
 
 def is_active_pipeline(c):
@@ -540,6 +596,23 @@ def plan_note(label):
         if p.get("label") == label:
             return p.get("note", "")
     return ""
+
+
+def _align_next(c, stage):
+    """One source of truth for the call sheet: call stages get a call
+    date, desk stages and outcomes clear it, so a client you called
+    today never shows as due again today."""
+    if stage in CALL_STAGE_ACTIONS:
+        action, off = CALL_STAGE_ACTIONS[stage]
+        d = U.today_local() + dt.timedelta(days=off)
+        c["next_action"] = action
+        c["next_date"] = d.isoformat()
+    elif stage in DESK_STAGE_ACTIONS:
+        c["next_action"] = DESK_STAGE_ACTIONS[stage]
+        c["next_date"] = ""
+    else:
+        c["next_action"] = ""
+        c["next_date"] = ""
 
 
 def _ensure_key(key, fname, factory):
@@ -715,12 +788,22 @@ def get_events():
     return v if isinstance(v, list) else []
 
 
-def add_event(date_iso, time_str, title, note="", type="", autopilot=False):
+def add_event(date_iso, time_str, title, note="", type="",
+              autopilot=False):
     ev = list(get_events())
     ev.insert(0, {"id": _uid(), "date": date_iso, "time": time_str,
                   "title": title, "note": note, "done": False,
                   "type": type, "autopilot": bool(autopilot)})
     save_events(ev)
+
+
+def _signal(etype, title, note=""):
+    try:
+        now = U.now_local()
+        add_event(now.date().isoformat(), now.strftime("%H:%M"),
+                  title, note=note, type=etype)
+    except Exception:
+        pass
 
 
 def move_money(pocket_id, effect, kind, note="", time_str="",
@@ -1029,7 +1112,7 @@ def add_client(name, phone, source, heat, want, budget, note,
         "device": want, "location": location,
         "budget": budget, "created": today_iso, "stage": first,
         "id_number": "", "plan": "", "qualified": "",
-        "deposit": 0.0, "weekly": 0.0,
+        "deposit": 0.0, "weekly": 0.0, "cash_amount": 0.0,
         "docs": {"id_front": "pending", "id_back": "pending",
                  "selfie": "pending", "next_of_kin": "pending"},
         "mpesa_statement": "", "prescreen": "", "brief_agreed": False,
@@ -1047,6 +1130,8 @@ def add_client(name, phone, source, heat, want, budget, note,
     }
     clients.insert(0, c)
     save_clients(clients)
+    _signal("client_move", str(name) + " → New Lead",
+            note or ("Lead logged from " + source))
 
 
 def _find_client(cid):
@@ -1067,22 +1152,43 @@ def touch_client(cid, note, now_str):
 def set_stage(cid, stage, now_str, note=""):
     c = _find_client(cid)
     if c:
+        old = c.get("stage", "")
         c["stage"] = stage
         label = stage_label(stage, stage)
         c.setdefault("history", []).append(
-            {"ts": now_str, "note": note or ("Stage → " + label),
+            {"ts": now_str, "note": note or ("Stage -> " + label),
              "stage": stage})
+        if stage != old:
+            _align_next(c, stage)
+            name = str(c.get("name", "?"))
+            _signal("client_move", name + " → " + label, note or "")
+            if stage == "cash_offer":
+                _signal("credit_cash_offer",
+                        name + " → CASH OFFER (credit rejected)",
+                        note or "")
     save_clients(st.session_state["clients"])
 
 
 def update_client(cid, patch, now_str, log_note=""):
     c = _find_client(cid)
     if c:
+        old = c.get("stage", "")
+        new = patch.get("stage", old)
         c.update(patch)
         if log_note:
             c.setdefault("history", []).append(
                 {"ts": now_str, "note": log_note,
                  "stage": c.get("stage", "")})
+        if new != old:
+            if "next_date" not in patch:
+                _align_next(c, new)
+            name = str(c.get("name", "?"))
+            _signal("client_move",
+                    name + " → " + stage_label(new, new), log_note or "")
+            if new == "cash_offer":
+                _signal("credit_cash_offer",
+                        name + " → CASH OFFER (credit rejected)",
+                        log_note or "")
     save_clients(st.session_state["clients"])
 
 
@@ -1091,10 +1197,15 @@ def end_journey(cid, now_str, note=""):
     if c:
         c["ended"] = True
         c["ended_date"] = U.today_local().isoformat()
+        c["next_date"] = ""
+        c["next_action"] = ""
         c.setdefault("history", []).append(
             {"ts": now_str,
              "note": note or "Journey ended - out of the pipeline",
              "stage": c.get("stage", "")})
+        _signal("journey_ended",
+                str(c.get("name", "?")) + " left the pipeline",
+                note or "")
     save_clients(st.session_state["clients"])
 
 
@@ -1103,9 +1214,13 @@ def reopen_journey(cid, now_str, note=""):
     if c:
         c["ended"] = False
         c["ended_date"] = ""
+        _align_next(c, c.get("stage", "new"))
         c.setdefault("history", []).append(
             {"ts": now_str, "note": note or "Journey reopened",
              "stage": c.get("stage", "")})
+        _signal("journey_reopened",
+                str(c.get("name", "?")) + " reopened the journey",
+                note or "")
     save_clients(st.session_state["clients"])
 
 
@@ -1164,6 +1279,10 @@ def add_sale(s):
     s["inst"] = inst
     sales.insert(0, s)
     save_sales(sales)
+    _signal("sale_logged",
+            "Sale logged - " + str(s.get("client", "?")),
+            "commission KSh "
+            + format(float(s.get("commission", 0) or 0), ",.0f"))
 
 
 def save_daily_entry(date_iso, entry):
