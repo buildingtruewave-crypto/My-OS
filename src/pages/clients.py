@@ -1,9 +1,11 @@
 """TrueWave - the living, read-only view of every client journey. Each card
-carries name, tap-to-dial phone, location, ID number, heat, and the
-conversation thread. ID number is searchable. Today's call sheet stays on
-top on days someone is due. Cash offers are shown only as an orange count
-tile (green is reserved for sales) - every client, including cash-offer
-ones, is outlined once in the ALL CLIENTS list. All filling lives on Sales.
+carries name, tap-to-dial phone, location, ID number, heat and the
+conversation thread. Badges: teal CASH JOURNEY for willing cash buyers,
+orange CASH OFFER only while a reject sits in the holding bucket (the badge
+disappears the moment they re-enter the journey), green/positive outcomes.
+Every client is outlined exactly once in the ALL CLIENTS list; cash offers
+are counted as a number only. ID number is searchable. All filling lives on
+Sales.
 """
 from __future__ import annotations
 import datetime as dt
@@ -16,12 +18,14 @@ from .. import util as U
 
 _HEAT = {"Hot": "#F0556B", "Warm": "#F5B544", "Cold": "#7C8AA5"}
 _CASH = "#FB923C"
+_TEAL = "#2DD4BF"
 PHASES = [
     ("CALL SYSTEM", ["new", "followup", "undecided"], "#4C8DFF"),
     ("APPLICATION", ["agreed", "prescreen", "docs", "briefing"],
      "#2DD4BF"),
-    ("CREDIT", ["preapproved", "pre_not_answered", "pre_not_ready",
-                "cash_offer"], "#D946EF"),
+    ("CREDIT", ["sys_decision", "credit_call", "cash_offer"], "#D946EF"),
+    ("CASH JOURNEY", ["cash_agreed", "cash_paid", "cash_delivery"],
+     "#2DD4BF"),
     ("DELIVERY", ["deposit", "ready", "assigned", "out", "delivered",
                   "failed_delivery"], "#34D399"),
     ("OUTCOME", ["paid", "declined", "returned", "exchanged", "lost"],
@@ -39,25 +43,23 @@ def _status(c):
         return ("RETURNED", "#F0556B")
     if role == "lost":
         return ("CLOSED", "#7C8AA5")
-    if M.is_cash_offer(c):
-        return ("CASH OFFER", "#FB923C")
+    if D.is_cash_path(c):
+        return ("CASH JOURNEY", _TEAL)
+    if D.is_cash_offer(c):
+        return ("CASH OFFER", _CASH)
     return ("IN JOURNEY", D.stage_color(c.get("stage", "new")))
 
 
-def _cash_tile(n, delay=80):
-    vc = _CASH if n else "var(--mute)"
-    return (
-        '<div class="tw-tile" style="animation-delay:' + str(delay)
-        + 'ms"><div class="tw-tile-top">'
-        '<span class="tw-lab">Cash Offers</span>'
-        '<span class="tw-chip" style="background:rgba(251,146,60,.14);'
-        'color:' + _CASH + '">' + UI.ICONS.get("cash", "")
-        + '</span></div>'
-        '<div class="tw-val" style="color:' + vc + '">' + str(n)
-        + '</div>'
-        '<div class="tw-sub" style="color:' + vc + '">'
-        'rejected to cash</div></div>'
-    )
+def _count_tile(label, n, sub, color, icon, delay):
+    vc = color if n else "var(--mute)"
+    return ('<div class="tw-tile" style="animation-delay:' + str(delay)
+            + 'ms"><div class="tw-tile-top"><span class="tw-lab">'
+            + label + '</span><span class="tw-chip" style="background:'
+            + U.hexa(color, 0.14) + ';color:' + color + '">'
+            + UI.ICONS.get(icon, "") + '</span></div>'
+            '<div class="tw-val" style="color:' + vc + '">' + str(n)
+            + '</div><div class="tw-sub" style="color:' + vc + '">'
+            + sub + '</div></div>')
 
 
 def _card(c, ctx, k):
@@ -102,15 +104,18 @@ def render(ctx):
     cc = M.client_counts(clients, today)
     window = M.clients_in_window(clients, today)
     sheet = M.call_sheet(clients, today)
+    cashpath_n = sum(1 for c in clients if D.is_cash_path(c))
     row = [
         UI.tile("Call Sheet", str(len(sheet)), "in-progress due today",
                 "win" if sheet else "mute",
                 "win" if sheet else "ink", "phone", "win", 0),
         UI.tile("Active Journey", str(cc["active"]), "in process",
                 "mute", "ink", "users", "accent", 40),
-        _cash_tile(cc["cashq"]),
-        UI.tile("Return Windows", str(len(window)), "7-day open",
-                "mute", "ink", "cal", "jewel", 120),
+        _count_tile("Cash Journey", cashpath_n,
+                    "pay outright - willing from the start",
+                    _TEAL, "cash", 80),
+        _count_tile("Cash Offers", cc["cashq"], "rejected to cash",
+                    _CASH, "x", 120),
         UI.tile("Paid & Closed", str(cc["sold"]), "since Aug 1",
                 "win" if cc["sold"] else "mute",
                 "win" if cc["sold"] else "ink", "check", "win", 160),
@@ -134,8 +139,8 @@ def render(ctx):
     with s2:
         filt = st.selectbox("show",
                             ["All", "Call System", "Application",
-                             "Credit", "Delivery", "Outcomes",
-                             "Cash offers"], key="tw_f")
+                             "Credit", "Cash journey", "Delivery",
+                             "Outcomes", "Cash offers"], key="tw_f")
     ql = q.strip().lower()
     qd = "".join(ch for ch in ql if ch.isdigit())
     shown = []
@@ -147,11 +152,13 @@ def render(ctx):
             continue
         if filt == "Credit" and stg not in PHASES[2][1]:
             continue
-        if filt == "Delivery" and stg not in PHASES[3][1]:
+        if filt == "Cash journey" and not D.is_cash_path(c):
             continue
-        if filt == "Outcomes" and stg not in PHASES[4][1]:
+        if filt == "Delivery" and stg not in PHASES[4][1]:
             continue
-        if filt == "Cash offers" and not M.is_cash_offer(c):
+        if filt == "Outcomes" and stg not in PHASES[5][1]:
+            continue
+        if filt == "Cash offers" and not D.is_cash_offer(c):
             continue
         if ql:
             hay = " ".join([str(c.get("name", "")),
@@ -170,7 +177,7 @@ def render(ctx):
         shown.append(c)
     shown.sort(key=lambda c: (
         0 if M.is_active_pipeline(c) else
-        (1 if M.is_cash_offer(c) else 2),
+        (1 if D.is_cash_offer(c) else 2),
         c.get("next_date") or c.get("created") or "9999"))
     st.markdown('<div class="tw-lab" style="margin:10px 0 8px">'
                 'ALL CLIENTS (' + str(len(shown)) + ')</div>',
